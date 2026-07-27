@@ -1,5 +1,5 @@
 begin;
-select plan(22);
+select plan(26);
 
 insert into auth.users (id, email)
 values ('11111111-1111-1111-1111-111111111111','cust@example.com');
@@ -250,6 +250,68 @@ select is(
       and lower(period) <  '2027-06-04'),
   0,
   'no partial rows persisted from the aborted block call');
+
+reset role;
+
+-- confirm_booking must reject an amount that does not match the stored quote
+--
+-- 2027-09-01..2027-09-02 does not collide with any earlier assertion on
+-- this unit (checked: 2026-08-03/04, 2026-09-03/04, 2026-10-03/04,
+-- 2026-12-03/04, 2027-02-01/03, 2027-03-01/03, 2027-05-01/03, 2027-05-10/12,
+-- 2027-06-01/03, 2027-05-02/04 are all in use elsewhere in this file).
+--
+-- The subselect inside throws_ok runs as the authenticated customer who
+-- owns the hold it just created, so reservations_select_own (customer_id =
+-- auth.uid()) makes it visible under RLS -- unlike the earlier cross-
+-- customer lookup, no set_config capture is needed here. Verified by hand
+-- against a running local instance before relying on it (a customer
+-- creating and then immediately re-selecting their own hold resolves the
+-- row correctly).
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select is(
+  (select status from public.create_hold(
+     'bbbbbbbb-0000-0000-0000-000000000001',
+     '2027-09-01','2027-09-02', 4)),
+  'hold'::public.reservation_status,
+  'a hold exists for the amount-mismatch check');
+
+select throws_ok(
+  $$select public.confirm_booking(
+      (select id from public.reservations
+        where status = 'hold'
+          and lower(period) >= '2027-09-01'
+          and lower(period) <  '2027-09-02'
+        limit 1),
+      'mock_ref_underpay', 1)$$,
+  'P0009', null, 'an amount below the quoted total is rejected');
+
+set local role postgres;
+select is(
+  (select count(*)::int from public.payments
+    where gateway_ref = 'mock_ref_underpay'),
+  0,
+  'the rejected payment was not recorded');
+
+reset role;
+
+-- confirm the hold properly so it does not linger as a stale hold
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select is(
+  (select status from public.confirm_booking(
+     (select id from public.reservations
+        where status = 'hold'
+          and lower(period) >= '2027-09-01'
+          and lower(period) <  '2027-09-02'
+        limit 1),
+     'mock_ref_underpay_fixed', 11500)),
+  'confirmed'::public.reservation_status,
+  'the same hold confirms once the correct amount is passed');
 
 reset role;
 
