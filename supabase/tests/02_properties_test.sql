@@ -10,9 +10,9 @@ values ('aaaaaaaa-0000-0000-0000-000000000001','P1','p1','14:00','11:00');
 
 -- anonymous browsing must work before signup
 set local role anon;
-select is(
-  (select count(*)::int from public.properties),
-  1,
+select ok(
+  (select count(*) from public.properties
+    where id = 'aaaaaaaa-0000-0000-0000-000000000001') = 1,
   'anon can read active properties'
 );
 

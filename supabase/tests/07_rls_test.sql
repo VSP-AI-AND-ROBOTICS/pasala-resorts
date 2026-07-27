@@ -79,8 +79,13 @@ select throws_ok(
 
 set local request.jwt.claims to
   '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}';
-select is((select count(*)::int from public.reservations), 1,
-          'staff sees reservations');
+-- staff is not the owner of cccccccc-...0001 (that's customer 1); seeing it
+-- proves staff has org-wide read access, not just their own rows.
+select is(
+  (select count(*)::int from public.reservations
+    where id = 'cccccccc-0000-0000-0000-000000000001'),
+  1,
+  'staff sees reservations');
 
 select throws_ok(
   $$insert into public.properties (name, slug) values ('Staff Prop','staff-p')$$,
@@ -133,8 +138,14 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"55555555-5555-5555-5555-555555555555","role":"authenticated"}';
 
-select is((select count(*)::int from public.reservations), 2,
-          'accountant sees all reservations');
+-- neither fixture reservation belongs to the accountant (owned by customers
+-- 1 and 2); seeing both proves org-wide read, not visibility of own rows.
+select is(
+  (select count(*)::int from public.reservations
+    where id in ('cccccccc-0000-0000-0000-000000000001',
+                 'cccccccc-0000-0000-0000-000000000002')),
+  2,
+  'accountant sees all reservations');
 
 select throws_ok(
   $$insert into public.reservations
@@ -177,8 +188,14 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"66666666-6666-6666-6666-666666666666","role":"authenticated"}';
 
-select is((select count(*)::int from public.reservations), 2,
-          'super_admin sees all reservations');
+-- same reasoning as the accountant assertion above: both fixtures belong to
+-- other customers, so seeing both proves org-wide read for super_admin too.
+select is(
+  (select count(*)::int from public.reservations
+    where id in ('cccccccc-0000-0000-0000-000000000001',
+                 'cccccccc-0000-0000-0000-000000000002')),
+  2,
+  'super_admin sees all reservations');
 
 select lives_ok(
   $$insert into public.properties (name, slug) values ('SA Prop','sa-p')$$,
@@ -204,11 +221,15 @@ select throws_ok(
 set local role anon;
 set local request.jwt.claims to '{"role":"anon"}';
 
-select is((select count(*)::int from public.units), 1,
-          'anon can read units');
+select ok(
+  (select count(*) from public.units
+    where id = 'bbbbbbbb-0000-0000-0000-000000000001') = 1,
+  'anon can read units');
 
-select is((select count(*)::int from public.slot_types), 1,
-          'anon can read slot types');
+select ok(
+  (select count(*) from public.slot_types
+    where id = '77777777-0000-0000-0000-000000000001') = 1,
+  'anon can read slot types');
 
 select throws_ok(
   $$insert into public.properties (name, slug) values ('Anon Prop','anon-p')$$,
@@ -246,8 +267,15 @@ select throws_ok(
   $$select count(*) from public.audit_log$$,
   '42501', null, 'anon cannot read audit_log');
 
-select is((select count(*)::int from public.availability), 2,
-          'anon can read the availability view');
+-- availability has no id column (by design -- see hasnt_column check above);
+-- scope by the fixture unit instead. Both fixture reservations sit on it, so
+-- this still proves anon can see busy periods it doesn't own, not just that
+-- the view exists.
+select is(
+  (select count(*)::int from public.availability
+    where unit_id = 'bbbbbbbb-0000-0000-0000-000000000001'),
+  2,
+  'anon can read the availability view');
 
 select * from finish();
 rollback;

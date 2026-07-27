@@ -85,9 +85,13 @@ select lives_ok(
 -- admin can delete a profile (policy reachable, not blocked at grant layer)
 set local role postgres;
 select is(
-  (select count(*)::int from public.profiles),
+  (select count(*)::int from public.profiles
+    where id in ('11111111-1111-1111-1111-111111111111',
+                 '22222222-2222-2222-2222-222222222222',
+                 '33333333-3333-3333-3333-333333333333',
+                 '44444444-4444-4444-4444-444444444444')),
   4,
-  '4 profiles exist before delete');
+  '4 fixture profiles exist before delete');
 
 set local role authenticated;
 set local request.jwt.claims to
