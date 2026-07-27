@@ -95,9 +95,9 @@ supabase start
 
 Expected: prints `API URL: http://127.0.0.1:54321`, `DB URL`, `anon key`, `service_role key`. Record the anon key for Step 6.
 
-- [ ] **Step 5: Enable pg_cron in `supabase/config.toml`**
+- [ ] **Step 5: Configure the database and enable pg_cron**
 
-Find the `[db]` section and ensure it contains:
+Find the `[db]` section of `supabase/config.toml` and ensure it contains:
 
 ```toml
 [db]
@@ -108,12 +108,19 @@ major_version = 17
 enabled = false
 ```
 
-Then add, at the end of the file:
+`[experimental] enable_pg_cron` is **not** a valid key in Supabase CLI 2.110.0
+and breaks `supabase db reset`. Enable the extension from migration zero
+instead — `supabase/migrations/0000_enable_pg_cron.sql`:
 
-```toml
-[experimental]
-enable_pg_cron = true
+```sql
+-- pg_cron is preloaded by the local Postgres image, but the extension must
+-- still be created. The `[experimental] enable_pg_cron` config key does not
+-- exist in CLI 2.110.0, so this migration owns it.
+create extension if not exists pg_cron;
 ```
+
+The `0000_` prefix matters: migrations apply in lexicographic filename order,
+and `0000_` sorts before the `0001_` file added in Task 2.
 
 - [ ] **Step 6: Write `.env.example`**
 
@@ -141,6 +148,10 @@ ios/Pods/
 - [ ] **Step 8: Write the `Makefile`**
 
 ```makefile
+# .PHONY is required: `test` collides with the test/ directory Flutter
+# generates, and Make would treat the target as up to date and skip it.
+.PHONY: db-reset db-test test run-web run-android run-ios
+
 ANON_KEY ?= $(shell supabase status -o env 2>/dev/null | grep ANON_KEY | cut -d= -f2 | tr -d '"')
 
 db-reset:
