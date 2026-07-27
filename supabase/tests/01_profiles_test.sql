@@ -1,5 +1,5 @@
 begin;
-select plan(13);
+select plan(16);
 
 select has_table('public','profiles','profiles table exists');
 select has_function('public','current_role','current_role() exists');
@@ -83,6 +83,12 @@ select lives_ok(
 );
 
 -- admin can delete a profile (policy reachable, not blocked at grant layer)
+set local role postgres;
+select is(
+  (select count(*)::int from public.profiles),
+  4,
+  '4 profiles exist before delete');
+
 set local request.jwt.claims to
   '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
 
@@ -91,14 +97,28 @@ select lives_ok(
       where id = '44444444-4444-4444-4444-444444444444'$$,
   'admin can delete a profile');
 
--- a customer cannot delete anyone
+set local role postgres;
+select is(
+  (select count(*)::int from public.profiles
+    where id = '44444444-4444-4444-4444-444444444444'),
+  0,
+  'admin delete removed the row');
+
+-- A customer's DELETE is filtered by RLS: no error, and no row removed.
 set local request.jwt.claims to
   '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
-select throws_ok(
+select lives_ok(
   $$delete from public.profiles
       where id = '33333333-3333-3333-3333-333333333333'$$,
-  '42501', null, 'customer cannot delete a profile');
+  'customer delete raises no error');
+
+set local role postgres;
+select is(
+  (select count(*)::int from public.profiles
+    where id = '33333333-3333-3333-3333-333333333333'),
+  1,
+  'customer delete removed no rows — RLS filtered it');
 
 select * from finish();
 rollback;
