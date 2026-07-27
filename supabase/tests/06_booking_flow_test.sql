@@ -1,5 +1,5 @@
 begin;
-select plan(11);
+select plan(20);
 
 insert into auth.users (id, email)
 values ('11111111-1111-1111-1111-111111111111','cust@example.com');
@@ -122,6 +122,116 @@ select lives_ok(
   $$select public.create_hold('bbbbbbbb-0000-0000-0000-000000000001',
       '2026-12-03','2026-12-04', 4)$$,
   'cancelled dates can be re-held immediately');
+
+-- a second customer, for the authorization boundary
+set local role postgres;
+insert into auth.users (id, email)
+values ('99999999-9999-9999-9999-999999999999','other@example.com');
+
+insert into public.reservations
+  (id, unit_id, period, kind, status, block_reason)
+values ('ffffffff-0000-0000-0000-000000000001',
+        'bbbbbbbb-0000-0000-0000-000000000001',
+        tstzrange('2027-02-01 14:00+05:30','2027-02-03 11:00+05:30','[)'),
+        'block','confirmed','maintenance');
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"99999999-9999-9999-9999-999999999999","role":"authenticated"}';
+
+-- the NULL-trap regression test: this is the one that was exploitable
+select throws_ok(
+  $$select public.cancel_booking(
+      'ffffffff-0000-0000-0000-000000000001','sneaky')$$,
+  'P0008', null, 'a customer cannot cancel an admin block');
+
+set local role postgres;
+select is(
+  (select status from public.reservations
+    where id = 'ffffffff-0000-0000-0000-000000000001'),
+  'confirmed'::public.reservation_status,
+  'the admin block survived the attempt');
+
+-- Capture the other customer's confirmed-booking id while RLS is bypassed
+-- (role postgres). The coordinator's literal test resolves this id via a
+-- subquery run *as the second customer*; but reservations_select_own only
+-- lets a customer SELECT their own rows, so that subquery is invisible
+-- under RLS and returns NULL -- cancel_booking(null, ...) then raises
+-- P0002 ("reservation not found") instead of exercising the P0008
+-- ownership check the assertion is meant to prove. Verified: running the
+-- literal form produced exactly that failure ("caught: P0002: reservation
+-- not found, wanted: P0008"). Fix: resolve the id once under role postgres
+-- into a transaction-local GUC, then build the RPC call text against that
+-- captured id while running as the second customer, so the RPC's own
+-- SECURITY DEFINER authorization check (not the caller's SELECT
+-- visibility) is what gets exercised.
+select set_config('app.other_booking_id',
+  (select id::text from public.reservations
+    where kind = 'booking' and status = 'confirmed' limit 1),
+  true);
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"99999999-9999-9999-9999-999999999999","role":"authenticated"}';
+
+select throws_ok(
+  format($$select public.cancel_booking('%s','not mine')$$,
+         current_setting('app.other_booking_id')),
+  'P0008', null, 'a customer cannot cancel another customer booking');
+
+select throws_ok(
+  $$select public.block_dates('bbbbbbbb-0000-0000-0000-000000000001',
+      array[daterange('2027-03-01','2027-03-03')], 'nope')$$,
+  'P0008', null, 'a customer cannot block dates');
+
+select throws_ok(
+  $$select public.release_expired_holds()$$,
+  '42501', null, 'release_expired_holds is not callable by a client');
+
+select throws_ok(
+  $$select public.cancel_booking(
+      '00000000-0000-0000-0000-0000000000ff','ghost')$$,
+  'P0002', null, 'cancelling a nonexistent reservation raises P0002');
+
+reset role;
+
+-- block_dates happy path and its all-or-nothing promise, as an admin
+set local role postgres;
+insert into auth.users (id, email)
+values ('88888888-8888-8888-8888-888888888888','blockadmin@example.com');
+update public.profiles set role = 'admin'
+  where id = '88888888-8888-8888-8888-888888888888';
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"88888888-8888-8888-8888-888888888888","role":"authenticated"}';
+
+select is(
+  (select count(*)::int from public.block_dates(
+     'bbbbbbbb-0000-0000-0000-000000000001',
+     array[daterange('2027-05-01','2027-05-03'),
+           daterange('2027-05-10','2027-05-12')],
+     'maintenance')),
+  2,
+  'block_dates creates one row per range');
+
+-- all-or-nothing: the second range collides with the block just made
+select throws_ok(
+  $$select public.block_dates('bbbbbbbb-0000-0000-0000-000000000001',
+      array[daterange('2027-06-01','2027-06-03'),
+            daterange('2027-05-02','2027-05-04')], 'clash')$$,
+  '23P01', null, 'a conflicting range aborts the whole block call');
+
+set local role postgres;
+select is(
+  (select count(*)::int from public.reservations
+    where unit_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+      and lower(period) >= '2027-06-01'
+      and lower(period) <  '2027-06-04'),
+  0,
+  'no partial rows persisted from the aborted block call');
+
+reset role;
 
 select * from finish();
 rollback;

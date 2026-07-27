@@ -1555,7 +1555,10 @@ begin
     raise exception 'reservation not found' using errcode = 'P0002';
   end if;
 
-  if v_row.customer_id <> v_uid and not public.is_admin() then
+  -- `is distinct from`, not `<>`: customer_id is NULL on block rows, and
+  -- `NULL <> uuid` is NULL, which PL/pgSQL's IF treats as false -- that would
+  -- let any authenticated caller cancel an admin's block.
+  if v_row.customer_id is distinct from v_uid and not public.is_admin() then
     raise exception 'not permitted' using errcode = 'P0008';
   end if;
 
@@ -1569,6 +1572,16 @@ begin
 
   if v_row.hold_expires_at < now() then
     raise exception 'hold expired' using errcode = 'P0006';
+  end if;
+
+  -- Never trust the client's amount. Phase 1 collects the full quoted
+  -- total; when phase 2 adds the advance/balance split this becomes a range
+  -- check against the advance policy.
+  if p_amount is null
+     or p_amount <> (v_row.quote ->> 'total')::numeric then
+    raise exception 'payment amount % does not match quoted total %',
+      p_amount, (v_row.quote ->> 'total')
+      using errcode = 'P0009';
   end if;
 
   insert into public.payments
@@ -1604,7 +1617,10 @@ begin
     raise exception 'reservation not found' using errcode = 'P0002';
   end if;
 
-  if v_row.customer_id <> v_uid and not public.is_admin() then
+  -- `is distinct from`, not `<>`: customer_id is NULL on block rows, and
+  -- `NULL <> uuid` is NULL, which PL/pgSQL's IF treats as false -- that would
+  -- let any authenticated caller cancel an admin's block.
+  if v_row.customer_id is distinct from v_uid and not public.is_admin() then
     raise exception 'not permitted' using errcode = 'P0008';
   end if;
 
@@ -1672,6 +1688,10 @@ begin
 end;
 $$;
 
+-- Postgres grants EXECUTE to PUBLIC by default on new functions, so the
+-- PUBLIC revoke is the one that actually closes this; the named revoke
+-- documents intent.
+revoke execute on function public.release_expired_holds() from public;
 revoke execute on function public.release_expired_holds() from anon, authenticated;
 
 grant execute on function public.create_hold      to authenticated;
