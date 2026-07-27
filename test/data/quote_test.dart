@@ -1,0 +1,36 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/data/models/quote.dart';
+
+void main() {
+  const json = {
+    'unit_id': 'b1',
+    'currency': 'INR',
+    'guests': 6,
+    'lines': [
+      {
+        'date': '2026-08-03',
+        'label': 'Weekend rate',
+        'amount': 12000,
+        'rate_rule_id': 'r1',
+        'extra_guests': 2,
+        'extra_guest_amount': 3000,
+      }
+    ],
+    'subtotal': 15000,
+    'cleaning_fee': 1500,
+    'total': 16500,
+  };
+
+  test('parses the server quote shape', () {
+    final quote = Quote.fromJson(json);
+    expect(quote.guests, 6);
+    expect(quote.lines.single.date, DateTime.utc(2026, 8, 3));
+    expect(quote.lines.single.label, 'Weekend rate');
+    expect(quote.total, 16500);
+  });
+
+  test('total comes from the server, never recomputed', () {
+    final quote = Quote.fromJson({...json, 'total': 99999});
+    expect(quote.total, 99999);
+  });
+}
