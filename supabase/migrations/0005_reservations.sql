@@ -17,6 +17,8 @@ create table public.reservations (
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
   constraint reservations_period_nonempty check (not isempty(period)),
+  constraint reservations_booking_has_customer check (
+    kind <> 'booking' or customer_id is not null),
   constraint reservations_block_has_reason check (
     kind <> 'block' or block_reason is not null),
   constraint reservations_no_overlap
