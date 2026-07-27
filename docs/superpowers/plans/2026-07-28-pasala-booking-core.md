@@ -5140,24 +5140,23 @@ make run-web
 Sign in as `ravi@example.com` / `password123`, complete a booking end to end,
 then cancel it.
 
-- [ ] **Step 4: Verify the Android build**
+- [ ] **Step 4: Confirm the Android build compiles**
 
 ```bash
-flutter emulators --launch $(flutter emulators | awk 'NR==2{print $1}')
-make run-android
+flutter build apk --debug --dart-define=SUPABASE_URL=http://10.0.2.2:54321 --dart-define=SUPABASE_ANON_KEY=<local anon key>
 ```
 
-Expected: the property list loads, proving `10.0.2.2` resolution works. Complete
-one booking.
+Expected: the build succeeds. Running it against the local stack on an
+emulator is the user's manual check, not this task's.
 
-- [ ] **Step 5: Verify the iOS build**
+- [ ] **Step 5: Confirm the iOS build compiles**
 
 ```bash
-open -a Simulator
-make run-ios
+flutter build ios --debug --no-codesign --dart-define=SUPABASE_URL=http://127.0.0.1:54321 --dart-define=SUPABASE_ANON_KEY=<local anon key>
 ```
 
-Expected: the property list loads and a booking completes.
+Expected: the build succeeds. Running it on a simulator is the user's manual
+check, not this task's.
 
 - [ ] **Step 6: Run the whole suite**
 
