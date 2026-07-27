@@ -35,7 +35,14 @@ create policy rate_rules_write on public.rate_rules
   using (public.is_admin()) with check (public.is_admin());
 
 -- Resolve the single winning rule for one date on one unit.
--- Highest priority wins; ties break on the most recently created rule.
+-- Highest priority wins. Ties do NOT break on created_at alone: created_at
+-- defaults to now(), which is frozen for the whole transaction, so any rules
+-- inserted together (a seed script, an admin bulk-insert) share an identical
+-- created_at and would otherwise tie arbitrarily. Instead we break ties by
+-- specificity -- a rule that targets this exact slot type, then one that
+-- targets specific weekdays, then one that is date-bounded, outranks a more
+-- generic rule at the same priority -- before falling back to created_at and
+-- finally id, so the ordering is always total and never arbitrary.
 create function public.resolve_rate_rule(
   p_unit_id      uuid,
   p_date         date,
@@ -52,7 +59,13 @@ as $$
     and (r.valid_from is null or p_date >= r.valid_from)
     and (r.valid_to   is null or p_date <= r.valid_to)
     and (r.weekdays is null or extract(isodow from p_date)::int = any(r.weekdays))
-  order by r.priority desc, r.created_at desc
+  order by
+    r.priority desc,
+    (r.slot_type_id is not null) desc,
+    (r.weekdays    is not null) desc,
+    (r.valid_from  is not null) desc,
+    r.created_at desc,
+    r.id desc
   limit 1;
 $$;
 
@@ -87,7 +100,7 @@ begin
   select p.timezone into v_tz
   from public.properties p where p.id = v_unit.property_id;
 
-  if p_guests < 1 or p_guests > v_unit.capacity_max then
+  if p_guests is null or p_guests < 1 or p_guests > v_unit.capacity_max then
     raise exception 'guest count out of range (max %)', v_unit.capacity_max
       using errcode = 'P0003';
   end if;
