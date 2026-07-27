@@ -20,7 +20,10 @@
 - No pricing arithmetic in Dart. Totals are only ever displayed from a server-returned quote.
 - Table names, column names, enum values, and function signatures are exactly as written in this plan. Do not rename.
 - Secrets are never committed. Local anon key may appear in `.env.example` only.
+- RLS is not sufficient on its own. This Supabase config does not auto-expose new tables to the Data API roles, so every table needs an explicit `grant` to `anon` and/or `authenticated` alongside its policies — otherwise it fails closed at the privilege layer with 42501 and the policies never run.
 - TDD is mandatory: write the failing test, run it, watch it fail, then implement.
+- In pgTAP, setting `request.jwt.claims` does NOT change the effective Postgres role. Any assertion meant to exercise a policy must pair `set local role authenticated;` with the claims line. `postgres` is a superuser and bypasses RLS, so an assertion left running as `postgres` passes while proving nothing. After any `set local role postgres;` block used for out-of-band counts, switch back before the next policy assertion.
+- RLS filters rows; it does not raise errors. A DELETE or UPDATE matching no policy affects zero rows and returns success. Assert survival with an out-of-band count, not `throws_ok('42501')`. 42501 comes from the grant layer or from a WITH CHECK violation on INSERT/UPDATE.
 - Commit at the end of every task with the message given in the task.
 
 ## File Structure
@@ -287,7 +290,7 @@ git commit -m "feat(db): add extensions and enum types"
 
 ```sql
 begin;
-select plan(5);
+select plan(10);
 
 select has_table('public','profiles','profiles table exists');
 select has_function('public','current_role','current_role() exists');
@@ -323,6 +326,46 @@ select throws_ok(
   null,
   'customer cannot escalate own role'
 );
+
+-- Role-change authority: an admin must not be able to promote anyone,
+-- including itself. This is the assertion whose absence let an
+-- admin-to-super_admin escalation path ship green in an earlier draft.
+reset role;
+insert into auth.users (id, email)
+values ('22222222-2222-2222-2222-222222222222', 'admin@example.com'),
+       ('33333333-3333-3333-3333-333333333333', 'super@example.com'),
+       ('44444444-4444-4444-4444-444444444444', 'victim@example.com');
+
+update public.profiles set role = 'admin'
+  where id = '22222222-2222-2222-2222-222222222222';
+update public.profiles set role = 'super_admin'
+  where id = '33333333-3333-3333-3333-333333333333';
+
+select has_function('public','is_admin','is_admin() exists');
+select has_function('public','is_staff_or_above','is_staff_or_above() exists');
+select has_function('public','is_super_admin','is_super_admin() exists');
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
+
+select throws_ok(
+  $$update public.profiles set role = 'super_admin'
+      where id = '22222222-2222-2222-2222-222222222222'$$,
+  '42501', null, 'admin cannot promote itself to super_admin');
+
+select throws_ok(
+  $$update public.profiles set role = 'admin'
+      where id = '44444444-4444-4444-4444-444444444444'$$,
+  '42501', null, 'admin cannot change another profile role');
+
+set local request.jwt.claims to
+  '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}';
+
+select lives_ok(
+  $$update public.profiles set role = 'staff'
+      where id = '44444444-4444-4444-4444-444444444444'$$,
+  'super_admin can change a role');
 
 select * from finish();
 rollback;
@@ -381,6 +424,16 @@ as $$
   select coalesce(public.current_role() in ('admin','super_admin'), false);
 $$;
 
+create function public.is_super_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(public.current_role() = 'super_admin', false);
+$$;
+
 create function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -414,10 +467,30 @@ create policy profiles_update_self on public.profiles
     and role = (select p.role from public.profiles p where p.id = auth.uid())
   );
 
-create policy profiles_admin_all on public.profiles
-  for all to authenticated
+-- Admin access is split rather than FOR ALL. Postgres ORs permissive
+-- policies together, so a blanket `FOR ALL USING (is_admin())` would OR
+-- away the role pin above and let any admin write role = 'super_admin'.
+create policy profiles_admin_select on public.profiles
+  for select to authenticated
+  using (public.is_admin());
+
+create policy profiles_admin_insert on public.profiles
+  for insert to authenticated
+  with check (public.is_admin() and (role = 'customer' or public.is_super_admin()));
+
+-- Role changes are super-admin only: for any other admin the new row's role
+-- must equal the role already stored for that row.
+create policy profiles_admin_update on public.profiles
+  for update to authenticated
   using (public.is_admin())
-  with check (public.is_admin());
+  with check (
+    public.is_super_admin()
+    or role = (select p.role from public.profiles p where p.id = profiles.id)
+  );
+
+create policy profiles_admin_delete on public.profiles
+  for delete to authenticated
+  using (public.is_admin());
 ```
 
 - [ ] **Step 4: Run the tests and make sure they pass**
@@ -522,6 +595,15 @@ create table public.slot_types (
   end_time    time not null,
   unique (property_id, code)
 );
+
+-- Table grants are required in addition to RLS. This project's Supabase
+-- config does not auto-expose new tables to the Data API roles, so a table
+-- with policies but no grant fails closed at the privilege layer with 42501
+-- before RLS is ever evaluated. Every table in this plan needs its grant.
+grant select on public.properties, public.units, public.slot_types
+  to anon, authenticated;
+grant insert, update, delete on public.properties, public.units,
+  public.slot_types to authenticated;
 
 alter table public.properties enable row level security;
 alter table public.units      enable row level security;
@@ -701,6 +783,9 @@ create table public.rate_rules (
 );
 
 create index rate_rules_unit_idx on public.rate_rules(unit_id, priority desc);
+
+grant select on public.rate_rules to anon, authenticated;
+grant insert, update, delete on public.rate_rules to authenticated;
 
 alter table public.rate_rules enable row level security;
 
@@ -964,6 +1049,12 @@ create index reservations_customer_idx on public.reservations(customer_id);
 create index reservations_hold_idx
   on public.reservations(hold_expires_at) where status = 'hold';
 
+-- Customers never write here directly — every write goes through the
+-- SECURITY DEFINER RPC in Task 8, which runs as the function owner. The
+-- insert/update/delete grants exist for the admin policy below.
+grant select on public.reservations to authenticated;
+grant insert, update, delete on public.reservations to authenticated;
+
 alter table public.reservations enable row level security;
 
 create function public.touch_updated_at()
@@ -1191,6 +1282,9 @@ create table public.payments (
 
 create index payments_reservation_idx on public.payments(reservation_id);
 
+grant select on public.payments to authenticated;
+grant insert, update on public.payments to authenticated;
+
 alter table public.payments enable row level security;
 
 create policy payments_select on public.payments
@@ -1218,6 +1312,10 @@ create table public.audit_log (
 );
 
 create index audit_log_entity_idx on public.audit_log(entity, entity_id, at desc);
+
+-- Read-only for staff. Rows are written by the SECURITY DEFINER trigger
+-- below, running as the function owner, so no insert grant is needed.
+grant select on public.audit_log to authenticated;
 
 alter table public.audit_log enable row level security;
 
