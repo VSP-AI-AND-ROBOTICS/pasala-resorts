@@ -8,7 +8,7 @@ create table public.profiles (
 
 alter table public.profiles enable row level security;
 
-grant select, update on public.profiles to authenticated;
+grant select, insert, update, delete on public.profiles to authenticated;
 
 -- Role lookups run inside policies, so they must bypass RLS themselves.
 create function public.current_role()
