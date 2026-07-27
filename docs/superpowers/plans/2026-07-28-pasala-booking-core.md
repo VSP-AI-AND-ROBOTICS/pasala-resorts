@@ -947,7 +947,7 @@ git commit -m "feat(db): add rate rules and server-side quote engine"
 
 ```sql
 begin;
-select plan(6);
+select plan(7);
 
 insert into public.properties (id, name, slug, check_in_time, check_out_time)
 values ('aaaaaaaa-0000-0000-0000-000000000001','P1','p1','14:00','11:00');
@@ -956,17 +956,24 @@ insert into public.units (id, property_id, name, capacity_base, capacity_max)
 values ('bbbbbbbb-0000-0000-0000-000000000001',
         'aaaaaaaa-0000-0000-0000-000000000001','U1',4,6);
 
-insert into public.reservations (unit_id, period, kind, status)
+-- Bookings require a customer (reservations_booking_has_customer). The
+-- signup trigger creates the matching profiles row automatically.
+insert into auth.users (id, email)
+values ('dddddddd-0000-0000-0000-000000000001','guest@example.com');
+
+insert into public.reservations
+  (unit_id, period, kind, status, customer_id, guests)
 values ('bbbbbbbb-0000-0000-0000-000000000001',
         tstzrange('2026-08-03 14:00+05:30','2026-08-05 11:00+05:30','[)'),
-        'booking','confirmed');
+        'booking','confirmed','dddddddd-0000-0000-0000-000000000001',2);
 
 -- overlapping insert is rejected by the constraint
 select throws_ok(
-  $$insert into public.reservations (unit_id, period, kind, status)
+  $$insert into public.reservations
+      (unit_id, period, kind, status, customer_id, guests)
     values ('bbbbbbbb-0000-0000-0000-000000000001',
       tstzrange('2026-08-04 14:00+05:30','2026-08-06 11:00+05:30','[)'),
-      'booking','confirmed')$$,
+      'booking','confirmed','dddddddd-0000-0000-0000-000000000001',2)$$,
   '23P01', null, 'overlapping reservation is rejected');
 
 -- an admin block over a confirmed booking hits the same constraint
@@ -979,10 +986,11 @@ select throws_ok(
 
 -- back-to-back checkout 11:00 / checkin 14:00 does not conflict
 select lives_ok(
-  $$insert into public.reservations (unit_id, period, kind, status)
+  $$insert into public.reservations
+      (unit_id, period, kind, status, customer_id, guests)
     values ('bbbbbbbb-0000-0000-0000-000000000001',
       tstzrange('2026-08-05 14:00+05:30','2026-08-06 11:00+05:30','[)'),
-      'booking','confirmed')$$,
+      'booking','confirmed','dddddddd-0000-0000-0000-000000000001',2)$$,
   'back-to-back stays do not conflict');
 
 -- cancelling frees the range immediately
@@ -990,10 +998,11 @@ update public.reservations set status = 'cancelled'
 where period && tstzrange('2026-08-03 14:00+05:30','2026-08-05 11:00+05:30','[)');
 
 select lives_ok(
-  $$insert into public.reservations (unit_id, period, kind, status)
+  $$insert into public.reservations
+      (unit_id, period, kind, status, customer_id, guests)
     values ('bbbbbbbb-0000-0000-0000-000000000001',
       tstzrange('2026-08-03 14:00+05:30','2026-08-05 11:00+05:30','[)'),
-      'booking','confirmed')$$,
+      'booking','confirmed','dddddddd-0000-0000-0000-000000000001',2)$$,
   'cancelled reservation frees its range');
 
 -- build_period applies the property check-in and check-out times
@@ -1002,6 +1011,14 @@ select is(
                       '2026-09-01'::date, '2026-09-03'::date),
   tstzrange('2026-09-01 14:00+05:30','2026-09-03 11:00+05:30','[)'),
   'nightly period uses property check-in/out times');
+
+-- the restored integrity rule bites: a booking must name a customer
+select throws_ok(
+  $$insert into public.reservations (unit_id, period, kind, status)
+    values ('bbbbbbbb-0000-0000-0000-000000000001',
+      tstzrange('2027-01-03 14:00+05:30','2027-01-04 11:00+05:30','[)'),
+      'booking','confirmed')$$,
+  '23514', null, 'a booking without a customer is rejected');
 
 -- search_availability reports the unit busy for an overlapping window
 select is(
