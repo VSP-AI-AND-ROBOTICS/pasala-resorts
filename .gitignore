@@ -1,0 +1,8 @@
+build/
+.dart_tool/
+.env
+*.iml
+.idea/
+.DS_Store
+supabase/.branches/
+supabase/.temp/
