@@ -1,0 +1,124 @@
+-- Local development data only. Never loaded in a deployed environment.
+
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password,
+                        email_confirmed_at, raw_app_meta_data,
+                        raw_user_meta_data, created_at, updated_at,
+                        confirmation_token, recovery_token,
+                        email_change_token_new, email_change)
+select
+  u.id, '00000000-0000-0000-0000-000000000000', 'authenticated',
+  'authenticated', u.email, crypt('password123', gen_salt('bf')), now(),
+  '{"provider":"email","providers":["email"]}'::jsonb,
+  jsonb_build_object('full_name', u.full_name),
+  now(), now(),
+  -- GoTrue scans these into non-nullable Go strings; NULL breaks sign-in
+  -- with "Database error querying schema" (confirmation_token Scan error).
+  '', '', '', ''
+from (values
+  ('10000000-0000-0000-0000-000000000001'::uuid,'super@pasala.test','Super Admin'),
+  ('10000000-0000-0000-0000-000000000002'::uuid,'admin@pasala.test','Asha Admin'),
+  ('10000000-0000-0000-0000-000000000003'::uuid,'staff@pasala.test','Sita Staff'),
+  ('10000000-0000-0000-0000-000000000004'::uuid,'accounts@pasala.test','Anil Accounts'),
+  ('10000000-0000-0000-0000-000000000005'::uuid,'ravi@example.com','Ravi Kumar'),
+  ('10000000-0000-0000-0000-000000000006'::uuid,'meera@example.com','Meera Nair')
+) as u(id, email, full_name);
+
+insert into auth.identities (id, provider_id, user_id, identity_data, provider,
+                             last_sign_in_at, created_at, updated_at)
+select
+  gen_random_uuid(), u.id::text, u.id,
+  jsonb_build_object('sub', u.id::text, 'email', u.email),
+  'email', now(), now(), now()
+from (values
+  ('10000000-0000-0000-0000-000000000001'::uuid,'super@pasala.test'),
+  ('10000000-0000-0000-0000-000000000002'::uuid,'admin@pasala.test'),
+  ('10000000-0000-0000-0000-000000000003'::uuid,'staff@pasala.test'),
+  ('10000000-0000-0000-0000-000000000004'::uuid,'accounts@pasala.test'),
+  ('10000000-0000-0000-0000-000000000005'::uuid,'ravi@example.com'),
+  ('10000000-0000-0000-0000-000000000006'::uuid,'meera@example.com')
+) as u(id, email);
+
+-- The signup trigger created customer profiles; promote the staff accounts.
+update public.profiles set role = 'super_admin'
+  where id = '10000000-0000-0000-0000-000000000001';
+update public.profiles set role = 'admin'
+  where id = '10000000-0000-0000-0000-000000000002';
+update public.profiles set role = 'staff'
+  where id = '10000000-0000-0000-0000-000000000003';
+update public.profiles set role = 'accountant'
+  where id = '10000000-0000-0000-0000-000000000004';
+
+insert into public.properties
+  (id, name, slug, description, address, check_in_time, check_out_time, amenities)
+values
+  ('a0000000-0000-0000-0000-000000000001','Pasala Riverside','riverside',
+   'Riverside farmhouse with private pool.','Shamirpet, Hyderabad',
+   '14:00','11:00', array['Pool','Wi-Fi','Barbecue','Parking']),
+  ('a0000000-0000-0000-0000-000000000002','Pasala Hilltop','hilltop',
+   'Hilltop farmhouse with open lawn.','Moinabad, Hyderabad',
+   '15:00','10:00', array['Lawn','Bonfire','Wi-Fi']);
+
+insert into public.slot_types (id, property_id, code, start_time, end_time)
+values
+  ('50000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000001',
+   'day','09:00','18:00'),
+  ('50000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000001',
+   'night','18:00','09:00'),
+  ('50000000-0000-0000-0000-000000000003','a0000000-0000-0000-0000-000000000002',
+   'full_day','09:00','08:00');
+
+insert into public.units
+  (id, property_id, name, capacity_base, capacity_max, booking_mode)
+values
+  ('b0000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000001',
+   'Whole Villa', 10, 16, 'both'),
+  ('b0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000001',
+   'Garden Room', 2, 4, 'nightly'),
+  ('b0000000-0000-0000-0000-000000000003','a0000000-0000-0000-0000-000000000001',
+   'Pool Deck', 20, 40, 'slot'),
+  ('b0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000002',
+   'Main House', 8, 12, 'nightly'),
+  ('b0000000-0000-0000-0000-000000000005','a0000000-0000-0000-0000-000000000002',
+   'Lawn', 30, 60, 'slot');
+
+-- base rates for every unit
+insert into public.rate_rules
+  (unit_id, kind, label, price, extra_guest_price, cleaning_fee, priority)
+values
+  ('b0000000-0000-0000-0000-000000000001','base','Weekday',25000,1500,2500,0),
+  ('b0000000-0000-0000-0000-000000000002','base','Weekday', 4500, 800, 600,0),
+  ('b0000000-0000-0000-0000-000000000003','base','Weekday',12000, 400,1500,0),
+  ('b0000000-0000-0000-0000-000000000004','base','Weekday',18000,1200,2000,0),
+  ('b0000000-0000-0000-0000-000000000005','base','Weekday',15000, 300,2000,0);
+
+-- weekend uplift, Saturday and Sunday (ISO dow 6 and 7)
+insert into public.rate_rules
+  (unit_id, kind, label, price, extra_guest_price, cleaning_fee, priority, weekdays)
+select unit_id, 'weekend', 'Weekend', price * 1.4, extra_guest_price,
+       cleaning_fee, 10, array[6,7]
+from public.rate_rules where kind = 'base';
+
+-- Diwali season override, outranks weekend
+insert into public.rate_rules
+  (unit_id, kind, label, price, extra_guest_price, cleaning_fee, priority,
+   valid_from, valid_to)
+select unit_id, 'override', 'Diwali season', price * 1.8, extra_guest_price,
+       cleaning_fee, 50, date '2026-11-06', date '2026-11-12'
+from public.rate_rules where kind = 'base';
+
+-- one confirmed booking and one admin block, so the calendar is not empty
+insert into public.reservations
+  (unit_id, period, kind, status, customer_id, guests, source)
+values
+  ('b0000000-0000-0000-0000-000000000002',
+   public.build_period('b0000000-0000-0000-0000-000000000002',
+                       current_date + 7, current_date + 9),
+   'booking','confirmed','10000000-0000-0000-0000-000000000005',2,'app');
+
+insert into public.reservations
+  (unit_id, period, kind, status, block_reason, source)
+values
+  ('b0000000-0000-0000-0000-000000000001',
+   public.build_period('b0000000-0000-0000-0000-000000000001',
+                       current_date + 14, current_date + 16),
+   'block','confirmed','Deep cleaning','admin');
