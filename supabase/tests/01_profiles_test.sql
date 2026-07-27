@@ -89,6 +89,7 @@ select is(
   4,
   '4 profiles exist before delete');
 
+set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
 
@@ -105,6 +106,7 @@ select is(
   'admin delete removed the row');
 
 -- A customer's DELETE is filtered by RLS: no error, and no row removed.
+set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 
