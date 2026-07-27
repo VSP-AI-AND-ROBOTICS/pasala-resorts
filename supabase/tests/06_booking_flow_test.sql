@@ -1,5 +1,5 @@
 begin;
-select plan(20);
+select plan(22);
 
 insert into auth.users (id, email)
 values ('11111111-1111-1111-1111-111111111111','cust@example.com');
@@ -151,6 +151,26 @@ select is(
     where id = 'ffffffff-0000-0000-0000-000000000001'),
   'confirmed'::public.reservation_status,
   'the admin block survived the attempt');
+
+-- a session with no subject claim has no identity and must be refused,
+-- even against a block row whose customer_id is also NULL
+set local role authenticated;
+set local request.jwt.claims to '{"role":"authenticated"}';
+
+select throws_ok(
+  $$select public.cancel_booking(
+      'ffffffff-0000-0000-0000-000000000001','no identity')$$,
+  'P0008', null, 'a session without a subject cannot cancel a block');
+
+set local role postgres;
+select is(
+  (select status from public.reservations
+    where id = 'ffffffff-0000-0000-0000-000000000001'),
+  'confirmed'::public.reservation_status,
+  'the block still survived the anonymous attempt');
+
+reset role;
+set local role postgres;
 
 -- Capture the other customer's confirmed-booking id while RLS is bypassed
 -- (role postgres). The coordinator's literal test resolves this id via a

@@ -55,6 +55,10 @@ declare
   v_uid uuid := auth.uid();
   v_row public.reservations;
 begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
   select * into v_row from public.reservations
   where id = p_reservation_id for update;
 
@@ -114,6 +118,10 @@ declare
   v_uid uuid := auth.uid();
   v_row public.reservations;
 begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
   select * into v_row from public.reservations
   where id = p_reservation_id for update;
 
