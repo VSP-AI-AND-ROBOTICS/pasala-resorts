@@ -7,3 +7,4 @@ build/
 supabase/.branches/
 supabase/.temp/
 .superpowers/
+ios/Pods/
