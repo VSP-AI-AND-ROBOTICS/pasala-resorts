@@ -8,3 +8,5 @@ supabase/.branches/
 supabase/.temp/
 .superpowers/
 ios/Pods/
+.flutter-plugins-dependencies
+.flutter-plugins

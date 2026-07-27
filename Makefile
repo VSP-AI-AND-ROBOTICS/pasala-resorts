@@ -1,3 +1,5 @@
+.PHONY: db-reset db-test test run-web run-android run-ios
+
 ANON_KEY ?= $(shell supabase status -o env 2>/dev/null | grep ANON_KEY | cut -d= -f2 | tr -d '"')
 
 db-reset:
