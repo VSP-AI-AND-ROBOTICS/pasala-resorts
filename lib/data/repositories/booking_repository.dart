@@ -102,6 +102,14 @@ class BookingRepository {
         return Reservation.fromJson(row as Map<String, dynamic>);
       });
 
+  /// Fetches one reservation by id. Used by the confirmation screen, which
+  /// only has the id from the `/booking/:id` route after `confirm` redirects.
+  Future<Reservation> reservation(String id) => _guard(() async {
+        final row =
+            await _db.from('reservations').select().eq('id', id).single();
+        return Reservation.fromJson(row);
+      });
+
   Future<Reservation> cancel({
     required String reservationId,
     required String reason,

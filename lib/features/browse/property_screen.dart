@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/widgets/failure_view.dart';
 import '../../data/models/unit.dart';
 import 'providers.dart';
 
@@ -25,7 +26,10 @@ class PropertyScreen extends ConsumerWidget {
 
     return property.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('$e')),
+      error: (e, _) => FailureView(
+        error: e,
+        onRetry: () => ref.invalidate(propertyProvider(propertyId)),
+      ),
       data: (p) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -52,7 +56,10 @@ class PropertyScreen extends ConsumerWidget {
             ),
             error: (e, _) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Text('$e'),
+              child: FailureView(
+                error: e,
+                onRetry: () => ref.invalidate(unitsProvider(propertyId)),
+              ),
             ),
             data: (list) => Column(
               children: [

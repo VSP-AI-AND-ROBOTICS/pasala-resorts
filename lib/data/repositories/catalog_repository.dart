@@ -29,6 +29,15 @@ class CatalogRepository {
         return Property.fromJson(row);
       });
 
+  /// Fetches a single unit by id. Used by the booking flow, which only ever
+  /// arrives with a `unitId` (from `/book/:unitId`) and needs the unit's
+  /// capacity, booking mode, and property before it can render a calendar
+  /// or a guest picker.
+  Future<Unit> unit(String id) => _guard(() async {
+        final row = await _db.from('units').select().eq('id', id).single();
+        return Unit.fromJson(row);
+      });
+
   Future<List<Unit>> units(String propertyId) => _guard(() async {
         final rows = await _db
             .from('units')

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/widgets/failure_view.dart';
 import '../../data/models/property.dart';
 import 'providers.dart';
 
@@ -14,7 +15,10 @@ class BrowseScreen extends ConsumerWidget {
 
     return properties.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('$e')),
+      error: (e, _) => FailureView(
+        error: e,
+        onRetry: () => ref.invalidate(propertiesProvider),
+      ),
       data: (list) => RefreshIndicator(
         onRefresh: () async => ref.invalidate(propertiesProvider),
         child: ListView.builder(
