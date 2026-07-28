@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/errors.dart';
 import '../../data/models/app_user.dart';
 import '../../data/repositories/auth_repository.dart';
 
@@ -54,8 +55,15 @@ class AppShell extends ConsumerWidget {
               tooltip: 'Sign out',
               icon: const Icon(Icons.logout),
               onPressed: () async {
-                await ref.read(authRepositoryProvider).signOut();
-                if (context.mounted) context.go('/login');
+                try {
+                  await ref.read(authRepositoryProvider).signOut();
+                  if (context.mounted) context.go('/login');
+                } on BookingFailure catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(SnackBar(content: Text(e.message)));
+                  }
+                }
               },
             ),
         ],
