@@ -157,5 +157,91 @@ void main() {
       expect(errors, isNotEmpty);
       expect(errors.first, isA<StateError>());
     });
+
+    group('monotonic ordering guard (regression: stale poll vs realtime)',
+        () {
+      test(
+          'a poll in flight when a fresher realtime event arrives does not '
+          'revert the UI once that poll finally resolves', () async {
+        final realtime = StreamController<int>();
+        // The poll's fetch does not complete until we let it, so we can
+        // control exactly when it resolves relative to the realtime event.
+        final inFlight = Completer<int>();
+        final resumeController = StreamController<void>();
+        final controller = CalendarRefreshController<int>(
+          realtime: realtime.stream,
+          fetch: () => inFlight.future,
+          resumeSignals: resumeController.stream,
+          // Long enough that only the manually-triggered poll fires.
+          interval: const Duration(minutes: 10),
+        );
+        addTearDown(controller.dispose);
+
+        final events = <int>[];
+        final sub = controller.stream.listen(events.add);
+        addTearDown(sub.cancel);
+
+        // Dispatch a poll; it blocks on `inFlight` and is now "in flight".
+        resumeController.add(null);
+        await Future<void>.delayed(Duration.zero);
+        expect(events, isEmpty); // poll hasn't resolved yet
+
+        // A newer realtime event arrives while that poll is still pending.
+        realtime.add(99);
+        await Future<void>.delayed(Duration.zero);
+        expect(events, [99]);
+
+        // The stale poll -- dispatched before the realtime event -- now
+        // finally resolves with data that predates it.
+        inFlight.complete(1);
+        await Future<void>.delayed(Duration.zero);
+
+        // The UI must not have reverted to the poll's stale value.
+        expect(events, [99]);
+
+        await resumeController.close();
+        await realtime.close();
+      });
+
+      test('a late-resolving older poll is dropped in favor of a newer one',
+          () async {
+        final completers = <Completer<int>>[
+          Completer<int>(),
+          Completer<int>(),
+        ];
+        var call = 0;
+        final resumeController = StreamController<void>();
+        final controller = CalendarRefreshController<int>(
+          realtime: const Stream<int>.empty(),
+          fetch: () => completers[call++].future,
+          resumeSignals: resumeController.stream,
+          interval: const Duration(minutes: 10),
+        );
+        addTearDown(controller.dispose);
+
+        final events = <int>[];
+        final sub = controller.stream.listen(events.add);
+        addTearDown(sub.cancel);
+
+        // Dispatch two polls back to back; both are now in flight.
+        resumeController.add(null);
+        await Future<void>.delayed(Duration.zero);
+        resumeController.add(null);
+        await Future<void>.delayed(Duration.zero);
+
+        // The second (newer) poll resolves first, with fresher data.
+        completers[1].complete(2);
+        await Future<void>.delayed(Duration.zero);
+        expect(events, [2]);
+
+        // The first (older) poll resolves late, carrying stale data. It
+        // must be dropped rather than overwriting the fresher value.
+        completers[0].complete(1);
+        await Future<void>.delayed(Duration.zero);
+        expect(events, [2]);
+
+        await resumeController.close();
+      });
+    });
   });
 }

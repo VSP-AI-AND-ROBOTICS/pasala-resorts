@@ -13,7 +13,18 @@ String _d(DateTime d) =>
     '${d.month.toString().padLeft(2, '0')}-'
     '${d.day.toString().padLeft(2, '0')}';
 
-class BookingRepository {
+/// The slice of [BookingRepository] that the calendar's realtime/poll
+/// fallback (`CalendarRefreshController`, wired up in
+/// `features/calendar/providers.dart`) actually needs. Extracted as its own
+/// interface so `unitReservationsProvider` can be tested against a fake
+/// implementation that never touches Supabase -- see
+/// `test/features/calendar/providers_test.dart`.
+abstract class UnitCalendarSource {
+  Stream<List<Reservation>> watchUnit(String unitId);
+  Future<List<Reservation>> fetchUnit(String unitId);
+}
+
+class BookingRepository implements UnitCalendarSource {
   BookingRepository(this._db);
   final SupabaseClient _db;
 
@@ -165,6 +176,7 @@ class BookingRepository {
             .toList();
       });
 
+  @override
   Stream<List<Reservation>> watchUnit(String unitId) => _db
       .from('unit_calendar_events')
       .stream(primaryKey: ['reservation_id'])
@@ -176,6 +188,7 @@ class BookingRepository {
   /// [watchUnit] shows initially. Used as the periodic fallback poll so the
   /// calendar cannot stay stale forever if the realtime websocket silently
   /// drops (see [CalendarRefreshController]).
+  @override
   Future<List<Reservation>> fetchUnit(String unitId) => _guard(() async {
         final rows = await _db
             .from('unit_calendar_events')
