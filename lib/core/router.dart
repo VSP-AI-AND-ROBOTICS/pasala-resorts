@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/repositories/auth_repository.dart';
+import '../features/account/booking_detail_screen.dart';
+import '../features/account/my_bookings_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
 import '../features/booking/booking_screen.dart';
@@ -54,6 +56,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/booking/:id',
             builder: (_, state) =>
                 ConfirmationScreen(reservationId: state.pathParameters['id']!),
+          ),
+          GoRoute(path: '/bookings', builder: (_, _) => const MyBookingsScreen()),
+          GoRoute(
+            path: '/booking-detail/:id',
+            builder: (_, state) =>
+                BookingDetailScreen(reservationId: state.pathParameters['id']!),
           ),
         ],
       ),
