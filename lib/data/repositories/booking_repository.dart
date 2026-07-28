@@ -163,6 +163,18 @@ class BookingRepository {
       .eq('unit_id', unitId)
       .map((rows) => rows.map(Reservation.fromCalendarEvent).toList())
       .handleError((Object e) => throw mapPostgrestError(e));
+
+  /// One-shot snapshot of a unit's calendar mirror, equivalent to what
+  /// [watchUnit] shows initially. Used as the periodic fallback poll so the
+  /// calendar cannot stay stale forever if the realtime websocket silently
+  /// drops (see [CalendarRefreshController]).
+  Future<List<Reservation>> fetchUnit(String unitId) => _guard(() async {
+        final rows = await _db
+            .from('unit_calendar_events')
+            .select()
+            .eq('unit_id', unitId);
+        return rows.map(Reservation.fromCalendarEvent).toList();
+      });
 }
 
 final bookingRepositoryProvider = Provider<BookingRepository>(
