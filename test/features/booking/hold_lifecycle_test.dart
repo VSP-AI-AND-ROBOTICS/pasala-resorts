@@ -558,6 +558,106 @@ void main() {
       expect(find.text('confirmed:hold-0'), findsOneWidget,
           reason: 'the single accepted tap must still complete the booking');
     });
+
+    testWidgets(
+        'a declined payment shows Resume payment/Cancel hold, and Resume '
+        're-opens the SAME hold/quote (no new createHold or quote call)',
+        (tester) async {
+      final actions = _FakeBookingActions()..quoteToReturn = _quote();
+      final gateway = _ScriptedGateway([
+        const PaymentResult.failure('Mock gateway declined the payment.'),
+        const PaymentResult.success('ref-ok'),
+      ]);
+
+      await tester.pumpWidget(bookingApp(actions: actions, gateway: gateway));
+      await tester.pumpAndSettle();
+
+      final now = DateTime.now();
+      final from = DateTime(now.year, now.month, now.day).add(const Duration(days: 5));
+      final to = from.add(const Duration(days: 2));
+      final cursor = _MonthCursor(DateTime(now.year, now.month));
+      await pickRange(tester, cursor, from, to);
+      actions.calls.clear(); // isolate the quote fetch above from assertions
+
+      // Sheet auto-opens once the quote resolves.
+      expect(find.byKey(const Key('pay-button')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('pay-button')));
+      await tester.pumpAndSettle();
+
+      expect(actions.calls, ['createHold'],
+          reason: 'the decline must not touch the hold at all -- it stays '
+              'live server-side');
+      expect(gateway.callCount, 1);
+
+      // The sheet closed on the decline (Finding 2's pop), and the customer
+      // is back on BookingScreen with no visible way to pay -- until the
+      // dead-end fix.
+      expect(find.byKey(const Key('pay-button')), findsNothing);
+      expect(find.byKey(const Key('resume-hold-button')), findsOneWidget);
+      expect(find.byKey(const Key('cancel-hold-button')), findsOneWidget);
+
+      // Resuming must reopen the sheet WITHOUT creating a new hold or
+      // re-quoting -- it reuses the existing hold and its stored quote.
+      await tester.tap(find.byKey(const Key('resume-hold-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('pay-button')), findsOneWidget,
+          reason: 'Resume payment must reopen the QuoteSheet');
+      expect(actions.calls, ['createHold'],
+          reason: 'reopening the sheet must not call quote or createHold '
+              'again');
+
+      // Retrying now succeeds, reusing the same hold (exactly Finding 1's
+      // retry-after-decline path).
+      await tester.tap(find.byKey(const Key('pay-button')));
+      await tester.pumpAndSettle();
+
+      expect(gateway.callCount, 2);
+      expect(
+        actions.calls,
+        ['createHold', 'confirm'],
+        reason: 'the retry via Resume must reuse the existing hold -- '
+            'exactly one createHold total',
+      );
+      expect(find.text('confirmed:hold-0'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Cancel hold calls cancel_booking immediately and removes the resume '
+        'banner, instead of making the customer wait out the 15-minute '
+        'expiry', (tester) async {
+      final actions = _FakeBookingActions()..quoteToReturn = _quote();
+      final gateway = _ScriptedGateway([
+        const PaymentResult.failure('Mock gateway declined the payment.'),
+      ]);
+
+      await tester.pumpWidget(bookingApp(actions: actions, gateway: gateway));
+      await tester.pumpAndSettle();
+
+      final now = DateTime.now();
+      final from = DateTime(now.year, now.month, now.day).add(const Duration(days: 5));
+      final to = from.add(const Duration(days: 2));
+      final cursor = _MonthCursor(DateTime(now.year, now.month));
+      await pickRange(tester, cursor, from, to);
+
+      await tester.tap(find.byKey(const Key('pay-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('cancel-hold-button')), findsOneWidget);
+      final heldId = actions.cancelledIds; // empty so far
+      expect(heldId, isEmpty);
+
+      await tester.tap(find.byKey(const Key('cancel-hold-button')));
+      await tester.pumpAndSettle();
+
+      expect(actions.cancelledIds, ['hold-0'],
+          reason: 'Cancel hold must call cancel_booking for the held '
+              'reservation, freeing the dates immediately');
+      expect(find.byKey(const Key('hold-banner')), findsNothing,
+          reason: 'the banner (and its Resume/Cancel controls) must '
+              'disappear once the hold is gone');
+      expect(find.byKey(const Key('resume-hold-button')), findsNothing);
+    });
   });
 }
 

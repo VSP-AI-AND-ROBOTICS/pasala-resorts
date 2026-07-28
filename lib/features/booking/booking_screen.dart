@@ -237,6 +237,36 @@ String formatHoldRemaining(Duration remaining) {
   return '$minutes:$seconds left';
 }
 
+/// The dead-end fix: whether the hold banner should show a "Resume
+/// payment"/"Cancel hold" affordance. A hold survives a declined charge by
+/// design (Finding 1's whole point is that the retry reuses it), but the
+/// calendar renders a held range as occupied to every OTHER viewer -- the
+/// mirror is identity-free on purpose, so it cannot tell the holder apart
+/// from anyone else -- and disables tapping occupied days. Without this
+/// control, a customer whose card was declined has no way back to `Pay and
+/// confirm` for the dates they are still holding: the sheet already closed,
+/// and their own dates now look untappable to them too. Pure so the exact
+/// condition is testable without a widget or a running [Timer] -- see
+/// `test/features/booking/resume_hold_test.dart`.
+///
+/// [remaining] is passed in rather than read off [hold] here so a test can
+/// simulate "the ticker hasn't fired yet but the clock has moved on" without
+/// a real [DateTime.now] dependency; production code always passes
+/// `hold?.holdRemaining`.
+bool shouldShowResumeHold({
+  required Reservation? hold,
+  required Duration? remaining,
+}) {
+  if (hold == null) return false;
+  // A hold that has already been confirmed or cancelled is not live, even if
+  // stale state elsewhere still thinks it has time left -- defends against
+  // exactly the kind of local/server-state drift the confirm path leaves for
+  // one frame before navigating away.
+  if (hold.status != ReservationStatus.hold) return false;
+  if (remaining == null || remaining <= Duration.zero) return false;
+  return true;
+}
+
 class BookingScreen extends ConsumerStatefulWidget {
   const BookingScreen({super.key, required this.unitId});
 
@@ -446,7 +476,17 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   void _setBusy(bool value) {
     if (!mounted) return;
     setState(() => _busy = value);
-    _sheetSetState?.call(() {});
+    // Gate on `_sheetShown`, not just a `_sheetSetState != null` null-check:
+    // the sheet's `StatefulBuilder` keeps reassigning `_sheetSetState` on
+    // every rebuild it gets WHILE its pop reverse-animation plays, so the
+    // reference can look "live" for several frames after `_handleFailure`
+    // has already asked it to close and after `_sheetShown` was set back to
+    // false -- right up until the widget is actually removed from the tree
+    // and becomes defunct. `_sheetShown` is only ever flipped by
+    // `_showQuoteSheet`/`_handleFailure`/`.whenComplete`, never by those
+    // rebuilds, so it is the reliable signal for whether reaching through
+    // `_sheetSetState` is still safe.
+    if (_sheetShown) _sheetSetState?.call(() {});
   }
 
   void _startHoldTicker() {
@@ -525,6 +565,35 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     }
   }
 
+  /// Explicit abandon path for the resume banner's "Cancel hold" action:
+  /// calls `cancel_booking` so the held dates free up immediately, rather
+  /// than making the customer wait out the 15-minute expiry.
+  Future<void> _cancelHold() async {
+    final hold = _hold;
+    if (hold == null) return;
+    _setBusy(true);
+    try {
+      await ref.read(bookingActionsProvider).cancel(
+            reservationId: hold.id,
+            reason: 'customer cancelled hold',
+          );
+      if (!mounted) return;
+      _ticker?.cancel();
+      _ticker = null;
+      setState(() {
+        _hold = null;
+        _heldParams = null;
+        _quote = null;
+      });
+    } on BookingFailure catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      _setBusy(false);
+    }
+  }
+
   void _handleFailure(BookingFailure failure) {
     if (!mounted) return;
     // Finding 2: only pop the sheet if it's actually the thing on top. A
@@ -535,6 +604,16 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     // customer out of the flow mid-booking.
     if (_sheetShown) {
       Navigator.of(context).maybePop();
+      // Mark the sheet closed right away rather than waiting for
+      // `showModalBottomSheet`'s returned future to complete (via
+      // `.whenComplete` in `_showQuoteSheet`): the popped route's widget can
+      // become defunct mid-reverse-animation, before that future actually
+      // resolves. Any `_setBusy` call in that window must not reach through
+      // a now-stale `_sheetSetState` into a disposed `StatefulBuilder` --
+      // the crash this closes was reproduced by tapping "Cancel hold" right
+      // after a declined payment closed the sheet.
+      _sheetShown = false;
+      _sheetSetState = null;
     }
     final next = recoverSelection(
       failure,
@@ -604,7 +683,40 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
               color: Theme.of(context).colorScheme.tertiaryContainer,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Text('Holding your dates — ${formatHoldRemaining(remaining)}'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Holding your dates — ${formatHoldRemaining(remaining)}'),
+                // The dead-end fix: a live hold has no other way back to
+                // payment once the sheet has closed (e.g. after a declined
+                // card) -- the calendar shows the customer's own held dates
+                // as occupied and disables tapping them, same as it does for
+                // everyone else. This reopens the SAME hold/quote, never a
+                // new one.
+                if (shouldShowResumeHold(hold: _hold, remaining: remaining)) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.tonal(
+                          key: const Key('resume-hold-button'),
+                          onPressed: _busy ? null : _showQuoteSheet,
+                          child: const Text('Resume payment'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton(
+                          key: const Key('cancel-hold-button'),
+                          onPressed: _busy ? null : _cancelHold,
+                          child: const Text('Cancel hold'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
           ),
         if (remaining != null) const SizedBox(height: 16),
         slotSelector,
