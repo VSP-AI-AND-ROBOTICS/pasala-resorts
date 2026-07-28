@@ -81,4 +81,19 @@ class Reservation {
       blockReason: json['block_reason'] as String?,
     );
   }
+
+  /// Built from `unit_calendar_events`, the identity-free occupancy mirror.
+  /// customerId, guests and quote are intentionally absent -- this row exists
+  /// so any viewer can see THAT a date is taken, never by whom.
+  factory Reservation.fromCalendarEvent(Map<String, dynamic> json) {
+    final period = parsePeriod(json['period'] as String);
+    return Reservation(
+      id: json['reservation_id'] as String,
+      unitId: json['unit_id'] as String,
+      start: period.start,
+      end: period.end,
+      kind: ReservationKind.values.byName(json['kind'] as String),
+      status: _status(json['status'] as String),
+    );
+  }
 }

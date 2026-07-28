@@ -34,4 +34,23 @@ void main() {
     final r = Reservation.fromJson(json('hold', expiry.toIso8601String()));
     expect(r.holdRemaining, Duration.zero);
   });
+
+  test('fromCalendarEvent parses a mirror row with no identity fields', () {
+    final r = Reservation.fromCalendarEvent({
+      'reservation_id': 'c1',
+      'unit_id': 'b1',
+      'period': '["2026-08-03 08:30:00+00","2026-08-04 05:30:00+00")',
+      'kind': 'block',
+      'status': 'confirmed',
+    });
+    expect(r.id, 'c1');
+    expect(r.unitId, 'b1');
+    expect(r.start, DateTime.parse('2026-08-03 08:30:00Z'));
+    expect(r.end, DateTime.parse('2026-08-04 05:30:00Z'));
+    expect(r.kind, ReservationKind.block);
+    expect(r.status, ReservationStatus.confirmed);
+    expect(r.customerId, isNull);
+    expect(r.guests, isNull);
+    expect(r.quote, isNull);
+  });
 }

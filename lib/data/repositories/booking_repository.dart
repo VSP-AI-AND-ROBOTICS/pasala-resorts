@@ -158,10 +158,10 @@ class BookingRepository {
       });
 
   Stream<List<Reservation>> watchUnit(String unitId) => _db
-      .from('reservations')
-      .stream(primaryKey: ['id'])
+      .from('unit_calendar_events')
+      .stream(primaryKey: ['reservation_id'])
       .eq('unit_id', unitId)
-      .map((rows) => rows.map(Reservation.fromJson).toList())
+      .map((rows) => rows.map(Reservation.fromCalendarEvent).toList())
       .handleError((Object e) => throw mapPostgrestError(e));
 }
 
