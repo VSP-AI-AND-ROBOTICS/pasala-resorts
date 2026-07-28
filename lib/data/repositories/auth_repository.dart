@@ -48,18 +48,34 @@ class AuthRepository {
     }
   }
 
-  Future<void> signOut() => _db.auth.signOut();
+  Future<void> signOut() async {
+    try {
+      await _db.auth.signOut();
+    } catch (e) {
+      throw mapPostgrestError(e);
+    }
+  }
 
   Future<AppUser?> current() async {
     final user = _db.auth.currentUser;
-    return user == null ? null : _profileFor(user);
+    if (user == null) return null;
+    try {
+      return await _profileFor(user);
+    } catch (e) {
+      throw mapPostgrestError(e);
+    }
   }
 
-  Stream<AppUser?> watch() => _db.auth.onAuthStateChange.asyncMap(
-        (state) async => state.session == null
-            ? null
-            : await _profileFor(state.session!.user),
-      );
+  Stream<AppUser?> watch() => _db.auth.onAuthStateChange
+      .asyncMap((state) async {
+        if (state.session == null) return null;
+        try {
+          return await _profileFor(state.session!.user);
+        } catch (e) {
+          throw mapPostgrestError(e);
+        }
+      })
+      .handleError((Object e) => throw mapPostgrestError(e));
 }
 
 final authRepositoryProvider = Provider<AuthRepository>(

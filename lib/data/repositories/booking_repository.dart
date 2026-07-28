@@ -161,7 +161,8 @@ class BookingRepository {
       .from('reservations')
       .stream(primaryKey: ['id'])
       .eq('unit_id', unitId)
-      .map((rows) => rows.map(Reservation.fromJson).toList());
+      .map((rows) => rows.map(Reservation.fromJson).toList())
+      .handleError((Object e) => throw mapPostgrestError(e));
 }
 
 final bookingRepositoryProvider = Provider<BookingRepository>(
