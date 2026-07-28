@@ -24,7 +24,45 @@ abstract class UnitCalendarSource {
   Future<List<Reservation>> fetchUnit(String unitId);
 }
 
-class BookingRepository implements UnitCalendarSource {
+/// The slice of [BookingRepository] that `BookingScreen` needs to run the
+/// quote/hold/pay lifecycle. Extracted as its own interface, mirroring
+/// [UnitCalendarSource], so `bookingActionsProvider` can be overridden with a
+/// fake in tests that never touches Supabase -- see
+/// `test/features/booking/hold_lifecycle_test.dart`. This is what makes the
+/// release-or-reuse hold logic testable: without this seam, exercising
+/// `create_hold`/`cancel_booking` ordering would require a real
+/// `SupabaseClient`.
+abstract class BookingActions {
+  Future<Quote> quote({
+    required String unitId,
+    required DateTime from,
+    required DateTime to,
+    required int guests,
+    String? slotTypeId,
+  });
+
+  Future<Reservation> createHold({
+    required String unitId,
+    required DateTime from,
+    required DateTime to,
+    required int guests,
+    String? slotTypeId,
+    num? expectedTotal,
+  });
+
+  Future<Reservation> confirm({
+    required String reservationId,
+    required String paymentRef,
+    required num amount,
+  });
+
+  Future<Reservation> cancel({
+    required String reservationId,
+    required String reason,
+  });
+}
+
+class BookingRepository implements UnitCalendarSource, BookingActions {
   BookingRepository(this._db);
   final SupabaseClient _db;
 
@@ -56,6 +94,7 @@ class BookingRepository implements UnitCalendarSource {
             .toList();
       });
 
+  @override
   Future<Quote> quote({
     required String unitId,
     required DateTime from,
@@ -79,6 +118,7 @@ class BookingRepository implements UnitCalendarSource {
         return Quote.fromJson(json as Map<String, dynamic>);
       });
 
+  @override
   Future<Reservation> createHold({
     required String unitId,
     required DateTime from,
@@ -99,6 +139,7 @@ class BookingRepository implements UnitCalendarSource {
         return Reservation.fromJson(row as Map<String, dynamic>);
       });
 
+  @override
   Future<Reservation> confirm({
     required String reservationId,
     required String paymentRef,
@@ -121,6 +162,7 @@ class BookingRepository implements UnitCalendarSource {
         return Reservation.fromJson(row);
       });
 
+  @override
   Future<Reservation> cancel({
     required String reservationId,
     required String reason,
@@ -200,4 +242,13 @@ class BookingRepository implements UnitCalendarSource {
 
 final bookingRepositoryProvider = Provider<BookingRepository>(
   (ref) => BookingRepository(ref.watch(supabaseProvider)),
+);
+
+/// [BookingActions] seam around [bookingRepositoryProvider], mirroring
+/// [unitCalendarSourceProvider] in `features/calendar/providers.dart`:
+/// `BookingScreen` only ever calls `quote`/`createHold`/`confirm`/`cancel`,
+/// so tests can override just this provider with a fake instead of needing a
+/// real `SupabaseClient`.
+final bookingActionsProvider = Provider<BookingActions>(
+  (ref) => ref.watch(bookingRepositoryProvider),
 );
