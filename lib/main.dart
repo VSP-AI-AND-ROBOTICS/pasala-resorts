@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/router.dart';
 import 'core/supabase_client.dart';
 import 'core/theme/app_theme.dart';
 
@@ -10,14 +11,14 @@ Future<void> main() async {
   runApp(const ProviderScope(child: PasalaApp()));
 }
 
-class PasalaApp extends StatelessWidget {
+class PasalaApp extends ConsumerWidget {
   const PasalaApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) => MaterialApp.router(
         title: 'Pasala Resorts',
         theme: buildTheme(Brightness.light),
         darkTheme: buildTheme(Brightness.dark),
-        home: const Scaffold(body: Center(child: Text('Pasala'))),
+        routerConfig: ref.watch(routerProvider),
       );
 }
