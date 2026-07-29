@@ -206,4 +206,78 @@ void main() {
     // to null, not send an empty array.
     expect(saved.toInsert()['weekdays'], isNull);
   });
+
+  group('RateRulesScreen delete confirmation', () {
+    const rule = RateRule(
+      id: 'r1',
+      unitId: 'u1',
+      kind: RateKind.base,
+      label: 'Weekday',
+      price: 4500,
+      extraGuestPrice: 800,
+      cleaningFee: 600,
+      priority: 0,
+      weekdays: [],
+    );
+
+    Future<void> openDeleteMenu(WidgetTester tester) async {
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'the confirmation dialog names the rule being deleted',
+        (tester) async {
+      final repo = FakeRateRepository()..store.add(rule);
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [rateRepositoryProvider.overrideWithValue(repo)],
+        child: const MaterialApp(home: RateRulesScreen(unitId: 'u1')),
+      ));
+      await tester.pumpAndSettle();
+
+      await openDeleteMenu(tester);
+
+      expect(find.text('Delete "Weekday"?'), findsOneWidget);
+    });
+
+    testWidgets(
+        'dismissing the confirmation dialog does NOT delete the rule',
+        (tester) async {
+      final repo = FakeRateRepository()..store.add(rule);
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [rateRepositoryProvider.overrideWithValue(repo)],
+        child: const MaterialApp(home: RateRulesScreen(unitId: 'u1')),
+      ));
+      await tester.pumpAndSettle();
+
+      await openDeleteMenu(tester);
+      await tester.tap(find.byKey(const Key('keep-rule-button')));
+      await tester.pumpAndSettle();
+
+      expect(repo.store, hasLength(1));
+      expect(find.text('Weekday'), findsOneWidget);
+    });
+
+    testWidgets(
+        'confirming the dialog deletes the rule',
+        (tester) async {
+      final repo = FakeRateRepository()..store.add(rule);
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [rateRepositoryProvider.overrideWithValue(repo)],
+        child: const MaterialApp(home: RateRulesScreen(unitId: 'u1')),
+      ));
+      await tester.pumpAndSettle();
+
+      await openDeleteMenu(tester);
+      await tester.tap(find.byKey(const Key('confirm-delete-rule-button')));
+      await tester.pumpAndSettle();
+
+      expect(repo.store, isEmpty);
+    });
+  });
 }

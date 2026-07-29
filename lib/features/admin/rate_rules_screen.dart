@@ -134,8 +134,21 @@ class RateRulesScreen extends ConsumerWidget {
     }
   }
 
+  /// Confirms before deleting: deleting the last rule that matches a unit's
+  /// dates makes that unit unquotable (`get_quote` raises `P0004`), which
+  /// would otherwise reach a customer as an unexplained booking failure with
+  /// no warning to the admin who caused it. This dialog does not attempt to
+  /// work out whether [rule] is actually the last matching rule -- that
+  /// would need the same date-resolution logic as `resolve_rate_rule` --
+  /// it just makes sure a delete is never one accidental tap.
   Future<void> _delete(
       BuildContext context, WidgetRef ref, RateRule rule) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => _DeleteRuleDialog(rule: rule),
+    );
+    if (confirmed != true || !context.mounted) return;
+
     try {
       await ref.read(rateRepositoryProvider).delete(rule.id);
       ref.invalidate(rateRulesProvider(unitId));
@@ -145,6 +158,39 @@ class RateRulesScreen extends ConsumerWidget {
             .showSnackBar(SnackBar(content: Text(e.message)));
       }
     }
+  }
+}
+
+/// Names the rule being deleted so the admin knows exactly what they are
+/// about to remove -- mirroring the confirm/dismiss shape of
+/// `_CancelBookingDialog` in `booking_detail_screen.dart`.
+class _DeleteRuleDialog extends StatelessWidget {
+  const _DeleteRuleDialog({required this.rule});
+
+  final RateRule rule;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = rule.label ?? _kindLabel(rule.kind);
+    return AlertDialog(
+      title: Text('Delete "$label"?'),
+      content: const Text(
+        'If this is the only rule that covers some of this unit\'s dates, '
+        'those dates will no longer be quotable. This cannot be undone.',
+      ),
+      actions: [
+        TextButton(
+          key: const Key('keep-rule-button'),
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('confirm-delete-rule-button'),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Delete'),
+        ),
+      ],
+    );
   }
 }
 
