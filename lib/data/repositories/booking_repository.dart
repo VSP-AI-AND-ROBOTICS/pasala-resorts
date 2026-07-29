@@ -62,7 +62,26 @@ abstract class BookingActions {
   });
 }
 
-class BookingRepository implements UnitCalendarSource, BookingActions {
+/// The slice of [BookingRepository] that `BlockDatesScreen` (Task 20) needs.
+/// Extracted as its own interface, mirroring [UnitCalendarSource] and
+/// [BookingActions], so `test/features/admin/block_selection_test.dart` can
+/// override `blockDatesActionProvider` with a fake instead of needing a real
+/// `SupabaseClient`. Kept separate from [BookingActions] rather than added to
+/// it: several existing fakes (`_FakeBookingActions`,
+/// `_ThrowingCancelActions`, `_FakeCancelActions`) already `implements
+/// BookingActions` for the customer booking flow, and none of them have any
+/// business modelling `blockDates` -- folding it in would force every one of
+/// them to grow a throwaway override for a method their scenarios never call.
+abstract class BlockDatesAction {
+  Future<List<Reservation>> blockDates({
+    required String unitId,
+    required List<DateTimeRange> ranges,
+    required String reason,
+  });
+}
+
+class BookingRepository
+    implements UnitCalendarSource, BookingActions, BlockDatesAction {
   BookingRepository(this._db);
   final SupabaseClient _db;
 
@@ -175,6 +194,7 @@ class BookingRepository implements UnitCalendarSource, BookingActions {
         return Reservation.fromJson(row as Map<String, dynamic>);
       });
 
+  @override
   Future<List<Reservation>> blockDates({
     required String unitId,
     required List<DateTimeRange> ranges,
@@ -250,5 +270,12 @@ final bookingRepositoryProvider = Provider<BookingRepository>(
 /// so tests can override just this provider with a fake instead of needing a
 /// real `SupabaseClient`.
 final bookingActionsProvider = Provider<BookingActions>(
+  (ref) => ref.watch(bookingRepositoryProvider),
+);
+
+/// [BlockDatesAction] seam around [bookingRepositoryProvider], mirroring
+/// [bookingActionsProvider]: `BlockDatesScreen` only ever calls
+/// `blockDates`, so tests can override just this provider with a fake.
+final blockDatesActionProvider = Provider<BlockDatesAction>(
   (ref) => ref.watch(bookingRepositoryProvider),
 );
