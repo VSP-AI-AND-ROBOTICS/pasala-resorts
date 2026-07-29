@@ -1,5 +1,5 @@
 begin;
-select plan(26);
+select plan(34);
 
 insert into auth.users (id, email)
 values ('11111111-1111-1111-1111-111111111111','cust@example.com');
@@ -122,6 +122,53 @@ select lives_ok(
   $$select public.create_hold('bbbbbbbb-0000-0000-0000-000000000001',
       '2026-12-03','2026-12-04', 4)$$,
   'cancelled dates can be re-held immediately');
+
+-- I3: booking_mode and slot ownership were enforced nowhere. Proven live
+-- (per the review): a slot-only unit held for three nights; a
+-- nightly-only unit held with a slot (occupying 09:00-18:00 instead of
+-- 14:00->11:00, leaving the same physical room bookable overnight -- a
+-- real double-allocation the exclusion constraint cannot see, since the
+-- two periods never overlap); and a unit held using another property's
+-- slot type. All three are enforced in SQL so a buggy or malicious client
+-- calling this RPC directly is held to the same rule.
+set local role postgres;
+insert into public.properties (id, name, slug)
+values ('aaaaaaaa-0000-0000-0000-000000000002','P2','p2');
+
+insert into public.units
+  (id, property_id, name, capacity_base, capacity_max, booking_mode)
+values ('bbbbbbbb-0000-0000-0000-000000000002',
+        'aaaaaaaa-0000-0000-0000-000000000001','U-slot',2,2,'slot');
+
+insert into public.slot_types (id, property_id, code, start_time, end_time)
+values ('cccccccc-0000-0000-0000-000000000001',
+        'aaaaaaaa-0000-0000-0000-000000000001','day','09:00','18:00'),
+       ('cccccccc-0000-0000-0000-000000000002',
+        'aaaaaaaa-0000-0000-0000-000000000002','day','09:00','18:00');
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.create_hold('bbbbbbbb-0000-0000-0000-000000000002',
+      '2027-10-01','2027-10-03', 2)$$,
+  'P0003', null,
+  'I3: a slot-only unit cannot be held with nightly dates and no slot');
+
+select throws_ok(
+  $$select public.create_hold('bbbbbbbb-0000-0000-0000-000000000001',
+      '2027-10-01', null, 4, 'cccccccc-0000-0000-0000-000000000001')$$,
+  'P0003', null,
+  'I3: a nightly-only unit cannot be held with a slot type');
+
+select throws_ok(
+  $$select public.create_hold('bbbbbbbb-0000-0000-0000-000000000002',
+      '2027-10-01', null, 2, 'cccccccc-0000-0000-0000-000000000002')$$,
+  'P0002', null,
+  'I3: a unit cannot be held using another property''s slot type');
+
+reset role;
 
 -- a second customer, for the authorization boundary
 set local role postgres;
@@ -251,6 +298,28 @@ select is(
   0,
   'no partial rows persisted from the aborted block call');
 
+-- I2: an empty daterange makes lower()/upper() both return NULL, which
+-- used to flow straight through build_period into tstzrange(NULL, NULL) --
+-- not empty, so reservations_period_nonempty never caught it, and the unit
+-- was wedged (conflicting with every future booking) forever.
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"88888888-8888-8888-8888-888888888888","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.block_dates('bbbbbbbb-0000-0000-0000-000000000001',
+      array[daterange('2027-07-01','2027-07-01')], 'oops')$$,
+  'P0005', null,
+  'I2: block_dates with an empty daterange raises rather than persisting');
+
+set local role postgres;
+select is(
+  (select count(*)::int from public.reservations
+    where unit_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+      and block_reason = 'oops'),
+  0,
+  'I2: the empty-range block call persisted nothing');
+
 reset role;
 
 -- confirm_booking must reject an amount that does not match the stored quote
@@ -312,6 +381,46 @@ select is(
      'mock_ref_underpay_fixed', 11500)),
   'confirmed'::public.reservation_status,
   'the same hold confirms once the correct amount is passed');
+
+reset role;
+
+-- m8: confirm_booking must not accept ANY amount when the stored quote is
+-- NULL. `p_amount <> (NULL ->> 'total')::numeric` evaluates to NULL, not
+-- TRUE, so before the fix this raise was silently skipped for a
+-- quote-less hold -- the same NULL-comparison family as I2 and the
+-- Task-8 Critical.
+set local role postgres;
+insert into public.reservations
+  (id, unit_id, period, kind, status, customer_id, guests, quote,
+   hold_expires_at)
+values ('99990000-0000-0000-0000-000000000001',
+        'bbbbbbbb-0000-0000-0000-000000000001',
+        tstzrange('2027-11-01 14:00+05:30','2027-11-02 11:00+05:30','[)'),
+        'booking','hold','11111111-1111-1111-1111-111111111111',4,
+        null, now() + interval '15 minutes');
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select throws_ok(
+  $$select public.confirm_booking(
+      '99990000-0000-0000-0000-000000000001','mock_ref_nullquote', 999999)$$,
+  'P0009', null,
+  'm8: confirm_booking rejects any amount when the stored quote is NULL');
+
+set local role postgres;
+select is(
+  (select count(*)::int from public.payments
+    where gateway_ref = 'mock_ref_nullquote'),
+  0,
+  'm8: no payment was recorded against the quote-less hold');
+
+select is(
+  (select status from public.reservations
+    where id = '99990000-0000-0000-0000-000000000001'),
+  'hold'::public.reservation_status,
+  'm8: the quote-less hold was not confirmed');
 
 reset role;
 

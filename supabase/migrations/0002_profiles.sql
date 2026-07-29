@@ -106,4 +106,4 @@ create policy profiles_admin_update on public.profiles
 
 create policy profiles_admin_delete on public.profiles
   for delete to authenticated
-  using (public.is_admin());
+  using (public.is_admin() and (role = 'customer' or public.is_super_admin()));

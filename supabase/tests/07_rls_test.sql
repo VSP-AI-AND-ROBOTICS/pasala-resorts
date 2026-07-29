@@ -20,7 +20,7 @@
 -- availability view's shape and reach.
 
 begin;
-select plan(30);
+select plan(34);
 
 insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111','cust1@example.com'),
@@ -201,8 +201,53 @@ select lives_ok(
   $$insert into public.properties (name, slug) values ('SA Prop','sa-p')$$,
   'super_admin has the same direct write access as admin');
 
+-- === C1: profiles_admin_delete's role gate ==================================
+-- `profiles_admin_delete` used to be bare `using (is_admin())`, with no role
+-- check at all -- so a plain admin could DELETE a super_admin's row (RLS
+-- -permitted) and then INSERT it back with role='customer' (also permitted,
+-- since profiles_admin_insert lets any admin insert a 'customer' row),
+-- round-tripping a super_admin down to customer and defeating the "role
+-- changes are super-admin only" invariant `profiles_admin_update` and
+-- `profiles_admin_insert` otherwise enforce. The fix gates DELETE the same
+-- way INSERT already is: `is_admin() and (role = 'customer' or
+-- is_super_admin())`.
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}';
+
+select lives_ok(
+  $$delete from public.profiles
+      where id = '66666666-6666-6666-6666-666666666666'$$,
+  'a plain admin''s DELETE of a super_admin profile raises no error '
+  '(RLS filters it, same as any USING-clause mismatch)');
+
+set local role postgres;
+select is(
+  (select count(*)::int from public.profiles
+    where id = '66666666-6666-6666-6666-666666666666'),
+  1,
+  'C1: the super_admin profile survives a plain admin''s delete attempt');
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"66666666-6666-6666-6666-666666666666","role":"authenticated"}';
+
+select lives_ok(
+  $$delete from public.profiles
+      where id = '44444444-4444-4444-4444-444444444444'$$,
+  'a super_admin can delete another admin''s (non-customer) profile');
+
+set local role postgres;
+select is(
+  (select count(*)::int from public.profiles
+    where id = '44444444-4444-4444-4444-444444444444'),
+  0,
+  'C1: a super_admin''s delete of a privileged profile actually removed it');
+
 -- === payments: a customer sees only their own ==============================
 
+set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 

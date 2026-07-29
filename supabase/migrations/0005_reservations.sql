@@ -83,14 +83,15 @@ stable
 set search_path = public, pg_temp
 as $$
 declare
-  v_tz    text;
-  v_in    time;
-  v_out   time;
-  v_start timestamptz;
-  v_end   timestamptz;
+  v_tz          text;
+  v_in          time;
+  v_out         time;
+  v_start       timestamptz;
+  v_end         timestamptz;
+  v_property_id uuid;
 begin
-  select p.timezone, p.check_in_time, p.check_out_time
-    into v_tz, v_in, v_out
+  select p.timezone, p.check_in_time, p.check_out_time, u.property_id
+    into v_tz, v_in, v_out, v_property_id
   from public.units u
   join public.properties p on p.id = u.property_id
   where u.id = p_unit_id;
@@ -99,9 +100,33 @@ begin
     raise exception 'unit not found' using errcode = 'P0002';
   end if;
 
+  -- I2: `p_to <= p_from` with a NULL operand evaluates to NULL, not TRUE,
+  -- so without this guard the check below is silently skipped and the
+  -- function returns tstzrange(v_start, NULL) -- unbounded, and therefore
+  -- NOT empty, so `reservations_period_nonempty` never catches it. The
+  -- unit is then wedged: it conflicts with every future booking, and the
+  -- client can't even render the calendar (`parsePeriod` throws on the
+  -- "(,)" literal). `block_dates` can produce exactly these NULL bounds by
+  -- passing an empty or one-sided-unbounded `daterange`, where
+  -- `lower()`/`upper()` both return NULL. Both dates are mandatory input,
+  -- never optional, regardless of booking mode.
+  if p_from is null then
+    raise exception 'check-in date is required' using errcode = 'P0005';
+  end if;
+  if p_slot_type_id is null and p_to is null then
+    raise exception 'check-out date is required' using errcode = 'P0005';
+  end if;
+
   if p_slot_type_id is not null then
+    -- I3: a slot type belongs to exactly one property. Without pinning the
+    -- lookup to the unit's own property, a slot type id copied from a
+    -- DIFFERENT property's catalog still resolved (to that other
+    -- property's start/end time), letting a client hold a unit using a
+    -- slot it was never offered.
     select s.start_time, s.end_time into v_in, v_out
-    from public.slot_types s where s.id = p_slot_type_id;
+    from public.slot_types s
+    where s.id = p_slot_type_id
+      and s.property_id = v_property_id;
 
     if v_in is null then
       raise exception 'slot type not found' using errcode = 'P0002';

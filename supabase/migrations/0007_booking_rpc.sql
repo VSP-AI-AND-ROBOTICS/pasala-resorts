@@ -12,12 +12,32 @@ set search_path = public, pg_temp
 as $$
 declare
   v_uid    uuid := auth.uid();
+  v_mode   public.booking_mode;
   v_period tstzrange;
   v_quote  jsonb;
   v_row    public.reservations;
 begin
   if v_uid is null then
     raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  -- I3: `booking_mode` was enforced nowhere -- a slot-only unit could be
+  -- held for three nights, and a nightly-only unit could be held with a
+  -- slot (occupying just 09:00-18:00 instead of 14:00->11:00, leaving the
+  -- very same physical room bookable overnight -- a real double
+  -- -allocation `reservations_no_overlap` cannot see, since the two
+  -- periods never overlap). Enforced here in SQL, not just in the client,
+  -- so a buggy or malicious caller invoking this RPC directly is held to
+  -- the same rule. If the unit doesn't exist `v_mode` stays NULL, matching
+  -- neither branch below, so `build_period`'s own "unit not found" raise
+  -- still fires -- this doesn't duplicate that check.
+  select booking_mode into v_mode from public.units where id = p_unit_id;
+  if v_mode = 'nightly' and p_slot_type_id is not null then
+    raise exception 'this unit does not support slot bookings'
+      using errcode = 'P0003';
+  end if;
+  if v_mode = 'slot' and p_slot_type_id is null then
+    raise exception 'this unit requires a slot type' using errcode = 'P0003';
   end if;
 
   v_period := public.build_period(p_unit_id, p_from, p_to, p_slot_type_id);
@@ -85,8 +105,16 @@ begin
   -- Phase 1 collects the full quoted total. When phase 2 introduces the
   -- advance/balance split this becomes a range check against the advance
   -- policy, but it must never simply trust the client's number.
+  --
+  -- m8: `p_amount <> (NULL ->> 'total')::numeric` is NULL, not TRUE, when
+  -- `v_row.quote` is NULL -- the same NULL-comparison family as I2/the
+  -- Task-8 Critical -- so the raise below was silently skipped and ANY
+  -- amount was accepted against a quote-less hold. `is distinct from` is
+  -- NULL-safe on both sides, so a NULL quote or a NULL amount now compares
+  -- as "different" rather than "unknown".
   if p_amount is null
-     or p_amount <> (v_row.quote ->> 'total')::numeric then
+     or v_row.quote is null
+     or p_amount is distinct from (v_row.quote ->> 'total')::numeric then
     raise exception 'payment amount % does not match quoted total %',
       p_amount, (v_row.quote ->> 'total')
       using errcode = 'P0009';

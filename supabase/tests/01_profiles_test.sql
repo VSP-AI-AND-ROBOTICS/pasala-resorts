@@ -83,13 +83,23 @@ select lives_ok(
 );
 
 -- admin can delete a profile (policy reachable, not blocked at grant layer)
+--
+-- A dedicated customer-role fixture is used here rather than
+-- '44444444-...', which by this point in the file has been changed to
+-- 'staff' by the "super_admin can change a role" assertion just above --
+-- since the C1 fix, deleting a NON-customer profile is super_admin-only
+-- (see 07_rls_test.sql for that role-gate coverage), so reusing 44444444
+-- here would prove the wrong thing.
 set local role postgres;
+insert into auth.users (id, email)
+values ('dddddddd-4444-4444-4444-444444444444','del-victim@example.com');
+
 select is(
   (select count(*)::int from public.profiles
     where id in ('11111111-1111-1111-1111-111111111111',
                  '22222222-2222-2222-2222-222222222222',
                  '33333333-3333-3333-3333-333333333333',
-                 '44444444-4444-4444-4444-444444444444')),
+                 'dddddddd-4444-4444-4444-444444444444')),
   4,
   '4 fixture profiles exist before delete');
 
@@ -99,13 +109,13 @@ set local request.jwt.claims to
 
 select lives_ok(
   $$delete from public.profiles
-      where id = '44444444-4444-4444-4444-444444444444'$$,
-  'admin can delete a profile');
+      where id = 'dddddddd-4444-4444-4444-444444444444'$$,
+  'admin can delete a customer profile');
 
 set local role postgres;
 select is(
   (select count(*)::int from public.profiles
-    where id = '44444444-4444-4444-4444-444444444444'),
+    where id = 'dddddddd-4444-4444-4444-444444444444'),
   0,
   'admin delete removed the row');
 
