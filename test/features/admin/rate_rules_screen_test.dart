@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/errors.dart';
 import 'package:pasala/data/models/rate_rule.dart';
 import 'package:pasala/data/repositories/rate_repository.dart';
 import 'package:pasala/features/admin/rate_rules_screen.dart';
@@ -14,6 +15,11 @@ class FakeRateRepository implements RateRepository {
   final List<RateRule> store = [];
   final List<RateRule> upsertCalls = [];
   int _idCounter = 0;
+
+  /// Set by the I6 (no-raw-text-leak) test to make [delete] fail the way a
+  /// real repository would surface an unrecognised server error, via
+  /// `mapPostgrestError`'s `UnknownFailure` fallback.
+  BookingFailure? deleteFailure;
 
   @override
   Future<List<RateRule>> forUnit(String unitId) async =>
@@ -43,6 +49,8 @@ class FakeRateRepository implements RateRepository {
 
   @override
   Future<void> delete(String id) async {
+    final failure = deleteFailure;
+    if (failure != null) throw failure;
     store.removeWhere((r) => r.id == id);
   }
 }
@@ -278,6 +286,34 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repo.store, isEmpty);
+    });
+
+    // I6: this snackbar site (the delete-confirmation catch block) used to
+    // do `Text(e.message)` directly, bypassing FailureView.messageFor
+    // entirely -- so an UnknownFailure's raw carried-forward server text
+    // would have rendered straight into the SnackBar.
+    testWidgets(
+        'an UnknownFailure from delete shows the generic message, never '
+        'the raw server text', (tester) async {
+      const rawServerText = 'permission denied for table rate_rules';
+      final repo = FakeRateRepository()
+        ..store.add(rule)
+        ..deleteFailure = const UnknownFailure(rawServerText);
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [rateRepositoryProvider.overrideWithValue(repo)],
+        child: const MaterialApp(home: RateRulesScreen(unitId: 'u1')),
+      ));
+      await tester.pumpAndSettle();
+
+      await openDeleteMenu(tester);
+      await tester.tap(find.byKey(const Key('confirm-delete-rule-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining(rawServerText), findsNothing);
+      expect(find.text('Something went wrong.'), findsOneWidget);
+      // The rule survives -- delete never actually succeeded.
+      expect(repo.store, hasLength(1));
     });
   });
 }

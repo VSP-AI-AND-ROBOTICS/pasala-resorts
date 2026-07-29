@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors.dart';
+import '../../core/widgets/failure_view.dart';
 import '../../data/models/app_user.dart';
 import '../../data/repositories/auth_repository.dart';
 
@@ -60,8 +61,8 @@ class AppShell extends ConsumerWidget {
                   if (context.mounted) context.go('/login');
                 } on BookingFailure catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(SnackBar(content: Text(e.message)));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(FailureView.messageFor(e))));
                   }
                 }
               },

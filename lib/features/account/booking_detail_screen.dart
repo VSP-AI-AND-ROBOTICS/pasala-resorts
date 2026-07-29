@@ -9,6 +9,7 @@ import '../../data/models/quote.dart';
 import '../../data/models/reservation.dart';
 import '../../data/repositories/booking_repository.dart';
 import '../booking/providers.dart' show reservationProvider;
+import '../staff/providers.dart' show allBookingsProvider;
 import 'providers.dart';
 
 class BookingDetailScreen extends ConsumerWidget {
@@ -53,9 +54,10 @@ class _DetailState extends ConsumerState<_Detail> {
   /// released immediately. Inventing a refund policy here would be a promise
   /// this screen cannot keep.
   Future<void> _cancelBooking() async {
+    final isBlock = widget.reservation.kind == ReservationKind.block;
     final reason = await showDialog<String>(
       context: context,
-      builder: (_) => const _CancelBookingDialog(),
+      builder: (_) => _CancelBookingDialog(isBlock: isBlock),
     );
     if (reason == null || !mounted) return;
 
@@ -67,11 +69,15 @@ class _DetailState extends ConsumerState<_Detail> {
           );
       if (!mounted) return;
       ref.invalidate(myBookingsProvider);
+      // allBookingsProvider backs both the admin and staff lists, so a
+      // cancel here must invalidate it too or those screens keep showing a
+      // now-stale status until something else happens to refresh them.
+      ref.invalidate(allBookingsProvider);
       context.pop();
     } on BookingFailure catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+          .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -81,18 +87,31 @@ class _DetailState extends ConsumerState<_Detail> {
   Widget build(BuildContext context) {
     final reservation = widget.reservation;
     final quote = reservation.quote;
+    final isBlock = reservation.kind == ReservationKind.block;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (isBlock) ...[
+          const Chip(label: Text('Admin block')),
+          const SizedBox(height: 8),
+        ],
         Text(
           '${formatDay(reservation.start.toLocal())} → '
           '${formatDay(reservation.end.toLocal())}',
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 8),
+        // A block has no guests and no quote -- it exists purely to keep a
+        // unit off the calendar, so those rows are simply omitted rather
+        // than showing a blank "null guests" or an empty money table.
         if (reservation.guests != null)
           Text('${reservation.guests} guests'),
+        if (isBlock && reservation.blockReason != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text('Reason: ${reservation.blockReason}'),
+          ),
         const SizedBox(height: 16),
         if (quote != null) _QuoteBreakdown(quote: quote),
         const SizedBox(height: 24),
@@ -106,7 +125,7 @@ class _DetailState extends ConsumerState<_Detail> {
                     width: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Cancel booking'),
+                : Text(isBlock ? 'Remove block' : 'Cancel booking'),
           ),
       ],
     );
@@ -123,7 +142,12 @@ class _DetailState extends ConsumerState<_Detail> {
 /// listening for a few more frames, so an eagerly-disposed controller was
 /// used-after-dispose and crashed the widget tree on the way out.
 class _CancelBookingDialog extends StatefulWidget {
-  const _CancelBookingDialog();
+  const _CancelBookingDialog({required this.isBlock});
+
+  /// True when the reservation being cancelled is an admin block, not a
+  /// customer booking -- there is no refund to talk about, so the dialog's
+  /// copy must not promise a follow-up that will never happen.
+  final bool isBlock;
 
   @override
   State<_CancelBookingDialog> createState() => _CancelBookingDialogState();
@@ -140,16 +164,18 @@ class _CancelBookingDialogState extends State<_CancelBookingDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Cancel booking'),
+        title: Text(widget.isBlock ? 'Remove block' : 'Cancel booking'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Your dates will be released immediately so others can book '
-              'them. Refund handling is not yet automated in this phase — '
-              'our team will follow up separately about any refund.',
-            ),
+            Text(widget.isBlock
+                ? 'These dates will be released immediately and become '
+                    'bookable again.'
+                : 'Your dates will be released immediately so others can '
+                    'book them. Refund handling is not yet automated in '
+                    'this phase — our team will follow up separately about '
+                    'any refund.'),
             const SizedBox(height: 16),
             TextField(
               key: const Key('cancel-reason-field'),
@@ -163,12 +189,12 @@ class _CancelBookingDialogState extends State<_CancelBookingDialog> {
           TextButton(
             key: const Key('keep-booking-button'),
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Keep booking'),
+            child: Text(widget.isBlock ? 'Keep block' : 'Keep booking'),
           ),
           FilledButton(
             key: const Key('confirm-cancel-button'),
             onPressed: () => Navigator.of(context).pop(_reasonController.text),
-            child: const Text('Cancel booking'),
+            child: Text(widget.isBlock ? 'Remove block' : 'Cancel booking'),
           ),
         ],
       );

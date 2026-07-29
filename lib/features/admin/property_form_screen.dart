@@ -114,8 +114,8 @@ class _PropertyFormScreenState extends ConsumerState<PropertyFormScreen> {
       if (mounted) Navigator.of(context).pop();
     } on BookingFailure catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(FailureView.messageFor(e))));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

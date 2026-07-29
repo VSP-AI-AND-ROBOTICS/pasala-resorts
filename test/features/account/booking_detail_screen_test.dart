@@ -97,6 +97,18 @@ Reservation _reservation({
       quote: _quote(),
     );
 
+/// I4: an admin block has no customer, no guests, and no quote -- it exists
+/// purely to keep a unit off the calendar.
+Reservation _block({String id = 'block-1'}) => Reservation(
+      id: id,
+      unitId: 'unit-1',
+      start: DateTime.utc(2026, 8, 3),
+      end: DateTime.utc(2026, 8, 5),
+      kind: ReservationKind.block,
+      status: ReservationStatus.confirmed,
+      blockReason: 'roof repair',
+    );
+
 void main() {
   late GoRouter router;
 
@@ -226,5 +238,48 @@ void main() {
         tester.widget<OutlinedButton>(find.byKey(const Key('cancel-booking-button')));
     expect(button.onPressed, isNotNull);
     expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  group('admin block (I4)', () {
+    testWidgets('renders without a guest count or a quote row', (tester) async {
+      await openDetail(tester, _block(), _FakeCancelActions());
+
+      // No crash, and no stray "null guests" / empty money rows.
+      expect(find.textContaining('guests'), findsNothing);
+      expect(find.text('Price breakdown'), findsNothing);
+      expect(find.text('Admin block'), findsOneWidget);
+      expect(find.textContaining('roof repair'), findsOneWidget);
+    });
+
+    testWidgets('the action is labelled Remove block, not Cancel booking',
+        (tester) async {
+      await openDetail(tester, _block(), _FakeCancelActions());
+
+      expect(find.byKey(const Key('cancel-booking-button')), findsOneWidget);
+      expect(find.text('Remove block'), findsOneWidget);
+      expect(find.text('Cancel booking'), findsNothing);
+    });
+
+    testWidgets('removing a block calls cancel and returns to the list',
+        (tester) async {
+      final block = _block();
+      final actions = _FakeCancelActions();
+      await openDetail(tester, block, actions);
+
+      await tester.tap(find.byKey(const Key('cancel-booking-button')));
+      await tester.pumpAndSettle();
+
+      // The block dialog must not promise a refund that will never happen.
+      expect(find.textContaining('refund'), findsNothing);
+
+      await tester.enterText(
+          find.byKey(const Key('cancel-reason-field')), 'no longer needed');
+      await tester.tap(find.byKey(const Key('confirm-cancel-button')));
+      await tester.pumpAndSettle();
+
+      expect(actions.cancelCalls,
+          [(reservationId: block.id, reason: 'no longer needed')]);
+      expect(find.text('bookings-list'), findsOneWidget);
+    });
   });
 }

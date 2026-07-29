@@ -412,8 +412,8 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       // orphaned hold (if the cancel truly didn't land) still expires on its
       // own within 15 minutes.
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              'Could not release your previous hold: ${releaseFailure.message}')));
+          content: Text('Could not release your previous hold: '
+              '${FailureView.messageFor(releaseFailure)}')));
     }
     unawaited(_maybeFetchQuote());
   }
@@ -440,7 +440,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       if (!mounted) return;
       setState(() => _quoteLoading = false);
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+          .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
     }
   }
 
@@ -588,7 +588,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     } on BookingFailure catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+          .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
     } finally {
       _setBusy(false);
     }
@@ -632,7 +632,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       ref.invalidate(unitReservationsProvider(widget.unitId));
     }
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(failure.message)));
+        .showSnackBar(SnackBar(content: Text(FailureView.messageFor(failure))));
   }
 
   @override

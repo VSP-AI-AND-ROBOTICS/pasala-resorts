@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors.dart';
+import '../../core/widgets/failure_view.dart';
 import '../../data/repositories/auth_repository.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -35,8 +36,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (mounted) context.go('/');
     } on BookingFailure catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(FailureView.messageFor(e))));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

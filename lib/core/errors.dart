@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 sealed class BookingFailure implements Exception {
@@ -24,6 +25,18 @@ class QuoteStale extends BookingFailure {
 
 class NotPermitted extends BookingFailure {
   const NotPermitted() : super('You do not have access to do that.');
+}
+
+/// A 400/422 from Supabase auth: a mistyped password on sign-in, or a
+/// duplicate email on sign-up. Kept distinct from [NotPermitted] (I7) --
+/// without this, every one of those looked identical to "you don't have
+/// access", including on the app's very first screen, before the customer
+/// has anything to have access to. [message] comes straight from
+/// [AuthException.message], which -- unlike [PostgrestException.message] --
+/// is already written for an end user (e.g. "Invalid login credentials",
+/// "User already registered"), so it is safe to show verbatim.
+class InvalidCredentials extends BookingFailure {
+  const InvalidCredentials(super.message);
 }
 
 class NotFound extends BookingFailure {
@@ -58,15 +71,36 @@ class DuplicateValue extends BookingFailure {
 BookingFailure mapPostgrestError(Object error) {
   if (error is BookingFailure) return error;
   if (error is SocketException) return const NetworkFailure();
+  // `dart:io`'s SocketException never fires on web -- `BrowserClient` (the
+  // `package:http` client Supabase uses there) throws a `ClientException`
+  // for the exact same "offline"/DNS/CORS-preflight-failed case instead.
+  // Without this arm an offline web user fell through to UnknownFailure,
+  // which meant `FailureView` showed its raw-text branch carrying the
+  // Supabase endpoint URL (I5).
+  if (error is http.ClientException) return const NetworkFailure();
+
+  // Auth errors are handled before the Postgrest switch below: they carry
+  // their own status/message shape (a `String?` statusCode, not a Postgrest
+  // error code), and I7 needs to distinguish a credential problem from a
+  // network blip from an actual permission failure -- collapsing all three
+  // to NotPermitted (the old behaviour) made every one of them read as "you
+  // do not have access to do that," including on the sign-in screen before
+  // the customer has anything to have access to.
+  if (error is AuthRetryableFetchException) return const NetworkFailure();
+  if (error is AuthApiException) {
+    return switch (error.statusCode) {
+      '400' || '422' => InvalidCredentials(error.message),
+      _ => const NotPermitted(),
+    };
+  }
+  if (error is AuthException) return const NotPermitted();
 
   final code = switch (error) {
     PostgrestException(:final code) => code,
-    AuthException() => '42501',
     _ => null,
   };
   final message = switch (error) {
     PostgrestException(:final message) => message,
-    AuthException(:final message) => message,
     _ => error.toString(),
   };
 

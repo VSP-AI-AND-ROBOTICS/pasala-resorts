@@ -7,24 +7,29 @@ import '../../data/models/reservation.dart';
 import '../account/my_bookings_screen.dart' show BookingTile;
 import '../staff/providers.dart';
 
-/// The four ways admin can slice the bookings list. Deliberately narrower
+/// The five ways admin can slice the bookings list. Deliberately narrower
 /// than [ReservationStatus]: `pendingPayment` has no segment of its own
 /// (those rows still show up under `all`) because a not-yet-paid hold that
 /// is past its 15-minute window is an edge case, not something an admin
 /// scans for day to day.
-enum BookingStatusFilter { all, onHold, confirmed, cancelled }
+enum BookingStatusFilter { all, onHold, confirmed, cancelled, blocks }
 
-/// Reservations of kind `booking` -- i.e. actual guest bookings, whether
-/// still on hold, paid, or cancelled -- narrowed to [filter]. Admin blocks
-/// (`ReservationKind.block`) are deliberately excluded: they have no
-/// customer or quote and already have their own screen at
-/// `/admin/block/:unitId`, so listing them here as "bookings" would be
-/// misleading. Pure and top-level so the filter logic is directly
-/// unit-testable without pumping a widget.
+/// Reservations narrowed to [filter]. `all`/`onHold`/`confirmed`/`cancelled`
+/// only ever look at kind `booking` -- i.e. actual guest bookings, whether
+/// still on hold, paid, or cancelled -- because listing an admin block
+/// alongside them as a "booking" would be misleading; blocks have no
+/// customer or quote. [BookingStatusFilter.blocks] is the one dedicated
+/// escape hatch: without it, a block could only ever be found (and thus
+/// only ever be undone) via psql, since nothing else in the app surfaces its
+/// id. Pure and top-level so the filter logic is directly unit-testable
+/// without pumping a widget.
 List<Reservation> filterBookings(
   List<Reservation> all,
   BookingStatusFilter filter,
 ) {
+  if (filter == BookingStatusFilter.blocks) {
+    return all.where((r) => r.kind == ReservationKind.block).toList();
+  }
   final bookings = all.where((r) => r.kind == ReservationKind.booking);
   return switch (filter) {
     BookingStatusFilter.all => bookings.toList(),
@@ -36,6 +41,7 @@ List<Reservation> filterBookings(
     BookingStatusFilter.cancelled => bookings
         .where((r) => r.status == ReservationStatus.cancelled)
         .toList(),
+    BookingStatusFilter.blocks => const [], // unreachable, handled above
   };
 }
 
@@ -44,6 +50,7 @@ String _filterLabel(BookingStatusFilter filter) => switch (filter) {
       BookingStatusFilter.onHold => 'On hold',
       BookingStatusFilter.confirmed => 'Confirmed',
       BookingStatusFilter.cancelled => 'Cancelled',
+      BookingStatusFilter.blocks => 'Blocks',
     };
 
 /// `/admin/bookings` -- every reservation the admin may see (RLS grants

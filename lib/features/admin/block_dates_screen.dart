@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors.dart';
+import '../../core/widgets/failure_view.dart';
 import '../../data/repositories/booking_repository.dart';
 import '../calendar/availability_calendar.dart';
 import '../calendar/providers.dart';
@@ -107,8 +108,8 @@ class _BlockDatesScreenState extends ConsumerState<BlockDatesScreen> {
       // for this branch) so the admin can drop the conflicting day and
       // retry without re-picking everything.
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(FailureView.messageFor(e))));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

@@ -154,8 +154,8 @@ class RateRulesScreen extends ConsumerWidget {
       ref.invalidate(rateRulesProvider(unitId));
     } on BookingFailure catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(FailureView.messageFor(e))));
       }
     }
   }
@@ -320,8 +320,8 @@ class _RateRuleFormScreenState extends ConsumerState<RateRuleFormScreen> {
       if (mounted) Navigator.of(context).pop();
     } on BookingFailure catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(FailureView.messageFor(e))));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

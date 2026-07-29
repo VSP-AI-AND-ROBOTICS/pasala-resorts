@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors.dart';
+import '../../core/widgets/failure_view.dart';
 import '../../data/models/unit.dart';
 import '../../data/repositories/catalog_repository.dart';
 import '../browse/providers.dart';
@@ -99,8 +100,8 @@ class _UnitFormScreenState extends ConsumerState<UnitFormScreen> {
       }
     } on BookingFailure catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(FailureView.messageFor(e))));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

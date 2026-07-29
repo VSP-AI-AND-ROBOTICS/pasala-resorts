@@ -59,11 +59,28 @@ void main() {
       expect(result.map((r) => r.id), ['cancelled-1']);
     });
 
-    test('a block never appears even under All', () {
-      for (final filter in BookingStatusFilter.values) {
+    test('a block never appears under All/onHold/confirmed/cancelled', () {
+      for (final filter in [
+        BookingStatusFilter.all,
+        BookingStatusFilter.onHold,
+        BookingStatusFilter.confirmed,
+        BookingStatusFilter.cancelled,
+      ]) {
         expect(filterBookings(all, filter).map((r) => r.id),
             isNot(contains('block-1')));
       }
+    });
+
+    // I4: a block previously had no filter at all -- an admin could only
+    // find (and thus only undo) one via psql. This is the escape hatch.
+    test('Blocks returns only block-kind reservations', () {
+      final result = filterBookings(all, BookingStatusFilter.blocks);
+      expect(result.map((r) => r.id), ['block-1']);
+    });
+
+    test('a non-block booking never appears under Blocks', () {
+      final result = filterBookings(all, BookingStatusFilter.blocks);
+      expect(result.map((r) => r.id), isNot(contains('confirmed-1')));
     });
   });
 
