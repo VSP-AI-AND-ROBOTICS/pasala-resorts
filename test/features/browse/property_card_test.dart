@@ -59,4 +59,30 @@ void main() {
     expect(find.textContaining('15:00'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('never renders a raw HH:mm:ss time, even if the model carries '
+      'one', (tester) async {
+    // Property.fromJson normalizes on read, but this guards the display
+    // itself (defense in depth) against any directly-constructed Property
+    // that still carries Postgres's raw `time` format.
+    const rawProperty = Property(
+      id: 'a3',
+      name: 'Pasala Valley',
+      slug: 'valley',
+      description: null,
+      address: null,
+      images: [],
+      amenities: [],
+      checkInTime: '14:00:00',
+      checkOutTime: '11:00:00',
+      isActive: true,
+    );
+
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(body: PropertyCard(property: rawProperty)),
+    ));
+
+    expect(find.textContaining('14:00:00'), findsNothing);
+    expect(find.textContaining('14:00'), findsOneWidget);
+  });
 }

@@ -42,6 +42,17 @@ class UnknownFailure extends BookingFailure {
   const UnknownFailure(super.message);
 }
 
+/// A unique-constraint violation (Postgres `23505`) -- e.g. `properties.slug`
+/// is `unique`, so re-using a slug on create raises this. Without this arm,
+/// the code fell through to [UnknownFailure] and [FailureView] would show its
+/// generic fallback with no hint of what to fix; this gives the admin a
+/// specific, actionable message instead while still never repeating the raw
+/// constraint-name text Postgres sent.
+class DuplicateValue extends BookingFailure {
+  const DuplicateValue()
+      : super('That value is already in use. Try a different one.');
+}
+
 /// Translates a Supabase or transport error into a typed failure.
 /// Widgets must never see a [PostgrestException].
 BookingFailure mapPostgrestError(Object error) {
@@ -67,6 +78,7 @@ BookingFailure mapPostgrestError(Object error) {
     'P0002' => const NotFound(),
     'P0003' || 'P0004' || 'P0005' || 'P0009' => InvalidState(message),
     '23514' => InvalidState(message),
+    '23505' => const DuplicateValue(),
     _ => UnknownFailure(message),
   };
 }

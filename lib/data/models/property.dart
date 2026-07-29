@@ -23,6 +23,17 @@ class Property {
   final String checkOutTime;
   final bool isActive;
 
+  /// Postgres `time` columns round-trip as `HH:mm:ss` (e.g. `14:00:00`), but
+  /// every writer in this app -- `showTimePicker` via [PropertyFormScreen],
+  /// and the `HH:mm` defaults below -- only ever produces `HH:mm`. Normalising
+  /// on read here means [checkInTime]/[checkOutTime] are always `HH:mm`
+  /// regardless of which format the row came back in, so display code (e.g.
+  /// [PropertyCard]) never has to care, and re-editing a property round-trips
+  /// without drift: write `HH:mm` -> Postgres stores `HH:mm:00` -> next read
+  /// truncates right back to the same `HH:mm`.
+  static String normalizeTime(String raw) =>
+      raw.length >= 5 ? raw.substring(0, 5) : raw;
+
   factory Property.fromJson(Map<String, dynamic> json) => Property(
         id: json['id'] as String,
         name: json['name'] as String,
@@ -31,8 +42,9 @@ class Property {
         address: json['address'] as String?,
         images: (json['images'] as List<dynamic>? ?? []).cast<String>(),
         amenities: (json['amenities'] as List<dynamic>? ?? []).cast<String>(),
-        checkInTime: json['check_in_time'] as String? ?? '14:00',
-        checkOutTime: json['check_out_time'] as String? ?? '11:00',
+        checkInTime: normalizeTime(json['check_in_time'] as String? ?? '14:00'),
+        checkOutTime:
+            normalizeTime(json['check_out_time'] as String? ?? '11:00'),
         isActive: json['is_active'] as bool? ?? true,
       );
 

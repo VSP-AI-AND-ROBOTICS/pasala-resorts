@@ -4,6 +4,9 @@ import 'package:go_router/go_router.dart';
 import '../data/repositories/auth_repository.dart';
 import '../features/account/booking_detail_screen.dart';
 import '../features/account/my_bookings_screen.dart';
+import '../features/admin/admin_home_screen.dart';
+import '../features/admin/property_form_screen.dart';
+import '../features/admin/units_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
 import '../features/booking/booking_screen.dart';
@@ -62,6 +65,16 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/booking-detail/:id',
             builder: (_, state) =>
                 BookingDetailScreen(reservationId: state.pathParameters['id']!),
+          ),
+          GoRoute(path: '/admin', builder: (_, _) => const AdminHomeScreen()),
+          GoRoute(
+            path: '/admin/properties',
+            builder: (_, _) => const AdminPropertiesScreen(),
+          ),
+          GoRoute(
+            path: '/admin/units/:propertyId',
+            builder: (_, state) =>
+                UnitsScreen(propertyId: state.pathParameters['propertyId']!),
           ),
         ],
       ),

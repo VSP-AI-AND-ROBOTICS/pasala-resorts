@@ -54,4 +54,18 @@ void main() {
   test('an unknown code maps to UnknownFailure', () {
     expect(map('99999'), isA<UnknownFailure>());
   });
+
+  test('23505 unique violation maps to DuplicateValue', () {
+    expect(map('23505'), isA<DuplicateValue>());
+  });
+
+  test('DuplicateValue never leaks the raw constraint-name text', () {
+    final failure = map(
+      '23505',
+      'duplicate key value violates unique constraint "properties_slug_key"',
+    );
+    expect(failure, isA<DuplicateValue>());
+    expect(failure.message, isNot(contains('constraint')));
+    expect(failure.message, isNot(contains('properties_slug_key')));
+  });
 }

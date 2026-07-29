@@ -61,8 +61,13 @@ class PropertyCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodyMedium),
                 ],
                 const SizedBox(height: 8),
-                Text('Check-in ${property.checkInTime} · '
-                    'Check-out ${property.checkOutTime}'),
+                // Belt-and-suspenders: Property.fromJson already normalises
+                // Postgres's `HH:mm:ss` down to `HH:mm`, but this display
+                // line calls normalizeTime again so a directly-constructed
+                // Property (as in tests, or a future caller) can never leak
+                // ":ss" onto the card.
+                Text('Check-in ${Property.normalizeTime(property.checkInTime)} · '
+                    'Check-out ${Property.normalizeTime(property.checkOutTime)}'),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
