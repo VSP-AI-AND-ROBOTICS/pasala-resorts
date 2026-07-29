@@ -6,6 +6,7 @@ import '../features/account/booking_detail_screen.dart';
 import '../features/account/my_bookings_screen.dart';
 import '../features/admin/admin_home_screen.dart';
 import '../features/admin/property_form_screen.dart';
+import '../features/admin/rate_rules_screen.dart';
 import '../features/admin/units_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
@@ -75,6 +76,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/admin/units/:propertyId',
             builder: (_, state) =>
                 UnitsScreen(propertyId: state.pathParameters['propertyId']!),
+          ),
+          GoRoute(
+            path: '/admin/rates/:unitId',
+            builder: (_, state) =>
+                RateRulesScreen(unitId: state.pathParameters['unitId']!),
           ),
         ],
       ),
