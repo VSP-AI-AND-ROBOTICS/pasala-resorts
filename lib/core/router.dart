@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../data/repositories/auth_repository.dart';
 import '../features/account/booking_detail_screen.dart';
 import '../features/account/my_bookings_screen.dart';
+import '../features/admin/admin_bookings_screen.dart';
 import '../features/admin/admin_home_screen.dart';
 import '../features/admin/block_dates_screen.dart';
 import '../features/admin/property_form_screen.dart';
@@ -17,6 +18,7 @@ import '../features/browse/browse_screen.dart';
 import '../features/browse/property_screen.dart';
 import '../features/shell/app_shell.dart';
 import '../features/shell/not_found_screen.dart';
+import '../features/staff/today_screen.dart';
 
 /// Route guarding is user experience only. RLS in Postgres is what actually
 /// enforces access; a customer who forges a route sees a not-found page and
@@ -88,6 +90,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, state) =>
                 BlockDatesScreen(unitId: state.pathParameters['unitId']!),
           ),
+          GoRoute(
+            path: '/admin/bookings',
+            builder: (_, _) => const AdminBookingsScreen(),
+          ),
+          GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
         ],
       ),
     ],
