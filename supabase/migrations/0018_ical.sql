@@ -154,6 +154,14 @@ end;
 $$;
 
 grant execute on function public.rotate_ical_token(uuid) to authenticated;
+-- C1 sweep: `grant ... to authenticated` alone does not remove the default
+-- PUBLIC EXECUTE a function gets at creation -- `anon` keeps it unless this
+-- is explicit. `rotate_ical_token` is admin-gated in its own body, so an
+-- anon call would still be rejected there, but rejecting it at the grant
+-- layer (42501, before the body runs at all) is the same defense-in-depth
+-- the rest of this migration now applies consistently.
+revoke execute on function public.rotate_ical_token(uuid) from public;
+revoke execute on function public.rotate_ical_token(uuid) from anon;
 
 -- === RFC 5545 helpers ========================================================
 
@@ -299,6 +307,10 @@ end;
 $$;
 
 grant execute on function public.ical_export(uuid) to authenticated;
+-- C1 sweep: same reasoning as `rotate_ical_token` above -- staff-gated in
+-- the body already, but `anon` must not even reach the body.
+revoke execute on function public.ical_export(uuid) from public;
+revoke execute on function public.ical_export(uuid) from anon;
 
 -- anon, token-gated -- the actual URL an OTA fetches. See the migration
 -- header for the token/security trade-off.
@@ -357,20 +369,40 @@ declare
   v_period   tstzrange;
   v_id       uuid;
 begin
-  -- `auth.uid()` is only ever non-null for a real client request that
-  -- carried a JWT through PostgREST (this function is granted to
-  -- `authenticated` only -- `anon` gets 42501 before the body even runs,
-  -- with no grant at all). `ical_poll_feed` (called either by an admin's
-  -- Sync press or by the pg_cron job below, which runs as `postgres` with
-  -- no session JWT) calls this function directly with no client request
-  -- in play at all, so `auth.uid()` is null there. Rejecting only "a real
-  -- authenticated caller who isn't an admin" -- not "no client caller at
-  -- all" -- is what lets the automatic poll actually import anything;
-  -- gating on `is_admin()` alone made every cron-driven import fail with
-  -- P0008, since a cron tick has no profile to look up in the first
-  -- place (caught by hand-testing the poll end-to-end against a real
-  -- local HTTP server -- see the task report).
-  if auth.uid() is not null and not public.is_admin() then
+  -- C1 fix: this used to gate on `auth.uid() is not null`, on the theory
+  -- that `anon` would never reach this line at all -- the comment claimed
+  -- "anon gets 42501 before the body even runs, with no grant at all."
+  -- That grant never existed: `grant execute ... to authenticated` does
+  -- not remove the PostgreSQL default PUBLIC EXECUTE a function gets at
+  -- creation, so without an explicit `revoke ... from public` (added
+  -- below, now that this is caught), `anon` held EXECUTE the whole time.
+  -- And `auth.uid()` is NULL for `anon` too (no `sub` claim in the anon
+  -- JWT) -- so an anon caller sailed straight through this guard as if it
+  -- were the trusted cron job, and could create/move an `ota` reservation
+  -- on any unit with no authentication at all. Reproduced live: a plain
+  -- `POST /rest/v1/rpc/ical_import_event` with only the public anon key
+  -- returned 200 and created a reservation.
+  --
+  -- The fix keys on whether a client request is in play at all, not on
+  -- which claims it happened to carry: `request.jwt.claims` is a GUC
+  -- PostgREST sets on every request it proxies -- for `anon` requests too,
+  -- populated from the anon key's own JWT (`{"role":"anon"}`, no `sub`) --
+  -- and is simply unset for a genuine in-database caller with no PostgREST
+  -- layer in front of it at all, which is exactly and only how
+  -- `ical_poll_feed` (an admin's Sync press or the pg_cron job below, which
+  -- runs as `postgres` with no session JWT) invokes this function.
+  -- `nullif(current_setting('request.jwt.claims', true), '')` -- the same
+  -- idiom `auth.uid()` itself uses internally -- is therefore null only
+  -- for that genuine in-database caller -- never for `anon`, never for any
+  -- authenticated non-admin client -- so both are now rejected here, and
+  -- only the cron/Sync path and an admin get through. The `nullif(...,'')`
+  -- matters, not just `current_setting(...) is null`: once this GUC has
+  -- been set at all in a session, Postgres's own `RESET` reverts it to an
+  -- empty string, not to undefined/null -- treating `''` the same as
+  -- "unset" is what makes this guard agree with `auth.uid()`'s own
+  -- definition, not a weaker approximation of it.
+  if nullif(current_setting('request.jwt.claims', true), '') is not null
+     and not public.is_admin() then
     raise exception 'not permitted' using errcode = 'P0008';
   end if;
 
@@ -429,6 +461,22 @@ $$;
 grant execute on function
   public.ical_import_event(uuid, text, timestamptz, timestamptz)
   to authenticated;
+-- C1: the actual fix for the vulnerability documented above the guard in
+-- this function's body -- `grant ... to authenticated` never removed the
+-- default PUBLIC EXECUTE this function held since creation, so `anon`
+-- could call it directly with no grant at all standing in the way, and the
+-- body's old `auth.uid()`-based guard did not catch it either (auth.uid()
+-- is null for anon, same as for the cron job this guard exists to allow).
+-- This revoke closes that door at the grant layer: `anon` now gets 42501
+-- before the function body runs at all. `authenticated` keeps its grant
+-- (real customers/staff/admin need to reach the body-level is_admin()
+-- check); only `anon` is removed.
+revoke execute on function
+  public.ical_import_event(uuid, text, timestamptz, timestamptz)
+  from public;
+revoke execute on function
+  public.ical_import_event(uuid, text, timestamptz, timestamptz)
+  from anon;
 
 -- === parsing a raw ICS document (used by the poller; also directly ========
 -- === testable/round-trippable without any network I/O) =====================
@@ -621,13 +669,21 @@ declare
   v_req_id      bigint;
   v_result      jsonb;
 begin
-  -- Same "no client context at all" exemption as `ical_import_event`
-  -- (which this function calls) -- the pg_cron job below invokes this
-  -- with no session JWT, so `auth.uid()` is null there; a real
-  -- authenticated non-admin client must still be rejected, or any
-  -- signed-in customer could make the server issue arbitrary outbound
-  -- fetches against admin-configured feed URLs on demand.
-  if auth.uid() is not null and not public.is_admin() then
+  -- C1 fix: same GUC-based guard as `ical_import_event` above (which this
+  -- function calls), and for the same reason -- gating on `auth.uid() is
+  -- not null` let `anon` through, since `auth.uid()` is null for `anon`
+  -- too. `nullif(current_setting('request.jwt.claims', true), '')` --
+  -- the same idiom `auth.uid()` uses internally, see the fuller comment on
+  -- `ical_import_event` above -- is null only for a genuine in-database
+  -- caller (the pg_cron job below, or a direct SQL session -- neither
+  -- carries a PostgREST-set JWT claims GUC) and non-null for every
+  -- PostgREST-mediated request, anon or authenticated. A real authenticated
+  -- non-admin client must still be rejected here, or any signed-in
+  -- customer could make the server issue arbitrary outbound fetches
+  -- against admin-configured feed URLs on demand -- and now so must
+  -- `anon`, which this used to let straight through.
+  if nullif(current_setting('request.jwt.claims', true), '') is not null
+     and not public.is_admin() then
     raise exception 'not permitted' using errcode = 'P0008';
   end if;
 
@@ -757,6 +813,13 @@ end;
 $$;
 
 grant execute on function public.ical_poll_feed(uuid) to authenticated;
+-- C1: same fix, same reason, as `ical_import_event` above -- `anon` held
+-- implicit PUBLIC EXECUTE the whole time, and the body's old
+-- `auth.uid()`-based guard did not stop it either (that guard is fixed
+-- above too). Without this, `anon` could make the server issue arbitrary
+-- outbound HTTP fetches against admin-configured feed URLs on demand.
+revoke execute on function public.ical_poll_feed(uuid) from public;
+revoke execute on function public.ical_poll_feed(uuid) from anon;
 
 -- Called only by the cron job below (runs as the scheduling role,
 -- `postgres`, which bypasses grants entirely) -- never meant to be called

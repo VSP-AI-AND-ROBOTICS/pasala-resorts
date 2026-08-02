@@ -123,6 +123,14 @@ end;
 $$;
 
 grant execute on function public.compute_refund to authenticated;
+-- C1 sweep: close the default PUBLIC EXECUTE gap consistently -- see
+-- 0018_ical.sql's header comment on `ical_import_event` for the full
+-- reasoning. `compute_refund` already requires `auth.uid()` in its body,
+-- so this is defense-in-depth, not the primary fix for this function, but
+-- applying it everywhere is what makes the primary fix (0018) actually
+-- trustworthy as a pattern rather than a one-off.
+revoke execute on function public.compute_refund from public;
+revoke execute on function public.compute_refund from anon;
 
 -- `cancel_booking` now records what the customer is owed at the moment of
 -- cancellation -- `refund_pct`/`refund_amount` -- rather than only freeing
@@ -180,6 +188,14 @@ end;
 $$;
 
 grant execute on function public.cancel_booking to authenticated;
+-- C1 sweep: same defense-in-depth as `compute_refund` above. `cancel_booking`
+-- is redefined again in migration 0016 (same signature -- `create or
+-- replace` there does not reset this ACL), which repeats this revoke too,
+-- matching the same belt-and-suspenders convention this branch already
+-- uses for `release_expired_holds` (defined in 0007, revoked there,
+-- redefined and re-revoked again in 0016).
+revoke execute on function public.cancel_booking from public;
+revoke execute on function public.cancel_booking from anon;
 
 -- Seed the default ladder -- full refund beyond 7 days out, 50% within 7
 -- days, nothing within 48 hours -- for every property that already exists

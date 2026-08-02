@@ -110,3 +110,9 @@ end;
 $$;
 
 grant execute on function public.confirm_booking to authenticated;
+-- C1 sweep: same defense-in-depth as 0013's `compute_refund`/
+-- `cancel_booking` -- see 0018_ical.sql's header comment on
+-- `ical_import_event` for the full reasoning behind revoking PUBLIC
+-- EXECUTE consistently across every phase-2 function.
+revoke execute on function public.confirm_booking from public;
+revoke execute on function public.confirm_booking from anon;

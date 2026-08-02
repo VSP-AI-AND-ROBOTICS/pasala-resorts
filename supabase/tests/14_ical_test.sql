@@ -28,7 +28,7 @@
 --     feed recovers on its very next poll (Task 10 fix-round Finding 1).
 
 begin;
-select plan(64);
+select plan(67);
 
 select has_table('public', 'ical_feeds', 'ical_feeds table exists');
 select has_column('public', 'ical_feeds', 'unit_id', 'ical_feeds has unit_id');
@@ -300,6 +300,41 @@ reset role;
 
 -- === ical_import_event =====================================================
 
+-- C1: reproduced live before this fix -- a plain `POST
+-- /rest/v1/rpc/ical_import_event` carrying only the public anon key
+-- returned 200 and created a 7-night `kind = 'ota'` reservation on a real
+-- unit. The old guard (`auth.uid() is not null and not is_admin()`) let
+-- `anon` straight through, since `auth.uid()` is null for `anon` too -- it
+-- was indistinguishable, to that guard, from the trusted cron caller this
+-- exemption exists for. The function also kept the PostgreSQL default
+-- PUBLIC EXECUTE the whole time (`grant ... to authenticated` never
+-- removes it), so `anon` did not even need the guard to fail in its
+-- favour -- it never needed any grant at all. Both layers are fixed now:
+-- the grant is explicitly revoked from `anon` (asserted here as 42501,
+-- before the function body runs at all) and the guard itself now keys on
+-- `current_setting('request.jwt.claims', true) is null` -- true only for
+-- a genuine in-database caller (pg_cron/direct SQL, no PostgREST layer in
+-- front of it) -- rather than on `auth.uid()`, which any client request,
+-- anon included, can make come back null.
+set local role anon;
+set local request.jwt.claims to '{"role":"anon"}';
+select throws_ok(
+  $$select public.ical_import_event('e5000000-0000-0000-0000-000000000002',
+      'anon-exploit-uid', '2028-01-10T14:00:00Z'::timestamptz,
+      '2028-01-12T11:00:00Z'::timestamptz)$$,
+  '42501', null,
+  'C1: anon cannot call ical_import_event at all -- rejected at the grant '
+  'layer (42501), the same live exploit the reviewer reproduced against '
+  'the running stack before this fix');
+
+set local role postgres;
+select is(
+  (select count(*)::int from public.reservations
+    where external_uid = 'anon-exploit-uid'),
+  0,
+  'C1: out-of-band check -- the anon call above created no reservation '
+  'at all, not even one that a later assertion might miss');
+
 set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"e5000000-0000-0000-0000-000000000010","role":"authenticated"}';
@@ -414,6 +449,21 @@ select is(
 select is(
   (select count(*)::int from cron.job where jobname = 'ical-poll-feeds'),
   1, 'the automatic-poll job is scheduled with pg_cron');
+
+-- C1: same vulnerability, same fix, as ical_import_event above -- `anon`
+-- held implicit PUBLIC EXECUTE and the old `auth.uid()`-based guard did
+-- not stop it either. Left unfixed, `anon` could make the server issue
+-- arbitrary outbound HTTP fetches against admin-configured feed URLs on
+-- demand, with no authentication at all.
+set local role anon;
+set local request.jwt.claims to '{"role":"anon"}';
+select throws_ok(
+  $$select public.ical_poll_feed('00000000-0000-0000-0000-000000000000')$$,
+  '42501', null,
+  'C1: anon cannot call ical_poll_feed at all -- rejected at the grant '
+  'layer (42501), before the function body (and any outbound HTTP fetch, '
+  'or even the "feed not found" check) ever runs -- the nonexistent feed '
+  'id proves the grant is what stops this, not a lookup failure');
 
 set local role authenticated;
 set local request.jwt.claims to

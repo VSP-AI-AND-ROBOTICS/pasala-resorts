@@ -40,7 +40,16 @@ create table public.coupons (
   )
 );
 
-grant select on public.coupons to anon, authenticated;
+-- I1 fix: this table was previously `grant select ... to anon,
+-- authenticated`, making the entire promo catalogue -- every code, its
+-- kind, value, expiry, usage cap -- directly listable by an unauthenticated
+-- caller. Nothing in `lib/` ever selects from `coupons` directly (coupon
+-- validation goes through `resolve_coupon`/`get_quote`/`create_hold`,
+-- all SECURITY DEFINER); the app never needed this grant. `anon` is
+-- removed entirely -- only `authenticated` retains read (still narrowed by
+-- the RLS policy below to active, non-customer-restricted-to-someone-else
+-- rows).
+grant select on public.coupons to authenticated;
 grant insert, update, delete on public.coupons to authenticated;
 
 alter table public.coupons enable row level security;
@@ -51,7 +60,7 @@ alter table public.coupons enable row level security;
 -- DEFINER function executes as its owner and would otherwise bypass this
 -- policy anyway. This still matters for any future direct client read.
 create policy coupons_read_active on public.coupons
-  for select to anon, authenticated
+  for select to authenticated
   using (is_active and (customer_id is null or customer_id = auth.uid()));
 
 create policy coupons_admin_write on public.coupons
@@ -143,6 +152,22 @@ begin
   return v_coupon;
 end;
 $$;
+
+-- I1 fix: internal helper only, called from `get_quote`/`create_hold`
+-- below (both SECURITY DEFINER, so they run as their owner regardless of
+-- the calling role) -- never meant to be invoked directly by a client,
+-- same pattern as `release_reservation_coupon` in migration 0016. It had
+-- no grant statement at all, so it kept the default PUBLIC EXECUTE every
+-- function gets at creation: as `anon`, with a guessed or enumerated code
+-- and any `p_uid`, it returned the coupon's full row (kind, value, expiry,
+-- usage cap, min_booking_value) and its four distinct SQLSTATEs (P0010-
+-- P0013) let a caller distinguish "doesn't exist" from "expired" from
+-- "exhausted" from "below minimum" -- a code-guessing oracle with no
+-- authentication required at all.
+revoke execute on function public.resolve_coupon(text, uuid, numeric)
+  from public;
+revoke execute on function public.resolve_coupon(text, uuid, numeric)
+  from anon, authenticated;
 
 -- `create or replace function` cannot change an existing function's
 -- signature -- adding a trailing parameter would otherwise leave the old
@@ -378,3 +403,15 @@ end;
 $$;
 
 grant execute on function public.create_hold to authenticated;
+-- C1 sweep: `create_hold` is recreated here with a new signature (the
+-- `drop function` above), which resets it to the PostgreSQL default of
+-- PUBLIC EXECUTE -- `grant ... to authenticated` adds `authenticated`
+-- without removing that default, so `anon` would otherwise keep implicit
+-- execute on the new signature even though it never held it deliberately.
+-- The body already requires `auth.uid()` (raises P0008 for `anon`), so
+-- this is defense-in-depth, matching the pattern applied consistently
+-- elsewhere on this branch (see 0007's `release_expired_holds`, 0016's
+-- `release_reservation_coupon`, 0017's outbox helpers, 0018's ical
+-- functions).
+revoke execute on function public.create_hold from public;
+revoke execute on function public.create_hold from anon;

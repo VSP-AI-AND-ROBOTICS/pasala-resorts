@@ -103,6 +103,11 @@ end;
 $$;
 
 grant execute on function public.cancel_booking to authenticated;
+-- C1 sweep: repeated here for the same reason `release_expired_holds`
+-- below repeats its own revoke after being redefined -- see 0013's first
+-- revoke of `cancel_booking` for the full reasoning.
+revoke execute on function public.cancel_booking from public;
+revoke execute on function public.cancel_booking from anon;
 
 -- `release_expired_holds`, the unattended path an ABANDONED hold actually
 -- takes -- nobody ever calls `cancel_booking` for it, the 15-minute expiry

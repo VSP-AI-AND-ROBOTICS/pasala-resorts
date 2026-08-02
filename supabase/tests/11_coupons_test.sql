@@ -6,7 +6,7 @@
 -- example exactly -- and a flat 2000 coupon discounts 2000 for 9500.
 
 begin;
-select plan(59);
+select plan(60);
 
 select has_table('public', 'coupons', 'coupons table exists');
 select has_table('public', 'coupon_redemptions',
@@ -275,15 +275,54 @@ select is(
 -- === RLS: grants beside policies ===========================================
 
 set local role anon;
-select ok(
-  (select count(*) from public.coupons where code = 'SAVE10') = 1,
-  'anon can read an active, unrestricted coupon');
-select ok(
-  (select count(*) from public.coupons where code = 'INACTIVE') = 0,
-  'anon cannot see an inactive coupon through RLS');
+
+-- I1 fix: `coupons` used to `grant select ... to anon`, making the whole
+-- promo catalogue -- every code, its kind, value, expiry, usage cap --
+-- directly listable with no authentication. Verified live before the fix
+-- (an unauthenticated `select count(*) from public.coupons` succeeded);
+-- now the grant is gone entirely, so this fails at the table-privilege
+-- layer with 42501 before RLS is even evaluated -- the same convention
+-- 07_rls_test.sql already documents for `reservations`/`payments`/
+-- `profiles`/`audit_log` (tables with no anon grant at all).
+select throws_ok(
+  $$select count(*) from public.coupons$$,
+  '42501', null,
+  'I1: anon cannot read the coupons table at all -- not even an active, '
+  'unrestricted code -- the promo catalogue is not a public read surface');
+
+-- I1 fix: `resolve_coupon` had no grant statement at all, so it kept the
+-- default PUBLIC EXECUTE every function gets at creation. As `anon`, with
+-- any guessed/enumerated code, it returned the coupon's full row and its
+-- four distinct SQLSTATEs (P0010 not-found, P0011 expired, P0012 maxed,
+-- P0013 below minimum) let a caller distinguish those cases -- a
+-- code-guessing oracle with no authentication required. It is now revoked
+-- from `public`/`anon`/`authenticated` entirely (an internal helper for
+-- `get_quote`/`create_hold`, same as `release_reservation_coupon`), so
+-- calling it directly fails at the grant layer regardless of the code
+-- guessed or the caller's identity.
+select throws_ok(
+  $$select public.resolve_coupon('SAVE10', null, 11500)$$,
+  '42501', null,
+  'I1: anon cannot call resolve_coupon directly -- closing the '
+  'code-guessing oracle its four distinct SQLSTATEs used to leave open');
+
 select throws_ok(
   $$insert into public.coupons (code, kind, value) values ('HACK','fixed',1)$$,
   '42501', null, 'anon cannot create coupons');
+reset role;
+
+-- I1: an authenticated customer must not be able to call resolve_coupon
+-- directly either -- it is revoked from `authenticated` too, not just
+-- `anon`, since it is purely an internal helper for get_quote/create_hold.
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+select throws_ok(
+  $$select public.resolve_coupon('SAVE10',
+      '11111111-1111-1111-1111-111111111111', 11500)$$,
+  '42501', null,
+  'I1: an authenticated customer cannot call resolve_coupon directly '
+  'either -- it is an internal helper, not a client-facing RPC');
 reset role;
 
 set local role authenticated;
