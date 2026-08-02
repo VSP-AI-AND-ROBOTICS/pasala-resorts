@@ -20,7 +20,7 @@
 --     accountant is staff-or-above and must see the numbers too.
 
 begin;
-select plan(17);
+select plan(18);
 
 select has_function('public','dashboard_summary','dashboard_summary() exists');
 select has_function('public','report_revenue','report_revenue() exists');
@@ -67,16 +67,25 @@ values
    'booking','confirmed','cccc0000-0000-0000-0000-000000000001',2,
    jsonb_build_object('total', 9999.00), 'app');
 
--- R3: a cancelled Riverside booking on a different day, own known total.
+-- R3: a cancelled Riverside booking on a different day, own known total --
+-- and, deliberately, a `refund_amount` (2000.00) that DIFFERS from that
+-- quoted total (8000.00). C2: `report_revenue`'s `refunded` used to sum
+-- the whole cancelled booking's quoted total, ignoring `refund_amount`
+-- entirely (the policy-computed figure `cancel_booking` actually stores) --
+-- a fixture where the two numbers happen to be equal cannot tell a fixed
+-- "refunded" bug apart from a correct one. Reproduced live before this
+-- fix: a cancelled Rs10,000 booking with `refund_amount = 0` reported
+-- `refunded = 10000`.
 insert into public.reservations
   (unit_id, period, kind, status, customer_id, guests, quote,
-   cancelled_at, cancel_reason, source)
+   cancelled_at, cancel_reason, source, refund_pct, refund_amount)
 values
   ('d0000000-0000-0000-0000-000000000001',
    public.build_period('d0000000-0000-0000-0000-000000000001',
                        date '2027-03-05', date '2027-03-06'),
    'booking','cancelled','cccc0000-0000-0000-0000-000000000001',2,
-   jsonb_build_object('total', 8000.00), now(), 'test cancellation', 'app');
+   jsonb_build_object('total', 8000.00), now(), 'test cancellation', 'app',
+   25.00, 2000.00);
 
 -- R5: the timezone trap. Check-in 2027-04-05 22:00 IST, checkout
 -- 2027-04-07 02:00 IST -- a real 2-night stay in the property's local
@@ -144,20 +153,34 @@ select is(
   'report_revenue gross matches the exact total planted in the fixture, not 20000+9999');
 
 -- === a cancelled booking is refunded, never net ===========================
+-- === C2: refunded is the ACTUAL refund_amount, not the quoted total ======
 
 select is(
   (select refunded from public.report_revenue(
      date '2027-03-05', date '2027-03-05',
      'a0000000-0000-0000-0000-000000000001')),
+  2000.00::numeric,
+  'C2: refunded is R3''s actual refund_amount (2000), not its quoted '
+  'total (8000) -- the two are deliberately different in this fixture so '
+  'a fabricated-refund bug cannot hide behind a coincidentally-equal '
+  'number');
+
+select isnt(
+  (select refunded from public.report_revenue(
+     date '2027-03-05', date '2027-03-05',
+     'a0000000-0000-0000-0000-000000000001')),
   8000.00::numeric,
-  'a cancelled booking''s total appears in refunded');
+  'C2: refunded is explicitly NOT the cancelled booking''s full quoted '
+  'total -- this is the exact fabrication the fix removes');
 
 select is(
   (select net from public.report_revenue(
      date '2027-03-05', date '2027-03-05',
      'a0000000-0000-0000-0000-000000000001')),
-  0::numeric,
-  'a cancelled booking''s total does not appear in net');
+  -2000.00::numeric,
+  'C2: net is gross (0, no confirmed booking that day) minus the actual '
+  'refund (2000) -- net can go negative on a refund-only day, proving it '
+  'is real subtraction, not a copy of gross');
 
 -- === report_occupancy: night count survives the UTC/IST boundary =========
 

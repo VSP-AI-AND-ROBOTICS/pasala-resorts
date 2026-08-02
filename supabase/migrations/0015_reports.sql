@@ -42,10 +42,26 @@ begin
     count(*)::int,
     coalesce(sum((r.quote ->> 'total')::numeric)
              filter (where r.status = 'confirmed'), 0),
-    coalesce(sum((r.quote ->> 'total')::numeric)
+    -- C2 fix: this used to sum the CANCELLED booking's whole quoted total
+    -- (`(r.quote ->> 'total')::numeric filter (where status = 'cancelled')`)
+    -- as "refunded" -- the full value of every cancellation, regardless of
+    -- what was actually refunded. `cancel_booking` (migrations 0013/0016)
+    -- computes and stores the real, policy-derived figure on the row
+    -- itself, in `refund_amount` -- that is the number that belongs here.
+    -- Reproduced live before this fix: a cancelled Rs10,000 booking with
+    -- `refund_amount = 0` (a policy tier that refunds nothing) reported
+    -- `refunded = 10000`.
+    coalesce(sum(r.refund_amount)
              filter (where r.status = 'cancelled'), 0),
+    -- `net` was a byte-for-byte copy of `gross` -- it subtracted nothing,
+    -- despite the dashboard caption ("Confirmed bookings, net of refunds")
+    -- and the CSV the owner hands their accountant both describing
+    -- gross-minus-refunded arithmetic that did not exist. Now it actually
+    -- is gross minus the (now-correct) refunded figure above.
     coalesce(sum((r.quote ->> 'total')::numeric)
              filter (where r.status = 'confirmed'), 0)
+    - coalesce(sum(r.refund_amount)
+               filter (where r.status = 'cancelled'), 0)
   from public.reservations r
   join public.units u on u.id = r.unit_id
   join public.properties p on p.id = u.property_id
@@ -184,3 +200,17 @@ $$;
 grant execute on function public.report_revenue    to authenticated;
 grant execute on function public.report_occupancy  to authenticated;
 grant execute on function public.dashboard_summary to authenticated;
+
+-- C1 sweep: close the default PUBLIC EXECUTE gap consistently -- see
+-- 0018_ical.sql's header comment on `ical_import_event` for the full
+-- reasoning. Each of these already calls `assert_staff()` in its own body,
+-- so this is defense-in-depth, not the primary fix -- but revenue and
+-- occupancy figures are exactly the kind of business data that should
+-- never be reachable by `anon` even at the grant layer, before that body
+-- check runs at all.
+revoke execute on function public.report_revenue    from public;
+revoke execute on function public.report_revenue    from anon;
+revoke execute on function public.report_occupancy  from public;
+revoke execute on function public.report_occupancy  from anon;
+revoke execute on function public.dashboard_summary from public;
+revoke execute on function public.dashboard_summary from anon;
