@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'razorpay_gateway.dart';
+
 class PaymentResult {
   const PaymentResult.success(this.reference)
       : succeeded = true,
@@ -47,5 +49,21 @@ class MockGateway implements PaymentGateway {
   }
 }
 
-final paymentGatewayProvider =
-    Provider<PaymentGateway>((ref) => const MockGateway());
+// There is no live Razorpay merchant account (see docs/STATUS.md), so
+// nothing in this repository's build configuration ever supplies
+// RAZORPAY_KEY_ID -- these two constants are always empty in every build
+// this repo produces, and this provider always resolves to MockGateway.
+// RazorpayGateway exists as a written, importable seam for the day a real
+// key exists, not as something this codebase enables on its own. A build
+// that IS misconfigured with a key id but no matching secret fails loudly
+// at construction time (RazorpayConfigurationError), never silently at
+// charge time.
+const _razorpayKeyId = String.fromEnvironment('RAZORPAY_KEY_ID');
+const _razorpayKeySecret = String.fromEnvironment('RAZORPAY_KEY_SECRET');
+
+final paymentGatewayProvider = Provider<PaymentGateway>((ref) {
+  if (_razorpayKeyId.isEmpty) {
+    return const MockGateway();
+  }
+  return RazorpayGateway(keyId: _razorpayKeyId, keySecret: _razorpayKeySecret);
+});
