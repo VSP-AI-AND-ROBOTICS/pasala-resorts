@@ -4,10 +4,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pasala/core/errors.dart';
 import 'package:pasala/data/models/quote.dart';
+import 'package:pasala/data/models/refund_quote.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/repositories/booking_repository.dart';
 import 'package:pasala/features/account/booking_detail_screen.dart';
 import 'package:pasala/features/booking/providers.dart' show reservationProvider;
+
+/// A [RefundSource] fake whose `computeRefund` either returns a scripted
+/// [RefundQuote] or throws a scripted [BookingFailure], recording every
+/// reservation id it was asked about -- this is what lets a test prove the
+/// fetch happens (and happens with the right id) BEFORE the cancellation
+/// dialog opens, not that the dialog merely displays whatever it's handed.
+class _FakeRefundSource implements RefundSource {
+  _FakeRefundSource({RefundQuote? result, this.failure})
+      : result = result ??
+            const RefundQuote(daysBefore: 10, refundPct: 100, refundAmount: 13500);
+  final RefundQuote result;
+  final BookingFailure? failure;
+  final List<String> calls = [];
+
+  @override
+  Future<RefundQuote> computeRefund(String reservationId) async {
+    calls.add(reservationId);
+    if (failure != null) throw failure!;
+    return result;
+  }
+}
 
 /// A [BookingActions] fake whose `cancel` either succeeds (returning a
 /// cancelled copy of the reservation) or throws a scripted [BookingFailure],
@@ -114,7 +136,11 @@ Reservation _block({String id = 'block-1'}) => Reservation(
 void main() {
   late GoRouter router;
 
-  Widget app({required Reservation reservation, required BookingActions actions}) {
+  Widget app({
+    required Reservation reservation,
+    required BookingActions actions,
+    RefundSource? refunds,
+  }) {
     router = GoRouter(
       initialLocation: '/bookings',
       routes: [
@@ -133,13 +159,20 @@ void main() {
       overrides: [
         reservationProvider(reservation.id).overrideWith((ref) async => reservation),
         bookingActionsProvider.overrideWithValue(actions),
+        refundSourceProvider.overrideWithValue(refunds ?? _FakeRefundSource()),
       ],
       child: MaterialApp.router(routerConfig: router),
     );
   }
 
-  Future<void> openDetail(WidgetTester tester, Reservation reservation, BookingActions actions) async {
-    await tester.pumpWidget(app(reservation: reservation, actions: actions));
+  Future<void> openDetail(
+    WidgetTester tester,
+    Reservation reservation,
+    BookingActions actions, {
+    RefundSource? refunds,
+  }) async {
+    await tester.pumpWidget(
+        app(reservation: reservation, actions: actions, refunds: refunds));
     await tester.pumpAndSettle();
     router.push('/booking-detail/${reservation.id}');
     await tester.pumpAndSettle();
@@ -186,10 +219,11 @@ void main() {
     await tester.tap(find.byKey(const Key('cancel-booking-button')));
     await tester.pumpAndSettle();
 
-    // The dialog must not promise a refund amount or timing Phase 1 cannot
-    // deliver -- only that the dates are released.
     expect(find.textContaining('released'), findsOneWidget);
-    expect(find.textContaining('refund'), findsOneWidget);
+    // The computed refund line, and the separate "not yet automated" note
+    // -- both present, neither one hidden or missing.
+    expect(find.byKey(const Key('refund-preview-text')), findsOneWidget);
+    expect(find.textContaining('not yet automated'), findsOneWidget);
 
     await tester.enterText(
         find.byKey(const Key('cancel-reason-field')), 'change of plans');
@@ -199,6 +233,67 @@ void main() {
     expect(actions.cancelCalls, [(reservationId: 'r1', reason: 'change of plans')]);
     expect(find.text('bookings-list'), findsOneWidget,
         reason: 'a successful cancel must pop back to the bookings list');
+  });
+
+  testWidgets(
+      'fetches the refund preview from compute_refund BEFORE the dialog '
+      'opens, and shows the exact figure it returned', (tester) async {
+    final reservation = _reservation(status: ReservationStatus.confirmed);
+    final refunds = _FakeRefundSource(
+      result: const RefundQuote(daysBefore: 5, refundPct: 50, refundAmount: 6750),
+    );
+    await openDetail(tester, reservation, _FakeCancelActions(), refunds: refunds);
+
+    await tester.tap(find.byKey(const Key('cancel-booking-button')));
+    await tester.pumpAndSettle();
+
+    expect(refunds.calls, ['r1'],
+        reason: 'the reservation id must be fetched before the dialog is '
+            'shown, not derived or guessed by the dialog itself');
+    expect(
+      find.text('You will be refunded ₹6,750 (50% of ₹13,500).'),
+      findsOneWidget,
+      reason: 'the figure comes straight from RefundQuote, never '
+          'recomputed from quote.total in Dart',
+    );
+  });
+
+  testWidgets(
+      'a zero refund is stated plainly, not hidden or omitted', (tester) async {
+    final reservation = _reservation(status: ReservationStatus.confirmed);
+    final refunds = _FakeRefundSource(
+      result: const RefundQuote(daysBefore: 0, refundPct: 0, refundAmount: 0),
+    );
+    await openDetail(tester, reservation, _FakeCancelActions(), refunds: refunds);
+
+    await tester.tap(find.byKey(const Key('cancel-booking-button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('You will be refunded ₹0 (0% of ₹13,500).'),
+      findsOneWidget,
+      reason: 'a zero refund must still say so in the same line, not be '
+          'silently dropped',
+    );
+  });
+
+  testWidgets(
+      'a BookingFailure from compute_refund surfaces its message and never '
+      'opens the cancellation dialog', (tester) async {
+    final reservation = _reservation(status: ReservationStatus.confirmed);
+    final refunds = _FakeRefundSource(failure: const NetworkFailure());
+    await openDetail(tester, reservation, _FakeCancelActions(), refunds: refunds);
+
+    await tester.tap(find.byKey(const Key('cancel-booking-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text(const NetworkFailure().message), findsOneWidget);
+    expect(find.byKey(const Key('cancel-reason-field')), findsNothing,
+        reason: 'the dialog must not open on a failed refund preview -- '
+            'showing a stale or missing figure would be worse than not '
+            'showing the dialog at all');
+    expect(find.byType(CircularProgressIndicator), findsNothing,
+        reason: 'the button must be usable again, not stuck on a spinner');
   });
 
   testWidgets('dismissing the dialog with Keep booking cancels nothing', (tester) async {

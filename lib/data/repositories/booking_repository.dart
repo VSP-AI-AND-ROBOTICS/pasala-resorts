@@ -6,6 +6,7 @@ import '../../core/errors.dart';
 import '../../core/supabase_client.dart';
 import '../models/availability.dart';
 import '../models/quote.dart';
+import '../models/refund_quote.dart';
 import '../models/reservation.dart';
 
 String _d(DateTime d) =>
@@ -82,8 +83,22 @@ abstract class BlockDatesAction {
   });
 }
 
+/// The slice of [BookingRepository] that the booking-detail screen needs to
+/// preview a refund before the cancellation dialog opens -- the amount is
+/// always computed server-side by `compute_refund`, never in Dart. Extracted
+/// as its own interface, mirroring [BlockDatesAction], so tests can override
+/// just this provider with a fake instead of needing a real
+/// `SupabaseClient`.
+abstract class RefundSource {
+  Future<RefundQuote> computeRefund(String reservationId);
+}
+
 class BookingRepository
-    implements UnitCalendarSource, BookingActions, BlockDatesAction {
+    implements
+        UnitCalendarSource,
+        BookingActions,
+        BlockDatesAction,
+        RefundSource {
   BookingRepository(this._db);
   final SupabaseClient _db;
 
@@ -205,6 +220,17 @@ class BookingRepository
         return Reservation.fromJson(row as Map<String, dynamic>);
       });
 
+  /// Previews what `cancel_booking` would record if called right now. Used
+  /// by the cancellation dialog to show a real figure BEFORE the customer
+  /// confirms -- fetched here, never computed from `quote.total` in Dart.
+  @override
+  Future<RefundQuote> computeRefund(String reservationId) => _guard(() async {
+        final json = await _db.rpc('compute_refund', params: {
+          'p_reservation_id': reservationId,
+        });
+        return RefundQuote.fromJson(json as Map<String, dynamic>);
+      });
+
   @override
   Future<List<Reservation>> blockDates({
     required String unitId,
@@ -288,5 +314,12 @@ final bookingActionsProvider = Provider<BookingActions>(
 /// [bookingActionsProvider]: `BlockDatesScreen` only ever calls
 /// `blockDates`, so tests can override just this provider with a fake.
 final blockDatesActionProvider = Provider<BlockDatesAction>(
+  (ref) => ref.watch(bookingRepositoryProvider),
+);
+
+/// [RefundSource] seam around [bookingRepositoryProvider], mirroring
+/// [blockDatesActionProvider]: the booking-detail screen only ever calls
+/// `computeRefund`, so tests can override just this provider with a fake.
+final refundSourceProvider = Provider<RefundSource>(
   (ref) => ref.watch(bookingRepositoryProvider),
 );

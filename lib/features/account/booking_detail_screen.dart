@@ -8,11 +8,18 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/quote.dart';
+import '../../data/models/refund_quote.dart';
 import '../../data/models/reservation.dart';
 import '../../data/repositories/booking_repository.dart';
 import '../booking/providers.dart' show reservationProvider;
 import '../staff/providers.dart' show allBookingsProvider;
 import 'providers.dart';
+
+/// `100.00` -> `'100'`, `33.33` -> `'33.33'` -- drops a trailing `.00` from
+/// the numeric percentage Postgres returns without ever rounding the actual
+/// figure being displayed.
+String _formatPct(num pct) =>
+    pct % 1 == 0 ? pct.toStringAsFixed(0) : pct.toString();
 
 class BookingDetailScreen extends ConsumerWidget {
   const BookingDetailScreen({super.key, required this.reservationId});
@@ -65,16 +72,41 @@ class _DetailState extends ConsumerState<_Detail> {
   bool _busy = false;
 
   /// Opens the confirmation dialog and, if the customer confirms with a
-  /// reason, calls `cancel_booking`. Phase 1 has no refund engine, so the
-  /// dialog is deliberately silent on any refund amount or timing -- it only
-  /// promises what `cancel_booking` actually does today: the dates are
-  /// released immediately. Inventing a refund policy here would be a promise
-  /// this screen cannot keep.
+  /// reason, calls `cancel_booking`. For a real booking, the refund figure
+  /// is fetched from `compute_refund` BEFORE the dialog opens -- never
+  /// computed from `quote.total` in Dart -- so the dialog can show exactly
+  /// what `cancel_booking` is about to record, not a guess. A block has no
+  /// customer and no quote, so there is nothing to preview; skipping the
+  /// fetch for it also means removing a block never fails merely because a
+  /// refund lookup did.
   Future<void> _cancelBooking() async {
     final isBlock = widget.reservation.kind == ReservationKind.block;
+
+    RefundQuote? refund;
+    if (!isBlock) {
+      setState(() => _busy = true);
+      try {
+        refund = await ref
+            .read(refundSourceProvider)
+            .computeRefund(widget.reservation.id);
+      } on BookingFailure catch (e) {
+        if (!mounted) return;
+        setState(() => _busy = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _busy = false);
+    }
+
     final reason = await showDialog<String>(
       context: context,
-      builder: (_) => _CancelBookingDialog(isBlock: isBlock),
+      builder: (_) => _CancelBookingDialog(
+        isBlock: isBlock,
+        refund: refund,
+        quoteTotal: widget.reservation.quote?.total,
+      ),
     );
     if (reason == null || !mounted) return;
 
@@ -189,12 +221,27 @@ class _DetailState extends ConsumerState<_Detail> {
 /// listening for a few more frames, so an eagerly-disposed controller was
 /// used-after-dispose and crashed the widget tree on the way out.
 class _CancelBookingDialog extends StatefulWidget {
-  const _CancelBookingDialog({required this.isBlock});
+  const _CancelBookingDialog({
+    required this.isBlock,
+    this.refund,
+    this.quoteTotal,
+  });
 
   /// True when the reservation being cancelled is an admin block, not a
   /// customer booking -- there is no refund to talk about, so the dialog's
   /// copy must not promise a follow-up that will never happen.
   final bool isBlock;
+
+  /// The server-computed refund preview, fetched before this dialog opened.
+  /// Null only for a block (never fetched) or if the fetch itself failed
+  /// (in which case the dialog never opens at all -- see `_cancelBooking`).
+  final RefundQuote? refund;
+
+  /// The reservation's own quoted total -- already loaded on this screen,
+  /// so it is passed straight through rather than re-fetched. Used only to
+  /// render "Y% of ₹Z"; the refund AMOUNT itself always comes from
+  /// [refund], never derived from this.
+  final num? quoteTotal;
 
   @override
   State<_CancelBookingDialog> createState() => _CancelBookingDialogState();
@@ -220,9 +267,37 @@ class _CancelBookingDialogState extends State<_CancelBookingDialog> {
                 ? 'These dates will be released immediately and become '
                     'bookable again.'
                 : 'Your dates will be released immediately so others can '
-                    'book them. Refund handling is not yet automated in '
-                    'this phase — our team will follow up separately about '
-                    'any refund.'),
+                    'book them.'),
+            if (!widget.isBlock &&
+                widget.refund != null &&
+                widget.quoteTotal != null) ...[
+              const SizedBox(height: Spacing.sm),
+              // Always shown, even when the amount is zero -- a zero
+              // refund stated plainly ("₹0") is what the brief calls for,
+              // not a hidden line that would leave the customer guessing.
+              Text(
+                key: const Key('refund-preview-text'),
+                'You will be refunded '
+                '${formatInr(widget.refund!.refundAmount)} '
+                '(${_formatPct(widget.refund!.refundPct)}% of '
+                '${formatInr(widget.quoteTotal!)}).',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ],
+            if (!widget.isBlock) ...[
+              const SizedBox(height: Spacing.sm),
+              Text(
+                'Refund processing is not yet automated in this phase — '
+                'our team will follow up separately to complete it.',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
+            ],
             const SizedBox(height: Spacing.md),
             TextField(
               key: const Key('cancel-reason-field'),
