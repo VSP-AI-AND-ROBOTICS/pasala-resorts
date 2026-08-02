@@ -121,11 +121,12 @@ Reservation _reservation({
       quote: _quote(),
     );
 
-/// I3: a quote with a coupon applied -- 12000 (line) + 1500 (cleaning) =
-/// 13500, minus a 1150 discount = 10350 total. Matches
+/// I3: a quote with a coupon applied -- 10000 (line) + 1500 (cleaning) =
+/// 11500, minus a 1150 discount = 10350 total. Matches
 /// `test/features/booking/quote_sheet_test.dart`'s own couponed fixture
-/// shape, so this test proves the SAME discount row that screen renders
-/// correctly is now also rendered here.
+/// shape (and `11_coupons_test.sql`'s worked figures), so this test proves
+/// the SAME discount row that screen renders correctly is now also
+/// rendered here.
 Quote _couponedQuote() => Quote.fromJson(const {
       'currency': 'INR',
       'guests': 4,
@@ -133,12 +134,12 @@ Quote _couponedQuote() => Quote.fromJson(const {
         {
           'date': '2026-08-03',
           'label': 'Weekend rate',
-          'amount': 12000,
+          'amount': 10000,
           'extra_guests': 0,
           'extra_guest_amount': 0,
         },
       ],
-      'subtotal': 12000,
+      'subtotal': 10000,
       'cleaning_fee': 1500,
       'coupon': {'code': 'SAVE10', 'kind': 'percent', 'value': 10, 'discount': 1150},
       'total': 10350,
@@ -228,17 +229,37 @@ void main() {
 
   // I3: `quote_sheet.dart` (the booking-time screen) renders a coupon
   // discount row; this screen -- showing the SAME stored quote, after the
-  // fact -- used to omit it entirely. On an Rs11,500 booking with a
-  // Rs1,150 coupon the customer saw line items summing to Rs11,500,
-  // cleaning Rs1,500, and a total of Rs10,350, with no line explaining the
-  // Rs1,150 gap. Reproduced/fixed against the exact worked figures from
-  // that other screen's own test fixture (12000 + 1500 - 1150 = 13500 -
-  // 1150... i.e. 10350).
+  // fact -- used to omit it entirely. On an Rs11,500 booking (Rs10,000 line
+  // items + Rs1,500 cleaning) with a Rs1,150 coupon the customer saw a
+  // total of Rs10,350, with no line explaining the Rs1,150 gap.
+  // Reproduced/fixed against the exact worked figures from that other
+  // screen's own test fixture (10000 + 1500 - 1150 = 10350).
   testWidgets(
       'a couponed booking shows the discount row, matching quote_sheet',
       (tester) async {
     final reservation =
         _couponedReservation(status: ReservationStatus.confirmed);
+
+    // Guard the fixture itself, not just the strings the widget happens to
+    // render: this exact regression -- a subtotal/cleaning/discount/total
+    // that do not add up -- previously passed the widget assertions below
+    // untouched because they only match rendered strings against
+    // themselves, never against each other. Checked on the `Quote` model
+    // the widget is given (not by parsing the rendered `₹`-formatted
+    // strings back out) -- currency-string parsing would need to undo
+    // comma grouping and the sign of the discount, which duplicates the
+    // widget's own formatting logic for no extra safety; asserting on the
+    // model is exactly as strong and does not couple the test to display
+    // formatting.
+    final quote = reservation.quote!;
+    expect(
+      quote.subtotal + quote.cleaningFee - quote.coupon!.discount,
+      quote.total,
+      reason: 'fixture must reconcile: subtotal + cleaning - discount == '
+          'total, or this test is only checking that strings match '
+          'themselves',
+    );
+
     await openDetail(tester, reservation, _FakeCancelActions());
 
     expect(find.byKey(const Key('coupon-discount-row')), findsOneWidget);

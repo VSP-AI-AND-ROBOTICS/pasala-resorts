@@ -28,7 +28,7 @@
 --     feed recovers on its very next poll (Task 10 fix-round Finding 1).
 
 begin;
-select plan(67);
+select plan(68);
 
 select has_table('public', 'ical_feeds', 'ical_feeds table exists');
 select has_column('public', 'ical_feeds', 'unit_id', 'ical_feeds has unit_id');
@@ -159,6 +159,18 @@ select ok(
 -- `ical_line_fold` against 200 octets of content -- well past the 75-octet
 -- threshold, so this actually exercises the fold, not just the pass-through
 -- case above.
+--
+-- Revoke sweep: `ical_line_fold` is revoked from `anon`/`authenticated` at
+-- the grant layer (0018_ical.sql) -- internal only, same convention as
+-- `ical_build_document`/`render_template`. This file's own direct,
+-- fold-implementation-level assertions below are exactly the kind of
+-- in-database caller that convention still allows (no PostgREST layer, no
+-- client role in front of it -- the same shape as `ical_build_document`
+-- calling it internally), so the two calls below run as `postgres` (the
+-- functions' owner) rather than under this file's `authenticated` test
+-- role, then hand back to `authenticated` immediately after for the tests
+-- that follow.
+set local role postgres;
 select ok(
   (select bool_and(octet_length(line) <= 75)
    from regexp_split_to_table(public.ical_line_fold(repeat('x', 200)), E'\r\n') as line),
@@ -171,6 +183,9 @@ select is(
   'unfolding ical_line_fold''s output (deleting each CRLF + its single '
   'leading space) reconstructs the original 200-octet content exactly -- '
   'the fold adds no content and drops none');
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"e5000000-0000-0000-0000-000000000012","role":"authenticated"}';
 
 -- staff-or-above only: a customer cannot pull any unit's export.
 set local request.jwt.claims to
@@ -187,7 +202,18 @@ select lives_ok(
   'an admin can call ical_export');
 
 -- === round trip: the parser can read back what the exporter wrote =========
-
+--
+-- Revoke sweep: `ical_parse_events` (and, transitively, `ical_parse_datetime`)
+-- is revoked from `anon`/`authenticated` at the grant layer -- internal
+-- only, reachable in production only through `ical_poll_feed`. This
+-- round-trip proof, like the `ical_line_fold` one above, calls it directly
+-- as `postgres` (the owner) rather than under the `authenticated` test
+-- role, then hands back to `authenticated` immediately after. `ical_export`
+-- inside each call is unaffected either way -- it stays granted to
+-- `authenticated`, and its own `assert_staff()` check reads the admin JWT
+-- claims set above, not the postgres role, so switching role changes
+-- nothing about what it does or doesn't allow.
+set local role postgres;
 select is(
   (select count(*)::int from public.ical_parse_events(
     public.ical_export('e5000000-0000-0000-0000-000000000002'))),
@@ -211,6 +237,27 @@ select is(
     public.ical_export('e5000000-0000-0000-0000-000000000002')) limit 1),
   '2027-05-12 06:00:00+00'::timestamptz,
   'the round-tripped DTEND matches the original period''s upper bound');
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"e5000000-0000-0000-0000-000000000011","role":"authenticated"}';
+
+-- Revoke sweep: `ical_parse_events` is an internal parsing helper for
+-- `ical_poll_feed` only (called above via `set local role postgres`, the
+-- functions' owner, which bypasses grants same as any other internal
+-- helper call in this file) -- revoked from `anon`/`authenticated` at the
+-- grant layer in 0018_ical.sql, the same convention as
+-- `ical_build_document`/`render_template`. Worth asserting directly: this
+-- function walks caller-supplied text, so leaving it reachable by `anon`
+-- would be a cheap CPU vector even though it touches no data.
+set local role anon;
+set local request.jwt.claims to '{"role":"anon"}';
+select throws_ok(
+  $$select * from public.ical_parse_events(
+      'BEGIN:VCALENDAR' || E'\r\n' || 'END:VCALENDAR')$$,
+  '42501', null,
+  'anon cannot call ical_parse_events directly -- rejected at the grant '
+  'layer, before the function body ever runs');
+set local role authenticated;
 
 -- === ical_feeds CRUD, admin-only ===========================================
 

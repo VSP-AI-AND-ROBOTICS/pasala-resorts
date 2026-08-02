@@ -214,3 +214,10 @@ revoke execute on function public.report_occupancy  from public;
 revoke execute on function public.report_occupancy  from anon;
 revoke execute on function public.dashboard_summary from public;
 revoke execute on function public.dashboard_summary from anon;
+
+-- `assert_staff` itself was missed in the sweep above -- it is never
+-- granted to anyone (it has no legitimate direct caller: it either raises
+-- P0008 or returns void, nothing a client would ever call for its own
+-- sake), which means it still carried the default PUBLIC EXECUTE from its
+-- creation, same gap as everything else this migration closes.
+revoke execute on function public.assert_staff() from public, anon, authenticated;

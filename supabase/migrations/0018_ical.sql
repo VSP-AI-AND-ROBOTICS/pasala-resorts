@@ -222,6 +222,15 @@ as $$
     '\', '\\'), ';', '\;'), ',', '\,'), E'\n', '\n');
 $$;
 
+-- Internal formatting helpers only, invoked from `ical_build_document`
+-- below (and, for `ical_line_fold`, nowhere else) -- same convention as
+-- that function and `render_template` elsewhere in this schema: never
+-- callable directly, only through the gated entry points.
+revoke execute on function public.ical_line_fold(text) from public;
+revoke execute on function public.ical_line_fold(text) from anon, authenticated;
+revoke execute on function public.ical_escape_text(text) from public;
+revoke execute on function public.ical_escape_text(text) from anon, authenticated;
+
 -- === the document builder ====================================================
 --
 -- Reads `unit_calendar_events`, the identity-free occupancy mirror (Task
@@ -615,6 +624,21 @@ begin
   return;
 end;
 $$;
+
+-- Internal parsing helpers only, invoked from `ical_poll_feed` below (and,
+-- for `ical_parse_datetime`, from `ical_parse_events` itself) -- same
+-- convention as `ical_build_document`/`render_template` elsewhere in this
+-- schema: never callable directly, only through the gated entry points.
+-- `ical_parse_events` in particular takes raw anon-supplied text once fed
+-- through the poller's HTTP fetch; revoking it at the grant layer means an
+-- authenticated-but-not-admin (or, absent this revoke, anon) caller cannot
+-- hand it arbitrary text directly and force the server to spend CPU
+-- walking it, cheap as that cost is.
+revoke execute on function public.ical_parse_datetime(text, text) from public;
+revoke execute on function public.ical_parse_datetime(text, text)
+  from anon, authenticated;
+revoke execute on function public.ical_parse_events(text) from public;
+revoke execute on function public.ical_parse_events(text) from anon, authenticated;
 
 -- === automatic polling (pg_net + pg_cron -- pg_net IS available here) =====
 --
