@@ -85,4 +85,48 @@ void main() {
     expect(find.textContaining('14:00:00'), findsNothing);
     expect(find.textContaining('14:00'), findsOneWidget);
   });
+
+  group('PropertyMedia semantics', () {
+    testWidgets(
+        'the placeholder (no images) carries a semantic label naming the '
+        'property, not just a bare initial', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: PropertyMedia(property: property)),
+      ));
+
+      expect(
+        find.bySemanticsLabel('Pasala Riverside, no photo available'),
+        findsOneWidget,
+      );
+      handle.dispose();
+    });
+
+    testWidgets(
+        'a property with a photo carries a semantic label naming the '
+        'property', (tester) async {
+      const withImage = Property(
+        id: 'a4',
+        name: 'Pasala Meadow',
+        slug: 'meadow',
+        description: null,
+        address: null,
+        images: ['https://example.com/photo.jpg'],
+        amenities: [],
+        checkInTime: '14:00',
+        checkOutTime: '11:00',
+        isActive: true,
+      );
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: PropertyMedia(property: withImage)),
+      ));
+
+      expect(
+        find.bySemanticsLabel('Pasala Meadow property photo'),
+        findsOneWidget,
+      );
+      handle.dispose();
+    });
+  });
 }

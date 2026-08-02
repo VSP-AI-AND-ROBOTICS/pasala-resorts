@@ -16,6 +16,8 @@ import '../features/booking/booking_screen.dart';
 import '../features/booking/confirmation_screen.dart';
 import '../features/browse/browse_screen.dart';
 import '../features/browse/property_screen.dart';
+import '../features/reports/dashboard_screen.dart';
+import '../features/reports/reports_screen.dart';
 import '../features/shell/app_shell.dart';
 import '../features/shell/not_found_screen.dart';
 import '../features/staff/today_screen.dart';
@@ -93,6 +95,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/bookings',
             builder: (_, _) => const AdminBookingsScreen(),
+          ),
+          GoRoute(
+            path: '/admin/dashboard',
+            builder: (_, _) => const DashboardScreen(),
+          ),
+          GoRoute(
+            path: '/admin/reports',
+            builder: (_, _) => const ReportsScreen(),
           ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
         ],

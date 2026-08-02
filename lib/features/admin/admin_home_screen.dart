@@ -28,6 +28,18 @@ class AdminHomeScreen extends StatelessWidget {
       subtitle: 'Arrivals, departures and who is in house',
       path: '/staff',
     ),
+    (
+      icon: Icons.dashboard_outlined,
+      title: 'Dashboard',
+      subtitle: 'Revenue, occupancy and the business at a glance',
+      path: '/admin/dashboard',
+    ),
+    (
+      icon: Icons.summarize_outlined,
+      title: 'Reports',
+      subtitle: 'Revenue and occupancy by date range, exportable as CSV',
+      path: '/admin/reports',
+    ),
   ];
 
   @override

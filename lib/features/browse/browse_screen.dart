@@ -56,22 +56,51 @@ class PropertyMedia extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (property.images.isEmpty) return _PropertyPlaceholder(initial: _initial);
+    // Without a semantics label a screen reader announces either nothing
+    // (the Image.network path) or just the bare initial letter (the
+    // placeholder path) -- neither tells a screen-reader user which
+    // property this card is for. Both paths get the property's name plus a
+    // short descriptor instead, applied once here rather than inside
+    // [_PropertyPlaceholder] itself -- that widget is also reused as
+    // Image.network's errorBuilder result, and wrapping it there too would
+    // nest a second, conflicting Semantics node under this one whenever a
+    // photo URL fails to load.
+    if (property.images.isEmpty) {
+      return Semantics(
+        label: '${property.name}, no photo available',
+        image: true,
+        // Otherwise the placeholder's own "initial letter" Text widget
+        // merges its literal text ("P") into this label instead of being
+        // silenced by it, and a screen reader reads both.
+        excludeSemantics: true,
+        child: _PropertyPlaceholder(initial: _initial),
+      );
+    }
 
-    return Image.network(
-      property.images.first,
-      fit: BoxFit.cover,
-      width: double.infinity,
-      height: double.infinity,
-      loadingBuilder: (context, child, progress) {
-        if (progress == null) return child;
-        return const _PropertyLoadingBox();
-      },
-      // A broken or unreachable URL must never surface Flutter's red error
-      // box to a customer -- it falls back to the same tinted placeholder
-      // used when there is no image at all.
-      errorBuilder: (context, error, stackTrace) =>
-          _PropertyPlaceholder(initial: _initial),
+    return Semantics(
+      label: '${property.name} property photo',
+      image: true,
+      excludeSemantics: true,
+      child: Image.network(
+        property.images.first,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        // This widget already supplies the semantics above; without this,
+        // Image.network would additionally wrap itself in its own
+        // semantics node (unlabelled, since no `semanticLabel` is passed),
+        // producing a redundant nested image node either way.
+        excludeFromSemantics: true,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return const _PropertyLoadingBox();
+        },
+        // A broken or unreachable URL must never surface Flutter's red error
+        // box to a customer -- it falls back to the same tinted placeholder
+        // used when there is no image at all.
+        errorBuilder: (context, error, stackTrace) =>
+            _PropertyPlaceholder(initial: _initial),
+      ),
     );
   }
 }
