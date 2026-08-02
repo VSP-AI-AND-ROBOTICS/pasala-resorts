@@ -17,6 +17,7 @@ import '../features/booking/booking_screen.dart';
 import '../features/booking/confirmation_screen.dart';
 import '../features/browse/browse_screen.dart';
 import '../features/browse/property_screen.dart';
+import '../features/outbox/outbox_screen.dart';
 import '../features/reports/dashboard_screen.dart';
 import '../features/reports/reports_screen.dart';
 import '../features/shell/app_shell.dart';
@@ -48,12 +49,17 @@ String? redirectFor({
     // `report_revenue`, `report_occupancy`, and `dashboard_summary` all
     // explicitly permit staff-or-above in the database (`assert_staff`),
     // and the accountant role exists precisely to read financials -- so
-    // these two leaf routes are staff-or-above, while every other
+    // these two leaf routes are staff-or-above. `outbox_read` (migration
+    // 0017) is the same staff-or-above grant -- whoever fields a guest's
+    // "did my confirmation go out?" question needs to see the queue, not
+    // just an admin -- so `/admin/outbox` joins them here. Every other
     // `/admin/*` route (properties, units, rates, blocking, the bookings
     // list) stays admin-only, matching the RLS/RPC surfaces that actually
     // write data.
     final staffOrAboveOk = user.isStaffOrAbove &&
-        (path == '/admin/dashboard' || path == '/admin/reports');
+        (path == '/admin/dashboard' ||
+            path == '/admin/reports' ||
+            path == '/admin/outbox');
     if (!user.isAdmin && !staffOrAboveOk) return '/404';
   }
   if (path.startsWith('/staff') && !user.isStaffOrAbove) return '/404';
@@ -131,6 +137,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/reports',
             builder: (_, _) => const ReportsScreen(),
+          ),
+          GoRoute(
+            path: '/admin/outbox',
+            builder: (_, _) => const OutboxScreen(),
           ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
         ],

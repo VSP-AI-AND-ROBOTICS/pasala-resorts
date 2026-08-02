@@ -40,6 +40,12 @@ class AdminHomeScreen extends StatelessWidget {
       subtitle: 'Revenue and occupancy by date range, exportable as CSV',
       path: '/admin/reports',
     ),
+    (
+      icon: Icons.outbox_outlined,
+      title: 'Outbox',
+      subtitle: 'Queued booking notifications -- not yet sent to anyone',
+      path: '/admin/outbox',
+    ),
   ];
 
   @override

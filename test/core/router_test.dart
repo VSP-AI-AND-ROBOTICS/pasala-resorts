@@ -42,6 +42,7 @@ void main() {
         '/admin/bookings',
         '/admin/dashboard',
         '/admin/reports',
+        '/admin/outbox',
       ]) {
         expect(_to(_admin, path), null, reason: path);
       }
@@ -54,9 +55,10 @@ void main() {
   });
 
   group('staff', () {
-    test('reaches /admin/dashboard and /admin/reports', () {
+    test('reaches /admin/dashboard, /admin/reports and /admin/outbox', () {
       expect(_to(_staff, '/admin/dashboard'), null);
       expect(_to(_staff, '/admin/reports'), null);
+      expect(_to(_staff, '/admin/outbox'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
@@ -78,9 +80,10 @@ void main() {
   });
 
   group('accountant', () {
-    test('reaches /admin/dashboard and /admin/reports', () {
+    test('reaches /admin/dashboard, /admin/reports and /admin/outbox', () {
       expect(_to(_accountant, '/admin/dashboard'), null);
       expect(_to(_accountant, '/admin/reports'), null);
+      expect(_to(_accountant, '/admin/outbox'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
@@ -97,6 +100,7 @@ void main() {
         '/admin/properties',
         '/admin/dashboard',
         '/admin/reports',
+        '/admin/outbox',
       ]) {
         expect(_to(_customer, path), '/404', reason: path);
       }
