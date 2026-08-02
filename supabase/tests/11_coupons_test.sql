@@ -6,7 +6,7 @@
 -- example exactly -- and a flat 2000 coupon discounts 2000 for 9500.
 
 begin;
-select plan(38);
+select plan(53);
 
 select has_table('public', 'coupons', 'coupons table exists');
 select has_table('public', 'coupon_redemptions',
@@ -471,6 +471,145 @@ select is(
   current_setting('app.race_redemption_rows')::int,
   1,
   'exactly one coupon_redemptions row exists after the race');
+
+-- === carried-forward fix: an abandoned/expired hold must release its ======
+-- === coupon redemption, not exhaust it forever =============================
+--
+-- Task 7's review found that `cancel_booking` and `release_expired_holds`
+-- only ever flipped `reservations.status` -- neither touched
+-- `coupons.redeemed_count` or `coupon_redemptions`, so a single abandoned
+-- hold against a `max_redemptions = 1` coupon exhausted it permanently, for
+-- every future customer. Proven here via `cancel_booking` directly and via
+-- `release_expired_holds` (the unattended path an abandoned hold actually
+-- takes), plus idempotency (a second cancel of an already-cancelled
+-- reservation must not decrement a second time) and reuse (once released,
+-- a DIFFERENT customer can redeem the same slot).
+
+insert into public.coupons (code, kind, value, max_redemptions) values
+  ('RELEASE1', 'percent', 10, 1),
+  ('RELEASE2', 'percent', 10, 1);
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+-- --- cancel_booking releases the redemption -------------------------------
+
+select lives_ok(
+  $$select public.create_hold('bbbbbbbb-0000-0000-0000-000000000001',
+      '2026-10-01','2026-10-02', 4, null, 10350, 'RELEASE1')$$,
+  'a max_redemptions=1 coupon can be redeemed once');
+
+select is(
+  (select redeemed_count from public.coupons where code = 'RELEASE1'),
+  1,
+  'redeeming RELEASE1 brings its redeemed_count to 1');
+
+select lives_ok(
+  $$select public.cancel_booking(
+      (select id from public.reservations
+        where unit_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+          and lower(period) >= '2026-10-01' and lower(period) < '2026-10-02'),
+      'changed plans')$$,
+  'cancelling the redeemed hold succeeds');
+
+select is(
+  (select redeemed_count from public.coupons where code = 'RELEASE1'),
+  0,
+  'THE FIX: cancelling the hold restores redeemed_count to 0 -- before '
+  'this fix it stayed permanently at 1');
+
+select is(
+  (select count(*)::int from public.coupon_redemptions cr
+    join public.coupons c on c.id = cr.coupon_id
+    where c.code = 'RELEASE1'),
+  0,
+  'THE FIX: cancelling the hold removes the coupon_redemptions row');
+
+-- Idempotency: cancelling an already-cancelled reservation must not
+-- decrement a second time. cancel_booking's own early return (status
+-- already 'cancelled') means this exercises that guard directly.
+select lives_ok(
+  $$select public.cancel_booking(
+      (select id from public.reservations
+        where unit_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+          and lower(period) >= '2026-10-01' and lower(period) < '2026-10-02'),
+      'changed plans again')$$,
+  'a second cancel of the same reservation is a no-op, not an error');
+
+select is(
+  (select redeemed_count from public.coupons where code = 'RELEASE1'),
+  0,
+  'a second cancel does not decrement redeemed_count again -- it never '
+  'goes negative and never double-releases');
+
+-- Reuse: the released slot is now available to a DIFFERENT customer, proof
+-- the release is real and not just cosmetic bookkeeping.
+set local request.jwt.claims to
+  '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
+
+select lives_ok(
+  $$select public.create_hold('bbbbbbbb-0000-0000-0000-000000000001',
+      '2026-10-05','2026-10-06', 4, null, 10350, 'RELEASE1')$$,
+  'a released max_redemptions=1 coupon can be redeemed by a different '
+  'customer');
+
+select is(
+  (select redeemed_count from public.coupons where code = 'RELEASE1'),
+  1,
+  'the reused coupon''s redeemed_count is 1, not 2 (no double count) and '
+  'not 0 (the new redemption really was recorded)');
+
+-- --- release_expired_holds releases the redemption too --------------------
+-- This is the path an ABANDONED hold actually takes: nobody calls
+-- cancel_booking at all, the 15-minute expiry just passes and the pg_cron
+-- job (or a direct test call, here) sweeps it.
+
+set local request.jwt.claims to
+  '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select lives_ok(
+  $$select public.create_hold('bbbbbbbb-0000-0000-0000-000000000001',
+      '2026-10-10','2026-10-11', 4, null, 10350, 'RELEASE2')$$,
+  'RELEASE2 is redeemed for the expiry-path fixture');
+
+select is(
+  (select redeemed_count from public.coupons where code = 'RELEASE2'),
+  1,
+  'RELEASE2''s redeemed_count is 1 before it expires');
+
+set local role postgres;
+update public.reservations
+   set hold_expires_at = now() - interval '1 minute'
+ where unit_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+   and lower(period) >= '2026-10-10' and lower(period) < '2026-10-11';
+
+select is(
+  public.release_expired_holds(),
+  1,
+  'exactly the one forced-expired hold is released');
+
+select is(
+  (select status from public.reservations
+    where unit_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+      and lower(period) >= '2026-10-10' and lower(period) < '2026-10-11'),
+  'cancelled'::public.reservation_status,
+  'the expired hold is cancelled');
+
+select is(
+  (select redeemed_count from public.coupons where code = 'RELEASE2'),
+  0,
+  'THE FIX: an expired (never explicitly cancelled) hold also releases '
+  'its coupon redemption');
+
+select is(
+  (select count(*)::int from public.coupon_redemptions cr
+    join public.coupons c on c.id = cr.coupon_id
+    where c.code = 'RELEASE2'),
+  0,
+  'THE FIX: the expired hold''s coupon_redemptions row is removed too');
+
+reset role;
 
 select * from finish();
 rollback;
