@@ -44,7 +44,7 @@ String? redirectFor({
   required bool loggingIn,
 }) {
   if (user == null) return loggingIn ? null : '/login';
-  if (loggingIn) return '/';
+  if (loggingIn) return landingPathFor(user);
 
   if (path.startsWith('/admin')) {
     // `report_revenue`, `report_occupancy`, and `dashboard_summary` all
@@ -65,6 +65,23 @@ String? redirectFor({
   }
   if (path.startsWith('/staff') && !user.isStaffOrAbove) return '/404';
   return null;
+}
+
+/// Where [user] lands immediately after signing in (or after navigating to
+/// `/login`/`/signup` while already signed in) -- see `redirectFor`'s
+/// `loggingIn` branch above, and the two call sites in `login_screen.dart`
+/// and `signup_screen.dart`. Every role used to land on `/` (customer
+/// browse), including staff and admins, who have no reason to browse
+/// holidays the moment they sign in.
+///
+/// Kept next to [redirectFor], and consulted by it, so the two role
+/// matrices cannot drift apart: a role that `redirectFor` refuses on a path
+/// can never be the path [landingPathFor] sends that same role to.
+String landingPathFor(AppUser user) {
+  if (user.isAdmin) return '/admin';
+  if (user.role == UserRole.accountant) return '/admin/dashboard';
+  if (user.role == UserRole.staff) return '/staff';
+  return '/';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {

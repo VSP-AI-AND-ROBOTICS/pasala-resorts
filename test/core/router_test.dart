@@ -27,8 +27,55 @@ void main() {
     });
   });
 
-  test('a signed-in user hitting /login or /signup is sent home', () {
+  test('a signed-in customer hitting /login or /signup is sent home', () {
     expect(redirectFor(user: _customer, path: '/login', loggingIn: true), '/');
+  });
+
+  group('landingPathFor', () {
+    test('customer lands on /', () {
+      expect(landingPathFor(_customer), '/');
+    });
+
+    test('staff lands on /staff', () {
+      expect(landingPathFor(_staff), '/staff');
+    });
+
+    test('accountant lands on /admin/dashboard', () {
+      expect(landingPathFor(_accountant), '/admin/dashboard');
+    });
+
+    test('admin lands on /admin', () {
+      expect(landingPathFor(_admin), '/admin');
+    });
+
+    test('super_admin lands on /admin', () {
+      expect(landingPathFor(_superAdmin), '/admin');
+    });
+  });
+
+  group('redirectFor sends a signed-in user hitting /login by role', () {
+    String? loginRedirect(AppUser user) =>
+        redirectFor(user: user, path: '/login', loggingIn: true);
+
+    test('customer -> /', () {
+      expect(loginRedirect(_customer), '/');
+    });
+
+    test('staff -> /staff', () {
+      expect(loginRedirect(_staff), '/staff');
+    });
+
+    test('accountant -> /admin/dashboard', () {
+      expect(loginRedirect(_accountant), '/admin/dashboard');
+    });
+
+    test('admin -> /admin', () {
+      expect(loginRedirect(_admin), '/admin');
+    });
+
+    test('super_admin -> /admin', () {
+      expect(loginRedirect(_superAdmin), '/admin');
+    });
   });
 
   group('admin', () {

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors.dart';
+import '../../core/router.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/repositories/auth_repository.dart';
@@ -31,10 +32,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _busy = true);
     try {
-      await ref
+      final user = await ref
           .read(authRepositoryProvider)
           .signIn(_email.text.trim(), _password.text);
-      if (mounted) context.go('/');
+      if (mounted) context.go(landingPathFor(user));
     } on BookingFailure catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
