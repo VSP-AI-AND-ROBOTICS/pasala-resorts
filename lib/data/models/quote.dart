@@ -22,6 +22,32 @@ class QuoteLine {
       );
 }
 
+/// A coupon applied to a [Quote] server-side, inside `get_quote`. [discount]
+/// is already rounded and capped by the server -- never recomputed from
+/// [kind]/[value] in Dart; those two are shown for context only.
+class AppliedCoupon {
+  const AppliedCoupon({
+    required this.code,
+    required this.kind,
+    required this.value,
+    required this.discount,
+  });
+
+  final String code;
+
+  /// `'percent'` or `'fixed'`, straight from `public.coupon_kind`.
+  final String kind;
+  final num value;
+  final num discount;
+
+  factory AppliedCoupon.fromJson(Map<String, dynamic> json) => AppliedCoupon(
+        code: json['code'] as String,
+        kind: json['kind'] as String,
+        value: json['value'] as num,
+        discount: json['discount'] as num,
+      );
+}
+
 class Quote {
   const Quote({
     required this.currency,
@@ -30,6 +56,7 @@ class Quote {
     required this.subtotal,
     required this.cleaningFee,
     required this.total,
+    this.coupon,
   });
 
   final String currency;
@@ -37,9 +64,11 @@ class Quote {
   final List<QuoteLine> lines;
   final num subtotal;
   final num cleaningFee;
+  final AppliedCoupon? coupon;
 
-  /// Server-computed. Never derived from [lines] — the server is the only
-  /// authority on price.
+  /// Server-computed, already net of [coupon]'s discount when one is
+  /// applied. Never derived from [lines]/[coupon] in Dart — the server is
+  /// the only authority on price.
   final num total;
 
   factory Quote.fromJson(Map<String, dynamic> json) => Quote(
@@ -50,6 +79,9 @@ class Quote {
             .toList(),
         subtotal: json['subtotal'] as num,
         cleaningFee: json['cleaning_fee'] as num,
+        coupon: json['coupon'] == null
+            ? null
+            : AppliedCoupon.fromJson(json['coupon'] as Map<String, dynamic>),
         total: json['total'] as num,
       );
 }

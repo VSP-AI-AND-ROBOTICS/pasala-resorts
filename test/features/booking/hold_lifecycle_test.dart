@@ -33,6 +33,8 @@ class _FakeBookingActions implements BookingActions {
   bool _overlaps(Reservation a, DateTime from, DateTime to) =>
       a.start.isBefore(to.toUtc()) && from.toUtc().isBefore(a.end);
 
+  final List<String?> couponCodesSeen = [];
+
   @override
   Future<Quote> quote({
     required String unitId,
@@ -40,6 +42,7 @@ class _FakeBookingActions implements BookingActions {
     required DateTime to,
     required int guests,
     String? slotTypeId,
+    String? couponCode,
   }) async {
     calls.add('quote');
     return quoteToReturn!;
@@ -53,8 +56,10 @@ class _FakeBookingActions implements BookingActions {
     required int guests,
     String? slotTypeId,
     num? expectedTotal,
+    String? couponCode,
   }) async {
     calls.add('createHold');
+    couponCodesSeen.add(couponCode);
     for (final r in _live.values) {
       if (r.unitId == unitId && _overlaps(r, from, to)) {
         // The real 23P01 -> UnitUnavailable path. Reached only if a bug
@@ -164,13 +169,19 @@ const _unit = Unit(
   isActive: true,
 );
 
-HoldParams _params({DateTime? from, DateTime? to, String? unitId}) =>
+HoldParams _params({
+  DateTime? from,
+  DateTime? to,
+  String? unitId,
+  String? couponCode,
+}) =>
     HoldParams(
       unitId: unitId ?? 'unit-1',
       from: from ?? DateTime.utc(2026, 8, 10),
       to: to ?? DateTime.utc(2026, 8, 12),
       guests: 2,
       slotTypeId: null,
+      couponCode: couponCode,
     );
 
 void main() {
@@ -205,6 +216,11 @@ void main() {
       ('unit differs', _params(unitId: 'unit-2')),
       ('from differs', _params(from: DateTime.utc(2026, 8, 11))),
       ('to differs', _params(to: DateTime.utc(2026, 8, 13))),
+      // A coupon change must invalidate a live hold too -- reusing a hold
+      // whose stored quote predates a newly-applied coupon would confirm
+      // the OLD (higher) amount against a payment charged at the NEW
+      // (discounted) one. See HoldParams.couponCode's doc comment.
+      ('coupon code differs', _params(couponCode: 'SAVE10')),
     ]) {
       test('live hold + selection where $label -> releaseAndClear', () {
         final hold = Reservation(
@@ -379,6 +395,38 @@ void main() {
 
       expect(hold, same(existing));
       expect(actions.calls, isEmpty);
+    });
+
+    test('a fresh hold carries the coupon code through to createHold',
+        () async {
+      final actions = _FakeBookingActions()..quoteToReturn = _quote();
+      await resolveHoldForPayment(
+        actions: actions,
+        currentHold: null,
+        currentHeldParams: null,
+        params: _params(couponCode: 'SAVE10'),
+        expectedTotal: 5500,
+      );
+
+      expect(actions.couponCodesSeen, ['SAVE10'],
+          reason: 'skipping this is the exact trap the brief calls out: '
+              'create_hold must re-quote WITH the same coupon the client '
+              'was quoted, or a couponed hold fails with a stale-quote '
+              'error');
+    });
+
+    test('no coupon means createHold is called with a null coupon code',
+        () async {
+      final actions = _FakeBookingActions()..quoteToReturn = _quote();
+      await resolveHoldForPayment(
+        actions: actions,
+        currentHold: null,
+        currentHeldParams: null,
+        params: _params(),
+        expectedTotal: 5500,
+      );
+
+      expect(actions.couponCodesSeen, [null]);
     });
   });
 
@@ -693,6 +741,7 @@ class _ThrowingCancelActions implements BookingActions {
     required DateTime to,
     required int guests,
     String? slotTypeId,
+    String? couponCode,
   }) =>
       throw UnimplementedError();
 
@@ -704,6 +753,7 @@ class _ThrowingCancelActions implements BookingActions {
     required int guests,
     String? slotTypeId,
     num? expectedTotal,
+    String? couponCode,
   }) =>
       throw UnimplementedError();
 

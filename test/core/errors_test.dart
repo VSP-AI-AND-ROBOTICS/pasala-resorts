@@ -52,6 +52,35 @@ void main() {
     expect(map('23514'), isA<InvalidState>());
   });
 
+  // Task 7: P0010-P0013 are coupon errors raised by resolve_coupon/
+  // get_quote/create_hold. Their messages are written for the customer
+  // (e.g. "coupon SAVE10 has expired") and are safe to show verbatim, so
+  // -- unlike NotPermitted -- they map to InvalidState and keep the
+  // server's message rather than replacing it with a generic one.
+  test('P0010-P0013 map to InvalidState and preserve the server message', () {
+    for (final code in ['P0010', 'P0011', 'P0012', 'P0013']) {
+      final failure = map(code, 'coupon SAVE10 has expired');
+      expect(failure, isA<InvalidState>(), reason: code);
+      expect(failure.message, 'coupon SAVE10 has expired', reason: code);
+    }
+  });
+
+  test('P0010 maps to InvalidState (coupon not found or inactive)', () {
+    expect(map('P0010'), isA<InvalidState>());
+  });
+
+  test('P0011 maps to InvalidState (coupon expired)', () {
+    expect(map('P0011'), isA<InvalidState>());
+  });
+
+  test('P0012 maps to InvalidState (coupon usage limit reached)', () {
+    expect(map('P0012'), isA<InvalidState>());
+  });
+
+  test('P0013 maps to InvalidState (booking below coupon minimum)', () {
+    expect(map('P0013'), isA<InvalidState>());
+  });
+
   test('an unknown code maps to UnknownFailure', () {
     expect(map('99999'), isA<UnknownFailure>());
   });

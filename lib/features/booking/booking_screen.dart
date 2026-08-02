@@ -79,6 +79,7 @@ class HoldParams {
     required this.to,
     required this.guests,
     required this.slotTypeId,
+    required this.couponCode,
   });
 
   final String unitId;
@@ -86,6 +87,17 @@ class HoldParams {
   final DateTime to;
   final int guests;
   final String? slotTypeId;
+
+  /// Unlike price, a coupon code IS part of a hold's identity: it changes
+  /// which `expectedTotal` a hold must be created (or reused) at. Without
+  /// this, applying a coupon while a hold from an earlier, uncouponed quote
+  /// was still live (e.g. after a declined payment reopened the sheet via
+  /// "Resume payment") would leave `decideHoldAction` reporting
+  /// `reuseExisting` -- so `_pay` would confirm the OLD hold, whose stored
+  /// `quote.total` predates the discount, against the NEW couponed amount,
+  /// and `confirm_booking` would reject the mismatch with P0009 after the
+  /// payment gateway had already been charged the discounted amount.
+  final String? couponCode;
 
   @override
   bool operator ==(Object other) =>
@@ -95,10 +107,12 @@ class HoldParams {
           other.from == from &&
           other.to == to &&
           other.guests == guests &&
-          other.slotTypeId == slotTypeId);
+          other.slotTypeId == slotTypeId &&
+          other.couponCode == couponCode);
 
   @override
-  int get hashCode => Object.hash(unitId, from, to, guests, slotTypeId);
+  int get hashCode =>
+      Object.hash(unitId, from, to, guests, slotTypeId, couponCode);
 }
 
 /// What should happen to a live hold when the selection is about to become
@@ -227,6 +241,7 @@ Future<Reservation> resolveHoldForPayment({
     guests: params.guests,
     slotTypeId: params.slotTypeId,
     expectedTotal: expectedTotal,
+    couponCode: params.couponCode,
   );
 }
 
@@ -294,6 +309,16 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   bool _busy = false;
   bool _quoteLoading = false;
   Timer? _ticker;
+
+  // The coupon field's applied state. Cleared whenever the underlying
+  // selection changes (see `_changeSelection`) -- a coupon validated
+  // against one subtotal/date range is not assumed to still be valid (or
+  // even the customer's intent) against a different one, so re-applying is
+  // an explicit, visible action rather than something that could silently
+  // carry over stale.
+  String? _couponCode;
+  String? _couponError;
+  bool _couponBusy = false;
 
   bool _sheetShown = false;
   StateSetter? _sheetSetState;
@@ -385,6 +410,11 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
             to: to,
             guests: guests,
             slotTypeId: slotTypeId,
+            // A dates/guests/slot change always drops any applied coupon
+            // (see the field's own doc comment) -- it is re-validated
+            // against the fresh quote `_maybeFetchQuote` is about to fetch,
+            // never silently carried over.
+            couponCode: null,
           )
         : null;
     final result = await resolveSelectionChange(
@@ -398,6 +428,8 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       applyLocalChange();
       _hold = result.hold;
       _heldParams = result.heldParams;
+      _couponCode = null;
+      _couponError = null;
       // Reusing keeps the quote too -- nothing about the selection actually
       // changed. Every other outcome (none, or a release) invalidates it.
       if (result.action != HoldAction.reuseExisting) {
@@ -461,6 +493,95 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     }
   }
 
+  /// The quote sheet's coupon field Apply action. Re-fetches the quote WITH
+  /// [code] applied; the server (`get_quote` -> `resolve_coupon`) is the
+  /// only authority on whether it's valid and what it discounts.
+  ///
+  /// On success: `_quote` is replaced with the couponed one -- the sheet
+  /// re-renders showing the discount line and the new (lower) total -- and
+  /// any live hold that no longer matches (see [HoldParams.couponCode]'s
+  /// doc comment for why a coupon change must invalidate a stale hold) is
+  /// released via the same [resolveSelectionChange] machinery every other
+  /// selection change goes through.
+  ///
+  /// On failure: `_quote` is left completely untouched. The error shows
+  /// inline in the sheet, and the customer can still tap Pay against the
+  /// quote they already had -- applying a coupon is opt-in, never a
+  /// precondition to booking.
+  Future<void> _applyCoupon(String rawCode) async {
+    final code = rawCode.trim();
+    if (code.isEmpty) return;
+    final from = _from, to = _to;
+    if (from == null || to == null) return;
+
+    setState(() {
+      _couponBusy = true;
+      _couponError = null;
+    });
+    if (_sheetShown) _sheetSetState?.call(() {});
+
+    try {
+      final actions = ref.read(bookingActionsProvider);
+      final quote = await actions.quote(
+        unitId: widget.unitId,
+        from: from,
+        to: to,
+        guests: _guests,
+        slotTypeId: _slotTypeId,
+        couponCode: code,
+      );
+      final nextParams = HoldParams(
+        unitId: widget.unitId,
+        from: from,
+        to: to,
+        guests: _guests,
+        slotTypeId: _slotTypeId,
+        couponCode: code,
+      );
+      final result = await resolveSelectionChange(
+        actions: actions,
+        currentHold: _hold,
+        currentHeldParams: _heldParams,
+        nextParams: nextParams,
+      );
+      if (!mounted) return;
+      setState(() {
+        _quote = quote;
+        _couponCode = code;
+        _couponError = null;
+        _couponBusy = false;
+        _hold = result.hold;
+        _heldParams = result.heldParams;
+        if (_hold == null) {
+          _ticker?.cancel();
+          _ticker = null;
+        }
+      });
+      final releaseFailure = result.releaseFailure;
+      if (releaseFailure != null && mounted) {
+        // Same as `_changeSelection`: don't wedge the UI on a failed
+        // release -- the coupon still applied and local state is already
+        // updated above; an orphaned old hold (if the cancel truly didn't
+        // land) still expires on its own within 15 minutes.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Could not release your previous hold: '
+              '${FailureView.messageFor(releaseFailure)}',
+            ),
+          ),
+        );
+      }
+    } on BookingFailure catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _couponError = FailureView.messageFor(e);
+        _couponBusy = false;
+      });
+    }
+    if (mounted && _sheetShown) _sheetSetState?.call(() {});
+  }
+
   void _showQuoteSheet() {
     if (_quote == null) return;
     if (_sheetShown) {
@@ -480,7 +601,14 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
           final quote = _quote;
           if (quote == null) return const SizedBox.shrink();
           return SafeArea(
-            child: QuoteSheet(quote: quote, busy: _busy, onPay: _pay),
+            child: QuoteSheet(
+              quote: quote,
+              busy: _busy,
+              onPay: _pay,
+              onApplyCoupon: _applyCoupon,
+              couponBusy: _couponBusy,
+              couponError: _couponError,
+            ),
           );
         },
       ),
@@ -539,6 +667,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         to: to,
         guests: _guests,
         slotTypeId: _slotTypeId,
+        couponCode: _couponCode,
       );
       // Finding 1: reuses a still-live hold that matches `params` exactly
       // (the retry-after-decline path) instead of creating a duplicate,
@@ -599,6 +728,8 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         _hold = null;
         _heldParams = null;
         _quote = null;
+        _couponCode = null;
+        _couponError = null;
       });
     } on BookingFailure catch (e) {
       if (!mounted) return;
@@ -643,6 +774,14 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       // Keep the `_heldParams` invariant (non-null iff `_hold` is non-null)
       // in sync with whatever `recoverSelection` decided.
       if (next.hold == null) _heldParams = null;
+      // A coupon applied against the OLD quote has nothing left to apply to
+      // once that quote is invalidated (UnitUnavailable/HoldExpired/
+      // QuoteStale all null it out via `recoverSelection`) -- but a failure
+      // that leaves the quote alone must leave the coupon alone too.
+      if (next.quote == null) {
+        _couponCode = null;
+        _couponError = null;
+      }
     });
     if (failure is UnitUnavailable) {
       ref.invalidate(unitReservationsProvider(widget.unitId));

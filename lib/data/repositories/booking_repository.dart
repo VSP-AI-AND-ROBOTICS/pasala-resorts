@@ -39,6 +39,7 @@ abstract class BookingActions {
     required DateTime to,
     required int guests,
     String? slotTypeId,
+    String? couponCode,
   });
 
   Future<Reservation> createHold({
@@ -48,6 +49,7 @@ abstract class BookingActions {
     required int guests,
     String? slotTypeId,
     num? expectedTotal,
+    String? couponCode,
   });
 
   Future<Reservation> confirm({
@@ -120,6 +122,7 @@ class BookingRepository
     required DateTime to,
     required int guests,
     String? slotTypeId,
+    String? couponCode,
   }) =>
       _guard(() async {
         final period = await _db.rpc('build_period', params: {
@@ -133,6 +136,7 @@ class BookingRepository
           'p_period': period,
           'p_guests': guests,
           'p_slot_type_id': slotTypeId,
+          'p_coupon_code': couponCode,
         });
         return Quote.fromJson(json as Map<String, dynamic>);
       });
@@ -145,6 +149,7 @@ class BookingRepository
     required int guests,
     String? slotTypeId,
     num? expectedTotal,
+    String? couponCode,
   }) =>
       _guard(() async {
         final row = await _db.rpc('create_hold', params: {
@@ -154,6 +159,12 @@ class BookingRepository
           'p_guests': guests,
           'p_slot_type_id': slotTypeId,
           'p_expected_total': expectedTotal,
+          // The correctness trap: create_hold re-quotes internally to price
+          // the hold. Omitting the coupon code here would make that
+          // internal re-quote come back HIGHER than expectedTotal (which
+          // the client computed WITH the discount applied), so every
+          // couponed booking would fail with P0007 -- exactly backwards.
+          'p_coupon_code': couponCode,
         });
         return Reservation.fromJson(row as Map<String, dynamic>);
       });

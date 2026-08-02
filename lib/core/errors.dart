@@ -110,7 +110,14 @@ BookingFailure mapPostgrestError(Object error) {
     'P0007' => QuoteStale(message),
     'P0008' || '42501' => const NotPermitted(),
     'P0002' => const NotFound(),
-    'P0003' || 'P0004' || 'P0005' || 'P0009' => InvalidState(message),
+    // P0010-P0013 are coupon errors raised by resolve_coupon (via get_quote
+    // and create_hold): unknown/inactive code, expired, usage limit
+    // reached, and booking below the coupon's minimum. Every one of these
+    // messages is written for the customer -- e.g. "coupon SAVE10 has
+    // expired" -- and safe to show verbatim, same as P0003/P0004/P0005/
+    // P0009 below.
+    'P0003' || 'P0004' || 'P0005' || 'P0009' ||
+    'P0010' || 'P0011' || 'P0012' || 'P0013' => InvalidState(message),
     '23514' => InvalidState(message),
     '23505' => const DuplicateValue(),
     _ => UnknownFailure(message),

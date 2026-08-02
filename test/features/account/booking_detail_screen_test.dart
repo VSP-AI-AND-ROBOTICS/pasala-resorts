@@ -42,6 +42,7 @@ class _FakeCancelActions implements BookingActions {
     required DateTime to,
     required int guests,
     String? slotTypeId,
+    String? couponCode,
   }) =>
       throw UnimplementedError();
 
@@ -53,6 +54,7 @@ class _FakeCancelActions implements BookingActions {
     required int guests,
     String? slotTypeId,
     num? expectedTotal,
+    String? couponCode,
   }) =>
       throw UnimplementedError();
 

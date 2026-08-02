@@ -33,4 +33,28 @@ void main() {
     final quote = Quote.fromJson({...json, 'total': 99999});
     expect(quote.total, 99999);
   });
+
+  test('coupon is null when the server omits it', () {
+    final quote = Quote.fromJson(json);
+    expect(quote.coupon, isNull);
+  });
+
+  test('parses an applied coupon', () {
+    final quote = Quote.fromJson({
+      ...json,
+      'coupon': {
+        'code': 'SAVE10',
+        'kind': 'percent',
+        'value': 10,
+        'discount': 1150,
+      },
+      'total': 10350,
+    });
+    expect(quote.coupon, isNotNull);
+    expect(quote.coupon!.code, 'SAVE10');
+    expect(quote.coupon!.kind, 'percent');
+    expect(quote.coupon!.value, 10);
+    expect(quote.coupon!.discount, 1150);
+    expect(quote.total, 10350);
+  });
 }
