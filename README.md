@@ -1,49 +1,164 @@
-# Pasala Resorts — Booking Core (Phase 1)
+# Pasala Resorts — Booking Platform (Phase 1 + Phase 2)
 
 A Flutter app (Android, iOS, and web from one codebase) backed by Supabase
-(Postgres + Auth + Realtime), implementing property browsing, a server-priced
-booking flow with a timed hold and mock payment, admin property/rate/blocking
-management, and a staff "Today" view.
+(Postgres + Auth + Realtime), implementing property browsing, a
+server-priced booking flow with a timed hold, coupons, a refund policy
+engine, an advance/balance split, an admin dashboard and reports, a
+notification outbox, and two-way iCal calendar sync with Airbnb/Booking.com.
 
-Full design rationale: `docs/superpowers/specs/2026-07-28-pasala-booking-core-design.md`.
+Read `docs/STATUS.md` first — it is the single honest page on what is real,
+what is stubbed, and what is needed from the owner to go live.
 
-## What phase 1 includes
+Design rationale: `docs/superpowers/specs/2026-07-28-pasala-booking-core-design.md`
+(phase 1) and `docs/superpowers/specs/2026-07-30-pasala-phase2-design.md`
+(phase 2). Full task-by-task record, including every defect found and every
+deferred item: `.superpowers/sdd/2026-07-28-pasala-booking-core/progress.md`
+and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
+
+## What the app includes today
+
+**Core booking (phase 1)**
 
 - Email/password authentication, five roles (`customer`, `staff`, `admin`,
   `accountant`, `super_admin`), one codebase gated by role at the router.
 - Multi-property, multi-unit catalog (nightly, slot, or both booking modes).
 - Rate rules (base, weekend, priority-ordered date-range overrides) priced
-  entirely server-side via a Postgres RPC — the client never computes a price.
+  entirely server-side via a Postgres RPC — the client never computes a
+  price.
 - A realtime + polled availability calendar, customer and admin views.
-- Booking workflow: search availability → quote → timed hold → mock payment →
+- Booking workflow: search availability → quote → timed hold → payment →
   confirm, all guarded by a Postgres exclusion constraint so two overlapping
   reservations on the same unit can never both commit.
-- My Bookings: list, detail, and cancellation (releases the dates; see
-  "Known limitations" for what cancellation does *not* do).
+- My Bookings: list, detail, and cancellation (releases the dates and
+  computes a refund — see below).
 - Admin: properties, units, rate rules, date blocking (single/multiple/range,
-  with a reason), and a bookings list.
+  with a reason and removal), and a bookings list.
 - Staff: a "Today" view of arrivals and departures.
 
-## What phase 1 deliberately excludes
+**Design system and UI (phase 2)**
 
-These are named seams for later phases, not oversights — see
-`docs/superpowers/specs/2026-07-28-pasala-booking-core-design.md` §1 for the
-full phase breakdown:
+- A real design system (colour roles, type scale, spacing scale, elevation,
+  radius) — `lib/core/theme/`, one source consumed everywhere.
+- Deliberate empty, loading, and error states on every screen, plus a shared
+  `FailureView` so no screen renders a raw server error string.
+- Property and unit imagery as first-class content on the browse screen.
+- A booking flow with a clear step structure (dates → guests → price → pay)
+  and a non-colour cue per calendar state (outline / bold+fill / hatch /
+  dashed / opacity) so the calendar reads correctly without colour vision.
+- Verified WCAG AA contrast (onSurface/surface: 16.30:1 light, 14.32:1 dark).
 
-- **A real payment gateway.** Phase 1 ships a `PaymentGateway` interface with
-  a mock implementation. No real money moves. Phase 2 swaps in Razorpay or
-  PhonePe behind the same interface.
-- **Coupons and a refund policy engine.** Also phase 2.
-- **Notifications** (email, then SMS, then WhatsApp). Phase 3 — WhatsApp
-  needs Meta Business API approval with a multi-week lead time.
-- **OTA synchronization** (Airbnb, Booking.com, Agoda, MakeMyTrip, Goibibo).
-  Phase 4 originally. iCal export/import (the two-way sync every major OTA
-  actually supports without a commercial agreement) shipped in phase 2 --
-  see "OTA calendar sync (iCal)" below. A real-time, guaranteed-zero-double-
-  booking two-way API integration (Agoda/MakeMyTrip/Goibibo, none of which
-  publish one) is still out of scope.
-- **Reports, dashboard metrics, and housekeeping status updates.** Phase 5
-  originally; reports and the dashboard shipped in phase 2.
+**Reports and admin dashboard (phase 2)**
+
+- `/admin/dashboard`: today's revenue, month revenue, occupancy rate,
+  upcoming arrivals, cancellations, coupon usage — every figure computed in
+  SQL, never in Dart.
+- `/admin/reports`: revenue and occupancy by date range and property,
+  exportable as CSV. PDF export was explicitly deferred — see
+  "Known limitations".
+- Both screens are staff-or-above (not admin-only): the accountant role
+  exists specifically to read financials.
+
+**Coupons, refunds, and advance/balance (phase 2)**
+
+- Coupons: percentage or fixed value, with expiry, usage limit, minimum
+  booking value, and optional per-customer restriction. Applied inside
+  `get_quote`, so a coupon can never produce a client-computed total, and
+  redemption counting is race-safe (proven with two genuinely concurrent
+  `create_hold` calls via `dblink`). There is no admin UI for creating
+  coupons yet — create them directly in the `coupons` table (Supabase
+  Studio or `psql`); the customer-facing "Have a coupon?" field in the
+  booking screen and all quote/redemption logic are otherwise complete.
+- Refund policy: admin-configurable rules by days-before-check-in. Seeded
+  default: full refund beyond 7 days out, 50% within 7 days, 0% within 48
+  hours (the boundary itself — exactly 48 hours — keeps the 50% tier; see
+  the controller ruling in the phase 2 ledger). Cancelling a booking now
+  computes and records a real refund amount instead of only releasing the
+  dates.
+- Advance/balance: `properties.advance_pct` sets the minimum share of the
+  quoted total needed to confirm a hold; `confirm_booking` accepts any
+  amount from that minimum up to the full total (never more than quoted).
+  The balance itself is not collected anywhere yet — see "Known
+  limitations".
+- A cancelled coupon redemption (hold, expired hold, or a fully confirmed
+  booking) always releases its `coupon_redemptions` row and restores
+  `redeemed_count` — proven for all three paths.
+
+**Notification outbox (phase 2)**
+
+- An `outbox` table records every booking-confirmation, payment-success, and
+  cancellation message, rendered from templates, per channel
+  (email/sms/whatsapp), with per-customer skip-with-reason when no
+  email/phone is on file.
+- `/admin/outbox` (staff-or-above) shows the queue honestly, including a
+  permanent, undismissable banner: **nothing has ever been sent — there is
+  no email/SMS/WhatsApp provider configured.**
+- This is enforced at the database privilege level, not just in the UI:
+  `outbox` has no INSERT/UPDATE/DELETE grant to `authenticated` or `anon` at
+  all. The only writer is a `SECURITY DEFINER` trigger function that never
+  once sets `status = 'sent'`. A direct attempt to write `sent` fails with
+  `42501` before RLS is even evaluated — proven in `13_outbox_test.sql`.
+
+**OTA calendar sync — iCal (phase 2)**
+
+`/admin/ota/:unitId` (Admin → Properties → Units → a unit's overflow menu →
+"OTA sync") gives each unit two things, with no paid channel manager:
+
+- **An export URL** to paste into Airbnb (Listing → Availability → Sync
+  calendars → Add another calendar) or Booking.com's equivalent "Import
+  calendar" field. It lists only busy date ranges as RFC 5545 `VEVENT`s —
+  no guest name, email, or amount ever appears in it, by construction: the
+  builder reads `unit_calendar_events`, the identity-free occupancy mirror,
+  never `reservations` directly.
+- **Import feeds**: paste the OTA's own export URL back in, and this app
+  imports its busy dates as `ota`-kind reservations that block those dates
+  here too. A genuine overlap with an existing confirmed booking is caught
+  and reported as a conflict — never silently force-applied.
+
+The export URL is protected by a per-unit opaque token, not the unit's own
+id — see migration `0018_ical.sql`'s header. If a URL leaks, the finder can
+read that one unit's occupancy and nothing else; rotating the token from the
+OTA screen invalidates the leaked URL immediately.
+
+**Automatic polling is wired and real**: `pg_net` is available in this local
+stack, so a `pg_cron` job (`ical-poll-feeds`, every 15 minutes) fetches every
+active import feed and applies it automatically — verified end-to-end
+against a real local HTTP server. The admin "Sync" button drives the same
+function on demand.
+
+**The export URL shape has never been verified against a real Airbnb or
+Booking.com account** — there is no owner-provided listing to test against.
+See `docs/STATUS.md`.
+
+**Payments (phase 2 seam, still stubbed)**
+
+- `MockGateway` is, and remains, the default `PaymentGateway` in every build
+  this repo produces — no real money moves anywhere in this app today.
+- `RazorpayGateway` (`lib/features/booking/razorpay_gateway.dart`) exists as
+  a written adapter against Razorpay's real Orders API shape, but it is
+  inert: there is no merchant account to test it against, and no native
+  checkout SDK integrated into the app, so `charge()` fails loudly
+  (`UnimplementedError`) after creating an order rather than pretending a
+  created order is a captured payment. `paymentGatewayProvider` only
+  selects it when `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` are supplied via
+  `--dart-define`; nothing in this repo's build configuration ever supplies
+  them.
+
+## What is still out of scope
+
+- **SMS/WhatsApp/email actually being delivered.** The outbox renders and
+  queues; nothing sends. WhatsApp additionally needs Meta Business API
+  verification, which has a multi-week lead time.
+- **A real-time, guaranteed-zero-double-booking two-way API integration**
+  with Agoda/MakeMyTrip/Goibibo — none of them publish one; iCal (above) is
+  the closest thing available without a commercial channel-manager
+  agreement.
+- **Collecting the balance payment** once a booking is confirmed on an
+  advance. The split is computed and stored; nothing prompts or records the
+  second payment yet.
+- **Coupon management UI.** Coupons are created directly in the database;
+  there is no admin screen for it yet.
+- **PDF report export.** CSV only; see `lib/features/reports/reports_screen.dart`.
+- **Production hosting.** Everything runs against local Supabase.
 
 ## Prerequisites
 
@@ -64,11 +179,17 @@ supabase start
 # The Makefile's ANON_KEY variable picks this up automatically — you only
 # need the raw value if you're running `flutter run`/`flutter build` by hand.
 
-# 3. Apply migrations and load seed data (properties, units, rate rules,
-#    one confirmed booking, one admin block, and the accounts below).
+# 3. Apply all 18 migrations and load seed data (properties, units, rate
+#    rules, refund policy, one confirmed booking, one admin block, and the
+#    accounts below). No coupons are seeded.
 supabase db reset
 
-# 4. Run the app in a browser.
+# 4. Run the pgTAP suite against the freshly seeded database (optional but
+#    recommended — this is the suite CI/the owner should run before trusting
+#    any change).
+supabase test db
+
+# 5. Run the app in a browser.
 make run-web
 ```
 
@@ -101,43 +222,7 @@ All seeded accounts share the password `password123`.
 
 `ANON_KEY` is resolved automatically from `supabase status`, so these targets
 work as-is once `supabase start` has run — no manual key copying needed for
-`make`-driven runs.
-
-## OTA calendar sync (iCal)
-
-`/admin/ota/:unitId` (reachable from Admin → Properties → Units → a unit's
-overflow menu → "OTA sync") gives each unit two things, with no paid
-channel manager:
-
-- **An export URL** to paste into Airbnb (Listing → Availability → Sync
-  calendars → Add another calendar) or Booking.com's equivalent "Import
-  calendar" field. It lists only busy date ranges as RFC 5545 `VEVENT`s --
-  no guest name, email, or amount ever appears in it, by construction: the
-  builder reads `unit_calendar_events`, the identity-free occupancy mirror,
-  never `reservations` directly.
-- **Import feeds**: paste the OTA's own export URL back in, and this app
-  imports its busy dates as `ota`-kind reservations that block those dates
-  here too. A genuine overlap with an existing confirmed booking is caught
-  and reported as a conflict -- never silently force-applied.
-
-**The export URL is protected by a per-unit opaque token**, not the unit's
-own id -- see migration `0018_ical.sql`'s header for the full reasoning.
-If a URL leaks, the finder can read that one unit's occupancy and nothing
-else (no identity, no other units); rotating the token from the OTA screen
-invalidates the leaked URL immediately.
-
-**Automatic polling is wired and real**: `pg_net` is available in this
-local stack, so a `pg_cron` job (`ical-poll-feeds`, every 15 minutes)
-fetches every active import feed and applies it automatically -- verified
-end-to-end against a real local HTTP server, not just unit-tested. It is
-genuinely asynchronous, not a single blocking call (pg_net's own
-synchronous convenience wrapper, `net.http_collect_response`, was tried
-first and found broken in the pg_net version installed here -- see the
-migration header for the exact error and how this was diagnosed): a fetch
-is fired on one call and collected on the next, so a feed can briefly show
-`requested`/`pending` before its first real result lands. The admin
-"Sync" button drives the identical function on demand, for whenever
-waiting up to 15 minutes is not acceptable.
+`make`-driven runs. Phase 2 added no new `make` targets.
 
 ## Per-platform host
 
@@ -175,27 +260,25 @@ plaintext HTTP from those hosts.
 
 ## Known limitations
 
-- **Payment is a mock gateway.** No real money moves in phase 1.
-  `PaymentGateway` (see `lib/`) is the seam a real provider (Razorpay,
-  PhonePe) swaps into in phase 2.
-- **Refund handling is not automated.** Cancelling a booking releases its
-  dates on the calendar; it does not process, calculate, or record a refund.
-  That is phase 2's refund policy engine.
+Carried forward from phase 1, plus everything phase 2 found or deferred.
+See `docs/STATUS.md` for what each of these means for going live, and the
+two progress ledgers (linked at the top of this file) for the complete,
+task-by-task record.
+
+**From phase 1:**
+
 - **Realtime calendar updates require `REPLICA IDENTITY FULL`** on
   `unit_calendar_events` — without it, a filtered realtime subscription
   received no event at all for a row `DELETE` (e.g. a cancellation), which
   was the root cause of an earlier staleness bug. A 30-second poll plus a
   refresh-on-app-foreground bound how stale the calendar can get if the
   realtime socket ever stalls or drops a message.
-- **The admin date-blocking screen shows selected days as a count only**
-  (e.g. "3 days selected"), not as highlighted calendar cells.
 - **Some UI interactions were verified through widget tests and direct
   API/RPC calls rather than live browser clicks.** The development sandbox's
-  browser automation cannot reliably focus Flutter-web text fields, and
-  click-based interaction was inconsistent against the CanvasKit/web-server
-  build used here. Where this applied, the underlying behavior was instead
-  proven against the same RPCs and REST/Realtime endpoints the app itself
-  calls (e.g. `psql`/`curl` round trips), plus Flutter widget tests.
+  browser automation cannot reliably focus Flutter-web text fields, so any
+  verification requiring typed input used the same RPCs and REST/Realtime
+  endpoints the app itself calls (`psql`/`curl` round trips) plus widget
+  tests instead.
 - **Two narrow, documented races remain, both non-corrupting:**
   - Booking date/guest/slot controls are not gated on an in-flight request
     flag, so rapid multi-tapping can interleave two selection-change calls.
@@ -208,6 +291,43 @@ plaintext HTTP from those hosts.
 - **`json_annotation` is pinned to `>=4.9.0 <4.10.0`** to satisfy a
   transitive dependency conflict; newer compatible versions exist upstream.
 
-For the full task-by-task record (including everything ruled out or
-deferred along the way), see
-`.superpowers/sdd/2026-07-28-pasala-booking-core/progress.md`.
+**From phase 2:**
+
+- **Payment is still a mock gateway.** See "Payments" above — `MockGateway`
+  is the default in every build this repo produces; `RazorpayGateway` exists
+  but is inert without a merchant account and a checkout SDK this app does
+  not integrate.
+- **Nothing in the notification outbox has ever been sent.** There is no
+  email/SMS/WhatsApp provider configured; the queue and the honest
+  "not sent" banner are the whole deliverable here. See `docs/STATUS.md`
+  for what's needed to change that.
+- **The iCal export URL shape has never been verified against a real
+  Airbnb or Booking.com account** — there is no owner-provided listing to
+  test against. The RFC 5545 shape and the local end-to-end poll/apply
+  cycle are verified; the specific way a real OTA parses this app's feed
+  is not.
+- **No coupon management UI.** Coupons are created directly in the
+  `coupons` table.
+- **The balance portion of an advance/balance booking is never collected.**
+  The split is computed and stored on confirmation; nothing prompts for or
+  records the balance payment afterward.
+- **PDF report export was explicitly deferred.** Reports export as CSV
+  only — there is deliberately no disabled/greyed-out PDF button standing
+  in for it.
+- **The admin dashboard's occupancy tab was not click-verified live** in
+  the development sandbox (canvas click flakiness); it is covered by a
+  widget test instead.
+- **`report_occupancy`'s overlap filter builds its date range in session
+  timezone, not property-local midnight** — up to a 5.5-hour skew that can
+  include/exclude a booking near a day boundary. Numerically invisible for
+  Asia/Kolkata (the only timezone this app currently seeds), verified by
+  brute force, and kept as a known limitation rather than blocking the
+  phase on a westward-timezone edge case no seeded property has.
+- **A same-priority rate rule for a specific slot type can be outranked by
+  a same-priority seasonal override** (carried from phase 1, restated for
+  completeness) — same root cause, same narrow trigger.
+
+For the full task-by-task record (every defect found, every ruling made,
+every deferred item), see:
+- `.superpowers/sdd/2026-07-28-pasala-booking-core/progress.md` (phase 1)
+- `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md` (phase 2)
