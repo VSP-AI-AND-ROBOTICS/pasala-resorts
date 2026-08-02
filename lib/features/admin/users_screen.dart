@@ -50,7 +50,7 @@ class UsersScreen extends ConsumerWidget {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _ExplainerBanner(),
+          _ExplainerBanner(canEditRoles: canEditRoles),
           Expanded(
             child: AsyncView(
               value: profilesAsync,
@@ -83,7 +83,13 @@ class UsersScreen extends ConsumerWidget {
 }
 
 class _ExplainerBanner extends StatelessWidget {
-  const _ExplainerBanner();
+  const _ExplainerBanner({required this.canEditRoles});
+
+  /// Whether the signed-in user is a super admin -- mirrors
+  /// [UsersScreen.canEditRoles]. When false, an extra line explains why
+  /// every row below shows read-only role text instead of a dropdown,
+  /// rather than leaving a viewer to guess whether that's a bug.
+  final bool canEditRoles;
 
   @override
   Widget build(BuildContext context) {
@@ -97,18 +103,37 @@ class _ExplainerBanner extends StatelessWidget {
         vertical: Spacing.sm,
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(Icons.info_outline, color: scheme.onSurfaceVariant),
           const SizedBox(width: Spacing.sm),
           Expanded(
-            child: Text(
-              'There is no "Add user" button here. New staff create their '
-              'own account at Sign up, then a super admin promotes them to '
-              'the right role below.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'There is no "Add user" button here. New staff create '
+                  'their own account at Sign up, then a super admin '
+                  'promotes them to the right role below.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+                if (!canEditRoles)
+                  Padding(
+                    padding: const EdgeInsets.only(top: Spacing.xs),
+                    child: Text(
+                      'Only a super admin can change roles, so yours are '
+                      'shown here as read-only text.',
+                      key: const Key('read-only-role-explainer'),
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],

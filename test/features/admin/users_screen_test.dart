@@ -110,6 +110,25 @@ void main() {
   });
 
   testWidgets(
+      'a plain admin sees an explanation of why roles are read-only for '
+      'them', (tester) async {
+    final source = FakeUserAdminSource()..rows = [_profile()];
+    await pump(tester, source: source, actor: _admin);
+
+    expect(find.byKey(const Key('read-only-role-explainer')), findsOneWidget);
+    expect(find.textContaining('Only a super admin can change roles'),
+        findsOneWidget);
+  });
+
+  testWidgets('a super admin sees no read-only-role explanation',
+      (tester) async {
+    final source = FakeUserAdminSource()..rows = [_profile()];
+    await pump(tester, source: source, actor: _superAdmin);
+
+    expect(find.byKey(const Key('read-only-role-explainer')), findsNothing);
+  });
+
+  testWidgets(
       'a successful role change by a super admin calls the repository and '
       'refreshes the list', (tester) async {
     final source = FakeUserAdminSource()

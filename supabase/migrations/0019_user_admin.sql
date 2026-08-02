@@ -76,7 +76,8 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_old               public.profiles;
+  v_peek_role          public.user_role;
+  v_old                public.profiles;
   v_new                public.profiles;
   v_super_admin_count  int;
 begin
@@ -88,33 +89,75 @@ begin
     raise exception 'role is required' using errcode = 'P0005';
   end if;
 
-  select * into v_old from public.profiles where id = p_user_id for update;
+  -- Unlocked peek, used only to choose which branch below to take -- never
+  -- trusted for the guard decision itself, which is re-derived from a
+  -- locked read in whichever branch runs.
+  select role into v_peek_role from public.profiles where id = p_user_id;
   if not found then
     raise exception 'profile not found' using errcode = 'P0002';
   end if;
 
-  -- Setting a role to its current value is a no-op that succeeds, not an
-  -- error -- the caller (e.g. a screen re-submitting an unchanged
-  -- dropdown) should never have to special-case "same value" itself.
-  if v_old.role = p_role then
-    return;
-  end if;
+  if v_peek_role = 'super_admin' then
+    -- The guard the brief calls out by name: without it, a super admin
+    -- demoting themselves (the only one left) locks every human out of
+    -- administration permanently, recoverable only from psql.
+    --
+    -- A single `for update` on just this row (the shape this function
+    -- used to have) only locks the row being changed -- it does not
+    -- conflict with a concurrent transaction demoting a DIFFERENT
+    -- super_admin, so a plain `select count(*)` afterwards can read a
+    -- count that predates either commit. Two super admins each demoting
+    -- the other "simultaneously" would both see count = 2, both pass, and
+    -- both commit, leaving zero -- exactly the lockout this guard exists
+    -- to prevent. Same shape as the race 0012_coupons.sql's redemption
+    -- counter closes: the check and the read it depends on must happen
+    -- under a lock a competing transaction is actually forced to wait on,
+    -- not a separate unlocked SELECT.
+    --
+    -- Fixed by locking every super_admin row -- not just this one -- in a
+    -- fixed order (`order by id`) before counting. That order is also why
+    -- this must be the FIRST lock this transaction takes on any
+    -- super_admin row: if p_user_id's own row were locked first (as a
+    -- preceding single-row `for update` would do), two transactions
+    -- demoting two different super admins would each already hold their
+    -- own target's lock before reaching this statement, and each would
+    -- then block waiting for the other's -- a genuine deadlock, not a
+    -- clean queue. Taking no super_admin-row lock before this ordered
+    -- statement means every concurrent caller requests these locks in the
+    -- identical sequence, so the second one queues behind the first
+    -- instead of deadlocking against it.
+    perform 1 from public.profiles where role = 'super_admin'
+      order by id for update;
 
-  -- The guard the brief calls out by name: without it, a super admin
-  -- demoting themselves (the only one left) locks every human out of
-  -- administration permanently, recoverable only from psql. `for update`
-  -- above plus this count, in the same transaction, close the race where
-  -- two super admins each demote the other "simultaneously" -- the second
-  -- caller blocks on the first row lock, then re-reads a count that
-  -- already reflects the first change.
-  if v_old.role = 'super_admin' and p_role is distinct from 'super_admin' then
-    select count(*) into v_super_admin_count
-    from public.profiles where role = 'super_admin';
+    select * into v_old from public.profiles where id = p_user_id for update;
 
-    if v_super_admin_count <= 1 then
-      raise exception
-        'cannot change role: this is the last remaining super_admin'
-        using errcode = 'P0014';
+    -- Setting a role to its current value is a no-op that succeeds, not
+    -- an error -- the caller (e.g. a screen re-submitting an unchanged
+    -- dropdown) should never have to special-case "same value" itself.
+    if v_old.role = p_role then
+      return;
+    end if;
+
+    if p_role is distinct from 'super_admin' then
+      select count(*) into v_super_admin_count
+        from public.profiles where role = 'super_admin';
+
+      if v_super_admin_count <= 1 then
+        raise exception
+          'cannot change role: this is the last remaining super_admin'
+          using errcode = 'P0014';
+      end if;
+    end if;
+  else
+    -- Not currently a super_admin, so the last-super-admin invariant
+    -- isn't at stake -- an ordinary single-row lock is all this path
+    -- needs. Taking the heavier lock above here would serialise every
+    -- non-super-admin role change behind whatever super_admin rows are
+    -- doing, for no reason.
+    select * into v_old from public.profiles where id = p_user_id for update;
+
+    if v_old.role = p_role then
+      return;
     end if;
   end if;
 
