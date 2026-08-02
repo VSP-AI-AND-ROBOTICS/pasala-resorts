@@ -6,7 +6,7 @@
 -- example exactly -- and a flat 2000 coupon discounts 2000 for 9500.
 
 begin;
-select plan(53);
+select plan(59);
 
 select has_table('public', 'coupons', 'coupons table exists');
 select has_table('public', 'coupon_redemptions',
@@ -487,7 +487,8 @@ select is(
 
 insert into public.coupons (code, kind, value, max_redemptions) values
   ('RELEASE1', 'percent', 10, 1),
-  ('RELEASE2', 'percent', 10, 1);
+  ('RELEASE2', 'percent', 10, 1),
+  ('RELEASE3', 'percent', 10, 1);
 
 set local role authenticated;
 set local request.jwt.claims to
@@ -608,6 +609,60 @@ select is(
     where c.code = 'RELEASE2'),
   0,
   'THE FIX: the expired hold''s coupon_redemptions row is removed too');
+
+-- --- cancelling a CONFIRMED (not just held) booking also releases the -----
+-- --- redemption ------------------------------------------------------------
+-- Task 9's review found the only coverage was hold->cancelled and the
+-- expiry sweep; `release_reservation_coupon` is called unconditionally from
+-- `cancel_booking` regardless of the reservation's status at cancel time, so
+-- the code path looked correct for a confirmed booking too, but nothing
+-- proved it. This confirms RELEASE3's hold first (so the reservation is
+-- genuinely 'confirmed', not 'hold') before cancelling it.
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+select lives_ok(
+  $$select public.create_hold('bbbbbbbb-0000-0000-0000-000000000001',
+      '2026-10-15','2026-10-16', 4, null, 10350, 'RELEASE3')$$,
+  'RELEASE3 is redeemed for the confirmed-booking fixture');
+
+select is(
+  (select redeemed_count from public.coupons where code = 'RELEASE3'),
+  1,
+  'RELEASE3''s redeemed_count is 1 after the hold');
+
+select is(
+  (select status from public.confirm_booking(
+     (select id from public.reservations
+       where unit_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+         and lower(period) >= '2026-10-15' and lower(period) < '2026-10-16'),
+     'mock_ref_release3', 10350)),
+  'confirmed'::public.reservation_status,
+  'the RELEASE3 hold is confirmed, not just held, before it is cancelled');
+
+select lives_ok(
+  $$select public.cancel_booking(
+      (select id from public.reservations
+        where unit_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+          and lower(period) >= '2026-10-15' and lower(period) < '2026-10-16'),
+      'changed plans after confirming')$$,
+  'cancelling a CONFIRMED (not just held) couponed booking succeeds');
+
+select is(
+  (select redeemed_count from public.coupons where code = 'RELEASE3'),
+  0,
+  'THE FIX (task 11/12): cancelling a CONFIRMED couponed booking restores '
+  'redeemed_count -- the release path is status-agnostic, not hold-only');
+
+select is(
+  (select count(*)::int from public.coupon_redemptions cr
+    join public.coupons c on c.id = cr.coupon_id
+    where c.code = 'RELEASE3'),
+  0,
+  'THE FIX (task 11/12): cancelling a CONFIRMED couponed booking removes '
+  'the coupon_redemptions row too');
 
 reset role;
 

@@ -133,16 +133,26 @@ begin
   select * into v_profile from public.profiles where id = v_row.customer_id;
   select email into v_email from auth.users where id = v_row.customer_id;
 
+  -- Every value here is `coalesce`d, even columns currently `not null`
+  -- (`unit_name`, `property_name`) -- Postgres's `replace()` returns NULL if
+  -- ANY argument is NULL, so a single NULL context value would silently
+  -- collapse the ENTIRE rendered subject/body to NULL in the substitution
+  -- loop below, not just leave that one token unreplaced. Those two columns
+  -- cannot be NULL today, so this is currently unreachable in practice, but
+  -- relying on a `not null` constraint two joins away to keep this function
+  -- safe is exactly the kind of inconsistency that breaks silently the
+  -- moment either constraint is ever relaxed. Defence in depth, applied
+  -- uniformly rather than selectively.
   v_ctx := jsonb_build_object(
     'guest_name',     coalesce(v_profile.full_name, 'Guest'),
-    'unit_name',      v_unit.name,
-    'property_name',  v_property.name,
-    'check_in',       to_char(
+    'unit_name',      coalesce(v_unit.name, 'your unit'),
+    'property_name',  coalesce(v_property.name, 'Pasala Resorts'),
+    'check_in',       coalesce(to_char(
                          lower(v_row.period) at time zone v_property.timezone,
-                         'DD Mon YYYY'),
-    'check_out',      to_char(
+                         'DD Mon YYYY'), ''),
+    'check_out',      coalesce(to_char(
                          upper(v_row.period) at time zone v_property.timezone,
-                         'DD Mon YYYY'),
+                         'DD Mon YYYY'), ''),
     'total',          coalesce(v_row.quote ->> 'total', '0'),
     'currency',       coalesce(v_row.quote ->> 'currency', 'INR'),
     'cancel_reason',  coalesce(v_row.cancel_reason, 'no reason given'),

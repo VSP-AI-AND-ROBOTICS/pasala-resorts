@@ -4,7 +4,7 @@
 -- `status = 'sent'`.
 
 begin;
-select plan(28);
+select plan(29);
 
 select has_table('public', 'outbox', 'outbox table exists');
 select has_table('public', 'outbox_templates', 'outbox_templates table exists');
@@ -233,6 +233,19 @@ select is(
   (select count(*)::int from public.outbox where btrim(recipient) = ''),
   0,
   'no row is ever enqueued with an empty recipient');
+
+-- Carried-forward fix (task 9 review -> task 11/12): `render_template`
+-- coalesced `guest_name` but not `unit_name`/`property_name`, and
+-- Postgres's `replace()` returns NULL if ANY of its arguments is NULL -- so
+-- one NULL context value would have silently collapsed the ENTIRE rendered
+-- body to NULL, not just left one token unreplaced. Every deliverable
+-- (non-skipped) row in this file went through that substitution loop, so
+-- this is a real, not vacuous, check that it never happened.
+select is(
+  (select count(*)::int from public.outbox
+    where status = 'pending' and body is null),
+  0,
+  'THE FIX: a rendered (pending) outbox row''s body is never NULL');
 
 -- === nothing in this phase may ever be marked sent =========================
 
