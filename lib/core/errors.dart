@@ -118,6 +118,12 @@ BookingFailure mapPostgrestError(Object error) {
     // P0009 below.
     'P0003' || 'P0004' || 'P0005' || 'P0009' ||
     'P0010' || 'P0011' || 'P0012' || 'P0013' => InvalidState(message),
+    // P0014: set_user_role's last-super-admin guard (0019_user_admin.sql)
+    // -- refuses to demote the only remaining super_admin, since that would
+    // lock every human out of administration with no recovery but psql.
+    // The message is written for the admin reading it and safe to show
+    // verbatim, same as the other InvalidState-mapped codes above.
+    'P0014' => InvalidState(message),
     '23514' => InvalidState(message),
     '23505' => const DuplicateValue(),
     _ => UnknownFailure(message),

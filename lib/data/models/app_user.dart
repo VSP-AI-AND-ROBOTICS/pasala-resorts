@@ -9,6 +9,17 @@ UserRole roleFromDb(String raw) => switch (raw) {
       _ => UserRole.customer,
     };
 
+/// Inverse of [roleFromDb] -- needed by `set_user_role`'s `p_role` param
+/// (`UserAdminRepository.setRole`), which takes the enum's Postgres text
+/// label, not Dart's camelCase name.
+String roleToDb(UserRole role) => switch (role) {
+      UserRole.customer => 'customer',
+      UserRole.staff => 'staff',
+      UserRole.admin => 'admin',
+      UserRole.accountant => 'accountant',
+      UserRole.superAdmin => 'super_admin',
+    };
+
 class AppUser {
   const AppUser({
     required this.id,

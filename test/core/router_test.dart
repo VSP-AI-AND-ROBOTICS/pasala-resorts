@@ -91,6 +91,7 @@ void main() {
         '/admin/dashboard',
         '/admin/reports',
         '/admin/outbox',
+        '/admin/users',
       ]) {
         expect(_to(_admin, path), null, reason: path);
       }
@@ -118,6 +119,7 @@ void main() {
         '/admin/block/u1',
         '/admin/ota/u1',
         '/admin/bookings',
+        '/admin/users',
       ]) {
         expect(_to(_staff, path), '/404', reason: path);
       }
@@ -138,6 +140,7 @@ void main() {
     test('is redirected away from admin-only management routes', () {
       expect(_to(_accountant, '/admin/properties'), '/404');
       expect(_to(_accountant, '/admin/bookings'), '/404');
+      expect(_to(_accountant, '/admin/users'), '/404');
     });
   });
 
@@ -150,6 +153,7 @@ void main() {
         '/admin/dashboard',
         '/admin/reports',
         '/admin/outbox',
+        '/admin/users',
       ]) {
         expect(_to(_customer, path), '/404', reason: path);
       }

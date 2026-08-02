@@ -46,6 +46,12 @@ class AdminHomeScreen extends StatelessWidget {
       subtitle: 'Queued booking notifications -- not yet sent to anyone',
       path: '/admin/outbox',
     ),
+    (
+      icon: Icons.people_outline,
+      title: 'Users',
+      subtitle: 'See every account and promote staff to the right role',
+      path: '/admin/users',
+    ),
   ];
 
   @override

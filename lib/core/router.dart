@@ -11,6 +11,7 @@ import '../features/admin/block_dates_screen.dart';
 import '../features/admin/property_form_screen.dart';
 import '../features/admin/rate_rules_screen.dart';
 import '../features/admin/units_screen.dart';
+import '../features/admin/users_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
 import '../features/booking/booking_screen.dart';
@@ -164,6 +165,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/outbox',
             builder: (_, _) => const OutboxScreen(),
+          ),
+          GoRoute(
+            path: '/admin/users',
+            builder: (_, _) => const UsersScreen(),
           ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
         ],

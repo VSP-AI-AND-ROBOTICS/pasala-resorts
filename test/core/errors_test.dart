@@ -81,6 +81,15 @@ void main() {
     expect(map('P0013'), isA<InvalidState>());
   });
 
+  test('P0014 maps to InvalidState and preserves the server message '
+      '(set_user_role last-super-admin guard)', () {
+    final failure =
+        map('P0014', 'cannot change role: this is the last remaining super_admin');
+    expect(failure, isA<InvalidState>());
+    expect(failure.message,
+        'cannot change role: this is the last remaining super_admin');
+  });
+
   test('an unknown code maps to UnknownFailure', () {
     expect(map('99999'), isA<UnknownFailure>());
   });
