@@ -3,11 +3,15 @@
 This is a single honest page. No optimism, no hedging, no "coming soon." If
 something is not done, it says so below, plainly.
 
-Last updated: 2026-08-02, end of phase 2 (branch `feat/booking-core`).
-Verified numbers as of this update: pgTAP 336/336 assertions (14 files),
-`flutter test` 270/270, `flutter analyze` clean, `flutter build web` and
-`flutter build apk --debug` both succeed. Everything below was checked
-against those runs, not assumed.
+Last updated: 2026-08-02, after the final whole-branch review's fix wave
+(branch `feat/booking-core`). Verified numbers as of this update: pgTAP
+352/352 assertions (14 files), `flutter test` 277/277, `flutter analyze`
+clean, `flutter build web` and `flutter build apk --debug` both succeed.
+Everything below was checked against those runs, not assumed. (The 336/336
+and 270/270 figures quoted by an earlier revision of this page were already
+one commit stale when written; these are the actual final counts, including
+the security/money fixes and the new tests that came with them — see
+`.superpowers/sdd/2026-07-30-pasala-phase2/final-fixes-report.md`.)
 
 ## What works today
 
@@ -27,17 +31,27 @@ business logic, only a mocked payment and unsent notifications (see below).
   (`dblink`-based test, two simultaneous requests for the last redemption
   slot). Cancelling a couponed booking — whether it was a hold, an expired
   hold, or a fully confirmed booking — always releases the redemption.
-- **Refund policy.** Admin-configurable, days-before-check-in tiers. Seeded
-  default: full refund beyond 7 days, 50% within 7 days, 0% within 48
-  hours. Every cancellation computes and stores a real refund figure.
+- **Refund policy.** Days-before-check-in tiers, stored in `refund_rules`.
+  Seeded default: full refund beyond 7 days, 50% within 7 days, 0% within
+  48 hours. Every cancellation computes and stores a real refund figure.
+  "Admin-configurable" means the RLS grants (staff/accountant read,
+  admin-only write) and the table itself, not an in-app screen — there is
+  no admin UI for editing tiers; changing them means writing to
+  `refund_rules` directly (Supabase Studio or `psql`).
 - **Advance/balance split.** A property can require less than 100% up
-  front to confirm a hold. The split is computed and recorded correctly.
-  Collecting the remaining balance afterward is not built — see "What is
-  stubbed" below.
+  front to confirm a hold, via `properties.advance_pct`. The split is
+  computed and recorded correctly. Same caveat as the refund policy above:
+  no admin UI exists for setting `advance_pct` per property, only a direct
+  table edit. Collecting the remaining balance afterward is not built —
+  see "What is stubbed" below.
 - **Admin dashboard and reports.** Revenue, occupancy, upcoming arrivals,
-  cancellations, coupon usage — every number computed in SQL, exported as
-  CSV. Staff and accountant roles can read these, not just admin, because
-  the RLS grants were written that way on purpose.
+  cancellations, and active holds — every number computed in SQL, exported
+  as CSV. Staff and accountant roles can read these, not just admin,
+  because the RLS grants were written that way on purpose. (No coupon-usage
+  figure exists anywhere on this page or in `dashboard_summary()` — it
+  returns exactly six keys, none of them coupon-related; a coupon-usage
+  figure was mentioned in an earlier revision of this page but was never
+  actually built.)
 - **iCal export and import.** Any unit can be subscribed to from Airbnb or
   Booking.com via a per-unit, revocable export URL (busy dates only, no
   guest identity). This app can also import an OTA's own feed and block
@@ -149,6 +163,9 @@ Phase 2:
   Airbnb or Booking.com account** (see item 5 above).
 - No coupon management UI — coupons are created directly in the `coupons`
   table via Supabase Studio or `psql`.
+- No refund-policy or advance-payment configuration UI — `refund_rules`
+  tiers and `properties.advance_pct` are each editable only by a direct
+  table write, the same gap as coupons above.
 - The balance portion of an advance/balance booking is never collected;
   only the split itself is computed and stored.
 - PDF report export was explicitly deferred; CSV only, with no

@@ -50,8 +50,11 @@ and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
 **Reports and admin dashboard (phase 2)**
 
 - `/admin/dashboard`: today's revenue, month revenue, occupancy rate,
-  upcoming arrivals, cancellations, coupon usage — every figure computed in
-  SQL, never in Dart.
+  upcoming arrivals, cancellations, and active holds — every figure computed
+  in SQL, never in Dart. (`dashboard_summary()` returns exactly these six
+  keys — there is no coupon-usage figure anywhere on this page or in the
+  underlying function; an earlier draft of this README claimed one that was
+  never actually built.)
 - `/admin/reports`: revenue and occupancy by date range and property,
   exportable as CSV. PDF export was explicitly deferred — see
   "Known limitations".
@@ -68,17 +71,22 @@ and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
   coupons yet — create them directly in the `coupons` table (Supabase
   Studio or `psql`); the customer-facing "Have a coupon?" field in the
   booking screen and all quote/redemption logic are otherwise complete.
-- Refund policy: admin-configurable rules by days-before-check-in. Seeded
-  default: full refund beyond 7 days out, 50% within 7 days, 0% within 48
-  hours (the boundary itself — exactly 48 hours — keeps the 50% tier; see
-  the controller ruling in the phase 2 ledger). Cancelling a booking now
+- Refund policy: rules by days-before-check-in, stored in `refund_rules` and
+  editable directly in that table (Supabase Studio or `psql`) — "admin-
+  configurable" describes the data model and RLS (staff/accountant can
+  read, only an admin can write), not an admin UI screen; there is no
+  in-app form for editing tiers, see "Known limitations". Seeded default:
+  full refund beyond 7 days out, 50% within 7 days, 0% within 48 hours (the
+  boundary itself — exactly 48 hours — keeps the 50% tier; see the
+  controller ruling in the phase 2 ledger). Cancelling a booking now
   computes and records a real refund amount instead of only releasing the
   dates.
 - Advance/balance: `properties.advance_pct` sets the minimum share of the
   quoted total needed to confirm a hold; `confirm_booking` accepts any
   amount from that minimum up to the full total (never more than quoted).
-  The balance itself is not collected anywhere yet — see "Known
-  limitations".
+  Same caveat as the refund policy above: there is no admin UI for setting
+  `advance_pct` per property, only a direct table edit. The balance itself
+  is not collected anywhere yet — see "Known limitations".
 - A cancelled coupon redemption (hold, expired hold, or a fully confirmed
   booking) always releases its `coupon_redemptions` row and restores
   `redeemed_count` — proven for all three paths.
@@ -308,6 +316,11 @@ task-by-task record.
   is not.
 - **No coupon management UI.** Coupons are created directly in the
   `coupons` table.
+- **No refund-policy or advance-payment configuration UI.** `refund_rules`
+  tiers and `properties.advance_pct` are both editable only by writing to
+  the table directly (Supabase Studio or `psql`) — "admin-configurable"
+  elsewhere in this document describes the data model and RLS grants, not
+  an in-app screen.
 - **The balance portion of an advance/balance booking is never collected.**
   The split is computed and stored on confirmation; nothing prompts for or
   records the balance payment afterward.
