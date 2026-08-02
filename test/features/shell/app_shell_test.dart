@@ -18,6 +18,18 @@ const _customer = AppUser(
   role: UserRole.customer,
 );
 
+const _staff = AppUser(
+  id: 'staff-id',
+  email: 'staff@pasala.test',
+  role: UserRole.staff,
+);
+
+const _accountant = AppUser(
+  id: 'accountant-id',
+  email: 'accounts@pasala.test',
+  role: UserRole.accountant,
+);
+
 Widget _appFor(AppUser user) {
   final router = GoRouter(
     initialLocation: '/',
@@ -57,6 +69,33 @@ void main() {
     await tester.pumpWidget(_appFor(_customer));
     await tester.pumpAndSettle();
 
+    expect(find.text('Admin'), findsNothing);
+  });
+
+  // Carried-forward fix: staff and accountant can reach `report_revenue`,
+  // `report_occupancy`, and `dashboard_summary` (all explicitly permit
+  // staff-or-above), and the router now allows `/admin/dashboard` and
+  // `/admin/reports` for them -- but a route being reachable is useless
+  // without a way to navigate to it. Both roles share `_staffDestinations`.
+  testWidgets('shows Dashboard and Reports destinations for staff', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_appFor(_staff));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dashboard'), findsOneWidget);
+    expect(find.text('Reports'), findsOneWidget);
+    expect(find.text('Admin'), findsNothing);
+  });
+
+  testWidgets('shows Dashboard and Reports destinations for an accountant', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_appFor(_accountant));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dashboard'), findsOneWidget);
+    expect(find.text('Reports'), findsOneWidget);
     expect(find.text('Admin'), findsNothing);
   });
 }

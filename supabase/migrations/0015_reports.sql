@@ -86,6 +86,26 @@ begin
   -- calendar date. Cast under the session timezone and a 2-night IST stay
   -- silently becomes 1 night. Converting `at time zone p.timezone` first,
   -- exactly like report_revenue does, fixes it.
+  --
+  -- Carried-forward fix (Task 7): the range-overlap filter below still built
+  -- `tstzrange(p_from::timestamptz, p_to::timestamptz, '[)')` under the
+  -- SESSION timezone rather than the property's, even after the I1 fix
+  -- above corrected the *amount* arithmetic. For Asia/Kolkata (a positive
+  -- UTC offset) this happens to be numerically invisible here -- the skew
+  -- band it mis-filters always lands exactly on the p_from/p_to boundary
+  -- date, which the `least`/`greatest` clipping below already zeroes out
+  -- regardless (verified by exhaustive brute-force search, not just
+  -- argument). But for any property WEST of UTC -- a real, schema-valid
+  -- `properties.timezone` value, just not one seeded today -- the skew band
+  -- lands on p_from-1/p_to+1 instead, which does NOT get clipped to zero:
+  -- a booking that ends just after property-local midnight but before the
+  -- session's UTC midnight is picked up by the buggy filter while its
+  -- clipped night count goes NEGATIVE, corrupting the sum (reproduced
+  -- live: a Pacific/Honolulu property returned `nights_booked = -1,
+  -- occupancy_pct = -20.0` for a reservation that should contribute zero).
+  -- Building the range from property-local midnight -- mirroring the same
+  -- `at time zone p.timezone` pattern used twice above -- fixes it for
+  -- every timezone, not just the one currently in use.
   return query
   select
     u.id,
@@ -100,7 +120,8 @@ begin
       where r.unit_id = u.id
         and r.kind = 'booking'
         and r.status = 'confirmed'
-        and r.period && tstzrange(p_from::timestamptz, p_to::timestamptz, '[)')
+        and r.period && tstzrange(p_from::timestamp at time zone p.timezone,
+                                   p_to::timestamp at time zone p.timezone, '[)')
     ), 0),
     round(
       coalesce((
@@ -112,7 +133,8 @@ begin
         where r.unit_id = u.id
           and r.kind = 'booking'
           and r.status = 'confirmed'
-          and r.period && tstzrange(p_from::timestamptz, p_to::timestamptz, '[)')
+          and r.period && tstzrange(p_from::timestamp at time zone p.timezone,
+                                     p_to::timestamp at time zone p.timezone, '[)')
       ), 0) * 100 / v_span, 1)
   from public.units u
   join public.properties p on p.id = u.property_id

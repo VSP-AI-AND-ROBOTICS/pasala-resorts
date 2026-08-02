@@ -20,7 +20,7 @@
 --     accountant is staff-or-above and must see the numbers too.
 
 begin;
-select plan(15);
+select plan(17);
 
 select has_function('public','dashboard_summary','dashboard_summary() exists');
 select has_function('public','report_revenue','report_revenue() exists');
@@ -176,6 +176,73 @@ select is(
    where unit_id = 'd0000000-0000-0000-0000-000000000003'),
   20.0::numeric,
   '2 nights in a 10-day window is 20.0 percent occupancy');
+
+-- === carried-forward fix: the range filter, not just the night-count =====
+-- === arithmetic, must use property-local midnight =========================
+--
+-- Asia/Kolkata (a positive UTC offset) cannot demonstrate this bug through
+-- report_occupancy's *output*: the skew band the buggy filter mis-handles
+-- always lands exactly on the query's own p_from/p_to boundary date, which
+-- the night-count's `least`/`greatest` clipping already zeroes out
+-- regardless of whether the row is included. Proven by exhaustive
+-- brute-force search over reservation timings before writing this comment,
+-- not just argued. A property WEST of UTC does not get this accidental
+-- cancellation -- Pacific/Honolulu (UTC-10, no DST to complicate the
+-- arithmetic) is used here purely to make the bug observable, not because
+-- the business operates one; `properties.timezone` is free text and the
+-- report must not corrupt itself the day a westward property is added.
+set local role postgres;
+
+insert into public.properties (id, name, slug, timezone)
+values ('a0000000-0000-0000-0000-000000000009',
+        'Report Test Honolulu','report-test-honolulu','Pacific/Honolulu');
+
+insert into public.units (id, property_id, name, capacity_base, capacity_max, booking_mode)
+values ('d0000000-0000-0000-0000-000000000009',
+        'a0000000-0000-0000-0000-000000000009','Report Test Honolulu A',
+        2, 4, 'nightly');
+
+-- Check-in 2027-06-05 12:00 UTC (comfortably before the query window).
+-- Check-out 2027-06-10 05:00 UTC: in Pacific/Honolulu (UTC-10) that is
+-- 2027-06-09 19:00 HST -- LOCAL DATE 2027-06-09, one full day before the
+-- query's p_from of 2027-06-10. This booking has no real local-date
+-- overlap with the window at all and must contribute zero nights.
+--
+-- The buggy filter instead builds its range as literal UTC-midnight
+-- instants (`tstzrange('2027-06-10'::timestamptz, ...)` = starts at
+-- 2027-06-10 00:00 UTC), and the checkout instant (05:00 UTC) falls just
+-- after that -- so the buggy filter wrongly INCLUDES this row, and its
+-- (already-fixed) night-count arithmetic then computes
+-- `2027-06-09 - 2027-06-10 = -1`, corrupting the sum with a negative
+-- night count. Reproduced live against the unfixed migration before this
+-- fix: `nights_booked = -1, occupancy_pct = -20.0`.
+insert into public.reservations
+  (unit_id, period, kind, status, customer_id, guests, source)
+values
+  ('d0000000-0000-0000-0000-000000000009',
+   tstzrange('2027-06-05 12:00:00+00','2027-06-10 05:00:00+00','[)'),
+   'booking','confirmed','cccc0000-0000-0000-0000-000000000001',2,'app');
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"cccc0000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+select is(
+  (select nights_booked from public.report_occupancy(
+     date '2027-06-10', date '2027-06-15',
+     'a0000000-0000-0000-0000-000000000009')
+   where unit_id = 'd0000000-0000-0000-0000-000000000009'),
+  0,
+  'a booking with no real local-date overlap contributes zero nights, '
+  'not a negative count, once the filter uses property-local midnight');
+
+select is(
+  (select occupancy_pct from public.report_occupancy(
+     date '2027-06-10', date '2027-06-15',
+     'a0000000-0000-0000-0000-000000000009')
+   where unit_id = 'd0000000-0000-0000-0000-000000000009'),
+  0.0::numeric,
+  'occupancy_pct is never negative for a booking outside the window');
 
 -- === accountant is staff-or-above and must see the numbers too ===========
 

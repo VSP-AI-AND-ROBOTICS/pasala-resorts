@@ -26,9 +26,25 @@ class AppShell extends ConsumerWidget {
     (path: '/admin', icon: Icons.settings_outlined, label: 'Admin'),
   ];
 
+  // Staff and accountant cannot reach `/admin` (that stays admin-only), but
+  // `report_revenue`/`report_occupancy`/`dashboard_summary` explicitly
+  // permit them -- and the router now allows `/admin/dashboard` and
+  // `/admin/reports` for staff-or-above (see `router.dart`) -- so both
+  // destinations must be reachable from here, or a staff/accountant user
+  // who lands on Today has no way to the numbers they're allowed to see.
   static const _staffDestinations = [
     (path: '/', icon: Icons.home_outlined, label: 'Browse'),
     (path: '/staff', icon: Icons.task_alt_outlined, label: 'Today'),
+    (
+      path: '/admin/dashboard',
+      icon: Icons.dashboard_outlined,
+      label: 'Dashboard',
+    ),
+    (
+      path: '/admin/reports',
+      icon: Icons.summarize_outlined,
+      label: 'Reports',
+    ),
   ];
 
   @override
