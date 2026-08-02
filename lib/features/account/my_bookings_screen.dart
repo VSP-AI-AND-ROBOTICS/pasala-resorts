@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
-import '../../core/widgets/failure_view.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/async_view.dart';
+import '../../core/widgets/empty_state.dart';
 import '../../data/models/reservation.dart';
 import '../booking/booking_screen.dart' show formatHoldRemaining;
 import 'providers.dart';
@@ -17,38 +19,35 @@ class MyBookingsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('My bookings')),
-      body: bookingsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => FailureView(
-          error: e,
-          onRetry: () => ref.invalidate(myBookingsProvider),
+      body: AsyncView(
+        value: bookingsAsync,
+        onRetry: () => ref.invalidate(myBookingsProvider),
+        empty: () => const EmptyState(
+          icon: Icons.event_busy_outlined,
+          title: 'No bookings yet',
+          message: 'Your stays will appear here.',
         ),
-        data: (bookings) {
-          if (bookings.isEmpty) {
-            return const Center(child: Text('No bookings yet.'));
-          }
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: bookings.length,
-            itemBuilder: (context, i) {
-              final reservation = bookings[i];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: BookingTile(
-                  reservation: reservation,
-                  // A hold is a 15-minute reservation, not a finished
-                  // booking -- there is nothing to view or cancel about it
-                  // on a read-only detail screen. `BookingScreen` is the
-                  // only place with a live pay/resume affordance, so that is
-                  // where a tap on a hold belongs, rather than a dead end.
-                  onTap: reservation.isHold
-                      ? () => context.go('/book/${reservation.unitId}')
-                      : () => context.push('/booking-detail/${reservation.id}'),
-                ),
-              );
-            },
-          );
-        },
+        data: (bookings) => ListView.builder(
+          padding: const EdgeInsets.all(Spacing.md),
+          itemCount: bookings.length,
+          itemBuilder: (context, i) {
+            final reservation = bookings[i];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.sm),
+              child: BookingTile(
+                reservation: reservation,
+                // A hold is a 15-minute reservation, not a finished
+                // booking -- there is nothing to view or cancel about it
+                // on a read-only detail screen. `BookingScreen` is the
+                // only place with a live pay/resume affordance, so that is
+                // where a tap on a hold belongs, rather than a dead end.
+                onTap: reservation.isHold
+                    ? () => context.go('/book/${reservation.unitId}')
+                    : () => context.push('/booking-detail/${reservation.id}'),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -84,18 +83,59 @@ class BookingTile extends StatelessWidget {
     return 'Hold expiring';
   }
 
+  /// The status chip's tint. Cancelled reads as muted/negative, confirmed as
+  /// the brand colour, and hold/payment-due as a neutral "needs attention"
+  /// tone -- a customer should be able to tell these apart at a glance,
+  /// without reading the label.
+  (Color background, Color foreground) _statusColors(ColorScheme scheme) =>
+      switch (reservation.status) {
+        ReservationStatus.confirmed => (
+            scheme.primaryContainer,
+            scheme.onPrimaryContainer
+          ),
+        ReservationStatus.cancelled => (
+            scheme.surfaceContainerHigh,
+            scheme.onSurfaceVariant
+          ),
+        ReservationStatus.hold ||
+        ReservationStatus.pendingPayment =>
+          (scheme.tertiaryContainer, scheme.onTertiaryContainer),
+      };
+
   @override
-  Widget build(BuildContext context) => Card(
-        child: ListTile(
-          onTap: onTap,
-          title: Text('${formatDay(reservation.start.toLocal())} → '
-              '${formatDay(reservation.end.toLocal())}'),
-          subtitle: reservation.isHold
-              ? Text(_holdSubtitle!)
-              : reservation.guests == null
-                  ? null
-                  : Text('${reservation.guests} guests'),
-          trailing: Chip(label: Text(statusLabel(reservation.status))),
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final (background, foreground) = _statusColors(scheme);
+
+    return Card(
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: Spacing.md,
+          vertical: Spacing.xs,
         ),
-      );
+        onTap: onTap,
+        title: Text(
+          '${formatDay(reservation.start.toLocal())} → '
+          '${formatDay(reservation.end.toLocal())}',
+          style: textTheme.titleMedium,
+        ),
+        subtitle: switch ((reservation.isHold, reservation.guests)) {
+          (true, _) => Text(_holdSubtitle!,
+              style: textTheme.bodyMedium
+                  ?.copyWith(color: scheme.onSurfaceVariant)),
+          (false, null) => null,
+          (false, final guests?) => Text('$guests guests',
+              style: textTheme.bodyMedium
+                  ?.copyWith(color: scheme.onSurfaceVariant)),
+        },
+        trailing: Chip(
+          label: Text(statusLabel(reservation.status)),
+          labelStyle: textTheme.labelLarge?.copyWith(color: foreground),
+          backgroundColor: background,
+          side: BorderSide.none,
+        ),
+      ),
+    );
+  }
 }

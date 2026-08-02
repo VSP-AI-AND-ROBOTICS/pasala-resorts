@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/app_user.dart';
 import '../../data/repositories/auth_repository.dart';
@@ -50,6 +51,7 @@ class AppShell extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pasala Resorts'),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
         actions: [
           if (user != null)
             IconButton(
@@ -75,6 +77,7 @@ class AppShell extends ConsumerWidget {
                 selectedIndex: index,
                 onDestinationSelected: go,
                 labelType: NavigationRailLabelType.all,
+                leading: const SizedBox(height: Spacing.md),
                 destinations: [
                   for (final d in destinations)
                     NavigationRailDestination(

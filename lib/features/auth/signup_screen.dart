@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/repositories/auth_repository.dart';
 
@@ -49,58 +50,68 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Form(
-              key: _formKey,
-              child: ListView(
-                shrinkWrap: true,
-                padding: const EdgeInsets.all(24),
-                children: [
-                  Text('Create your account',
-                      style: Theme.of(context).textTheme.headlineMedium),
-                  const SizedBox(height: 24),
-                  TextFormField(
-                    key: const Key('signup-name'),
-                    controller: _name,
-                    decoration: const InputDecoration(labelText: 'Full name'),
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Enter your name' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    key: const Key('signup-email'),
-                    controller: _email,
-                    decoration: const InputDecoration(labelText: 'Email'),
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Enter your email' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    key: const Key('signup-password'),
-                    controller: _password,
-                    decoration: const InputDecoration(labelText: 'Password'),
-                    obscureText: true,
-                    validator: (v) => (v == null || v.length < 8)
-                        ? 'Use at least 8 characters'
-                        : null,
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: _busy ? null : _submit,
-                    child: const Text('Create account'),
-                  ),
-                  TextButton(
-                    onPressed: () => context.go('/login'),
-                    child: const Text('Already have an account? Sign in'),
-                  ),
-                ],
-              ),
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Scaffold(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.all(Spacing.lg),
+              children: [
+                Text('Pasala Resorts', style: textTheme.headlineMedium),
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  'Create your account',
+                  style:
+                      textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: Spacing.xl),
+                TextFormField(
+                  key: const Key('signup-name'),
+                  controller: _name,
+                  decoration: const InputDecoration(labelText: 'Full name'),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Enter your name' : null,
+                ),
+                const SizedBox(height: Spacing.sm),
+                TextFormField(
+                  key: const Key('signup-email'),
+                  controller: _email,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Enter your email' : null,
+                ),
+                const SizedBox(height: Spacing.sm),
+                TextFormField(
+                  key: const Key('signup-password'),
+                  controller: _password,
+                  decoration: const InputDecoration(labelText: 'Password'),
+                  obscureText: true,
+                  validator: (v) => (v == null || v.length < 8)
+                      ? 'Use at least 8 characters'
+                      : null,
+                ),
+                const SizedBox(height: Spacing.lg),
+                FilledButton(
+                  onPressed: _busy ? null : _submit,
+                  child: const Text('Create account'),
+                ),
+                TextButton(
+                  onPressed: () => context.go('/login'),
+                  child: const Text('Already have an account? Sign in'),
+                ),
+              ],
             ),
           ),
         ),
-      );
+      ),
+    );
+  }
 }

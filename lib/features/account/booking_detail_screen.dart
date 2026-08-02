@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/errors.dart';
 import '../../core/format.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/async_view.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/quote.dart';
 import '../../data/models/reservation.dart';
@@ -23,16 +25,31 @@ class BookingDetailScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Booking details')),
-      body: reservationAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => FailureView(
-          error: e,
-          onRetry: () => ref.invalidate(reservationProvider(reservationId)),
-        ),
+      body: AsyncView(
+        value: reservationAsync,
+        onRetry: () => ref.invalidate(reservationProvider(reservationId)),
         data: (reservation) => _Detail(reservation: reservation),
       ),
     );
   }
+}
+
+/// A single grouped section of the detail screen: a card with its own
+/// padding. Every section on this screen (stay, guests, price, actions) uses
+/// this so the page reads as a stack of related cards rather than one long
+/// unbroken column of text.
+class _DetailCard extends StatelessWidget {
+  const _DetailCard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.md),
+          child: child,
+        ),
+      );
 }
 
 class _Detail extends ConsumerStatefulWidget {
@@ -88,45 +105,75 @@ class _DetailState extends ConsumerState<_Detail> {
     final reservation = widget.reservation;
     final quote = reservation.quote;
     final isBlock = reservation.kind == ReservationKind.block;
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(Spacing.md),
       children: [
-        if (isBlock) ...[
-          const Chip(label: Text('Admin block')),
-          const SizedBox(height: 8),
-        ],
-        Text(
-          '${formatDay(reservation.start.toLocal())} → '
-          '${formatDay(reservation.end.toLocal())}',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        const SizedBox(height: 8),
-        // A block has no guests and no quote -- it exists purely to keep a
+        // The stay: dates, and -- for a real booking -- who it's for. A
+        // block has no guests and no quote -- it exists purely to keep a
         // unit off the calendar, so those rows are simply omitted rather
         // than showing a blank "null guests" or an empty money table.
-        if (reservation.guests != null)
-          Text('${reservation.guests} guests'),
-        if (isBlock && reservation.blockReason != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text('Reason: ${reservation.blockReason}'),
+        _DetailCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (isBlock) ...[
+                Chip(
+                  label: const Text('Admin block'),
+                  backgroundColor: scheme.surfaceContainerHigh,
+                  side: BorderSide.none,
+                ),
+                const SizedBox(height: Spacing.sm),
+              ],
+              Text(
+                '${formatDay(reservation.start.toLocal())} → '
+                '${formatDay(reservation.end.toLocal())}',
+                style: textTheme.headlineSmall,
+              ),
+              if (reservation.guests != null) ...[
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  '${reservation.guests} guests',
+                  style: textTheme.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ],
+              if (isBlock && reservation.blockReason != null) ...[
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  'Reason: ${reservation.blockReason}',
+                  style: textTheme.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ],
+            ],
           ),
-        const SizedBox(height: 16),
-        if (quote != null) _QuoteBreakdown(quote: quote),
-        const SizedBox(height: 24),
-        if (reservation.status == ReservationStatus.confirmed)
-          OutlinedButton(
-            key: const Key('cancel-booking-button'),
-            onPressed: _busy ? null : _cancelBooking,
-            child: _busy
-                ? const SizedBox(
-                    height: 16,
-                    width: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(isBlock ? 'Remove block' : 'Cancel booking'),
+        ),
+        if (quote != null) ...[
+          const SizedBox(height: Spacing.lg),
+          _DetailCard(child: _QuoteBreakdown(quote: quote)),
+        ],
+        if (reservation.status == ReservationStatus.confirmed) ...[
+          const SizedBox(height: Spacing.lg),
+          _DetailCard(
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                key: const Key('cancel-booking-button'),
+                onPressed: _busy ? null : _cancelBooking,
+                child: _busy
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(isBlock ? 'Remove block' : 'Cancel booking'),
+              ),
+            ),
           ),
+        ],
       ],
     );
   }
@@ -176,7 +223,7 @@ class _CancelBookingDialogState extends State<_CancelBookingDialog> {
                     'book them. Refund handling is not yet automated in '
                     'this phase — our team will follow up separately about '
                     'any refund.'),
-            const SizedBox(height: 16),
+            const SizedBox(height: Spacing.md),
             TextField(
               key: const Key('cancel-reason-field'),
               controller: _reasonController,
@@ -208,52 +255,65 @@ class _QuoteBreakdown extends StatelessWidget {
 
   final Quote quote;
 
+  static const _dateColumnWidth = 96.0;
+
   @override
-  Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('Price breakdown', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          for (final line in quote.lines)
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Price breakdown', style: textTheme.titleMedium),
+        const SizedBox(height: Spacing.sm),
+        for (final line in quote.lines)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+            child: Row(children: [
+              SizedBox(
+                width: _dateColumnWidth,
+                child: Text(
+                  formatDay(line.date),
+                  style:
+                      textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ),
+              Expanded(child: Text(line.label)),
+              Text(formatInr(line.amount)),
+            ]),
+          ),
+        for (final line in quote.lines)
+          if (line.extraGuests > 0)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
               child: Row(children: [
                 SizedBox(
-                  width: 96,
-                  child: Text(formatDay(line.date),
-                      style: Theme.of(context).textTheme.bodySmall),
+                  width: _dateColumnWidth,
+                  child: Text(
+                    formatDay(line.date),
+                    style: textTheme.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
                 ),
-                Expanded(child: Text(line.label)),
-                Text(formatInr(line.amount)),
+                Expanded(child: Text('${line.extraGuests} extra guests')),
+                Text(formatInr(line.extraGuestAmount)),
               ]),
             ),
-          for (final line in quote.lines)
-            if (line.extraGuests > 0)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(children: [
-                  SizedBox(
-                    width: 96,
-                    child: Text(formatDay(line.date),
-                        style: Theme.of(context).textTheme.bodySmall),
-                  ),
-                  Expanded(child: Text('${line.extraGuests} extra guests')),
-                  Text(formatInr(line.extraGuestAmount)),
-                ]),
-              ),
-          const Divider(),
-          Row(children: [
-            const Expanded(child: Text('Cleaning fee')),
-            Text(formatInr(quote.cleaningFee)),
-          ]),
-          const SizedBox(height: 8),
-          Row(children: [
-            Expanded(
-                child: Text('Total',
-                    style: Theme.of(context).textTheme.titleLarge)),
-            Text(formatInr(quote.total),
-                style: Theme.of(context).textTheme.titleLarge),
-          ]),
-        ],
-      );
+        const Divider(),
+        Row(children: [
+          Expanded(
+              child: Text('Cleaning fee',
+                  style:
+                      textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant))),
+          Text(formatInr(quote.cleaningFee)),
+        ]),
+        const SizedBox(height: Spacing.sm),
+        Row(children: [
+          Expanded(child: Text('Total', style: textTheme.titleLarge)),
+          Text(formatInr(quote.total), style: textTheme.titleLarge),
+        ]),
+      ],
+    );
+  }
 }
