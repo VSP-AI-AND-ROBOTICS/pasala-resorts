@@ -161,6 +161,45 @@ void main() {
     );
   });
 
+  // I7: no test in this file ever constructed an `OutboxStatus.sent` row --
+  // yet `_statusOrder` lists it and `_GroupedList` would happily render a
+  // "Sent (N)" section for one, right alongside the permanent "No delivery
+  // provider is configured ... not sent" banner. Nothing in this phase can
+  // write `status = 'sent'` today (see the migration header on
+  // `public.outbox` -- there is no INSERT/UPDATE grant that would let any
+  // client set it), so this can't happen against the real database yet --
+  // but that is exactly why this path was never exercised, and exactly
+  // where a future change (e.g. some new "hide the banner once something
+  // sent" shortcut) could land unnoticed. This pins the current, correct
+  // behaviour: even with a sent row in view, the banner is unconditional
+  // and the screen never claims delivery is now working.
+  testWidgets(
+      'a sent row groups under its own section but never suppresses the '
+      '"not sent" banner', (tester) async {
+    await pump(
+      tester,
+      FakeOutboxSource()
+        ..rows = [
+          _row(id: 'm1', status: OutboxStatus.sent, template: 'cancellation'),
+        ],
+    );
+
+    expect(find.text('Sent (1)'), findsOneWidget);
+    expect(
+      find.byKey(const Key('no-provider-banner')),
+      findsOneWidget,
+      reason: 'the banner is a permanent, structural fact about this phase '
+          '-- a sent row existing at all must never suppress or reword it',
+    );
+    expect(
+      find.text(
+        'No delivery provider is configured. Messages are queued but '
+        'not sent.',
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a repository error goes through FailureView, not a raw '
       'exception', (tester) async {
     await pump(tester, FakeOutboxSource()..error = Exception('boom'));

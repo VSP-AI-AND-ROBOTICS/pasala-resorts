@@ -383,6 +383,32 @@ class _QuoteBreakdown extends StatelessWidget {
                       textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant))),
           Text(formatInr(quote.cleaningFee)),
         ]),
+        // I3: this row was missing entirely -- `quote_sheet.dart` (the same
+        // breakdown shown at booking time) renders the coupon discount, but
+        // this screen, which claims to show "the figures the server already
+        // computed at booking time" (see this class's own header comment),
+        // silently dropped the one line that explains why the total is
+        // lower than cleaning fee + line items sum to. On an Rs11,500
+        // booking with a Rs1,150 coupon, the customer saw lines totalling
+        // Rs11,500 and a total of Rs10,350 with no explanation at all.
+        if (quote.coupon != null) ...[
+          const SizedBox(height: Spacing.xs),
+          Row(
+            key: const Key('coupon-discount-row'),
+            children: [
+              Expanded(
+                child: Text(
+                  'Coupon (${quote.coupon!.code})',
+                  style: TextStyle(color: scheme.primary),
+                ),
+              ),
+              Text(
+                '-${formatInr(quote.coupon!.discount)}',
+                style: TextStyle(color: scheme.primary),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: Spacing.sm),
         Row(children: [
           Expanded(child: Text('Total', style: textTheme.titleLarge)),

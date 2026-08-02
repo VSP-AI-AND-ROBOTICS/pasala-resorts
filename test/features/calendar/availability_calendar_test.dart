@@ -1,6 +1,11 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/errors.dart';
 import 'package:pasala/data/models/reservation.dart';
+import 'package:pasala/data/repositories/booking_repository.dart';
 import 'package:pasala/features/calendar/availability_calendar.dart';
+import 'package:pasala/features/calendar/providers.dart';
 
 void main() {
   Reservation res({
@@ -153,4 +158,84 @@ void main() {
     expect(statusFor(DateTime(2026, 8, 15), list, today: today),
         DayStatus.booked);
   });
+
+  // --- I2: the error branch must never render raw server text -------------
+  //
+  // Reproduced before the fix: `error is BookingFailure ? error.message :
+  // ...` showed `UnknownFailure`'s message verbatim, and UnknownFailure IS a
+  // BookingFailure -- so a permission error like "permission denied for
+  // table reservations" reached the customer's screen. The fix routes
+  // through FailureView.messageFor, which intercepts UnknownFailure and
+  // falls back to a generic message; this test pins that the table name
+  // never appears.
+  //
+  // The error is injected at `unitCalendarSourceProvider` -- the seam
+  // `unitReservationsProvider`'s own `CalendarRefreshController` is built
+  // on (see `test/features/calendar/providers_test.dart`'s `_FakeCalendarSource`
+  // for the same convention) -- rather than overriding
+  // `unitReservationsProvider` itself, so this exercises the REAL
+  // provider/controller wiring the widget actually watches, not a
+  // hand-rolled substitute for it.
+  //
+  // `ProviderContainer(retry: (_, _) => null, ...)` disables Riverpod's own
+  // default retry-with-backoff behaviour for this container: without it,
+  // `unitReservationsProvider`'s StreamProvider intercepts the stream error
+  // and schedules an automatic retry (up to 10 attempts, exponential
+  // backoff) instead of surfacing a terminal `AsyncError` -- during which
+  // `AsyncValue.isLoading` is ALSO true (a "retrying" loading state), so the
+  // widget's own loading branch (checked first) would win and show only a
+  // spinner, never reaching the code under test at all. Disabling retry
+  // makes the very first error terminal, which is what this test needs to
+  // observe.
+  testWidgets(
+      'a permission-denied error never shows the raw table name on the '
+      'calendar', (tester) async {
+    const rawServerText = 'permission denied for table reservations';
+
+    final container = ProviderContainer(
+      retry: (retryCount, error) => null,
+      overrides: [
+        unitCalendarSourceProvider.overrideWithValue(
+          _ErrorCalendarSource(const UnknownFailure(rawServerText)),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        home: Scaffold(
+          body: AvailabilityCalendar(unitId: 'u1', month: today),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.textContaining('reservations'), findsNothing);
+    expect(find.textContaining('permission denied'), findsNothing);
+
+    // Dispose the widget tree (cancelling CalendarRefreshController's
+    // Timer.periodic via its onDispose) and the container BEFORE the test
+    // ends -- flutter_test's own teardown asserts no timer is left pending,
+    // and `addTearDown` runs too late in that sequence to satisfy it.
+    await tester.pumpWidget(const SizedBox());
+    container.dispose();
+  });
+}
+
+/// A [UnitCalendarSource] whose realtime stream and fallback fetch both
+/// fail with [error] -- everything `CalendarRefreshController` might
+/// surface to `unitReservationsProvider` errors, so the widget's error
+/// branch is reached regardless of which path (realtime or poll) wins.
+class _ErrorCalendarSource implements UnitCalendarSource {
+  const _ErrorCalendarSource(this.error);
+
+  final Object error;
+
+  @override
+  Stream<List<Reservation>> watchUnit(String unitId) =>
+      Stream<List<Reservation>>.error(error);
+
+  @override
+  Future<List<Reservation>> fetchUnit(String unitId) => Future.error(error);
 }

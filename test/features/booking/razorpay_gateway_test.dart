@@ -3,6 +3,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/features/booking/payment_gateway.dart';
 import 'package:pasala/features/booking/razorpay_gateway.dart';
 
+// I7: `paymentGatewayProvider` selects between `MockGateway` and
+// `RazorpayGateway` based on `--dart-define` compile-time constants, which
+// a plain `flutter test` run can never set per-test -- so, before this fix,
+// nothing here ever exercised the branch that actually returns a
+// `RazorpayGateway`. Deleting that branch entirely (`if (keyId.isEmpty)
+// return const MockGateway(); return const MockGateway();`, say) would have
+// passed every test in this file identically. `resolvePaymentGateway` is
+// the same selection logic pulled out of the provider specifically so it
+// can be called directly with any keyId/keySecret, positive branch
+// included.
+
 void main() {
   group('RazorpayGateway configuration', () {
     test('an empty key id throws a clear configuration error at '
@@ -59,6 +70,27 @@ void main() {
 
       expect(gateway, isA<MockGateway>());
       expect(gateway, isNot(isA<RazorpayGateway>()));
+    });
+  });
+
+  group('resolvePaymentGateway (I7: the positive branch)', () {
+    test('an empty key id resolves to MockGateway', () {
+      final gateway =
+          resolvePaymentGateway(keyId: '', keySecret: 'irrelevant');
+      expect(gateway, isA<MockGateway>());
+    });
+
+    test(
+        'a non-empty key id resolves to a REAL RazorpayGateway, not '
+        'MockGateway -- the branch a build with a real merchant account '
+        'actually depends on', () {
+      final gateway = resolvePaymentGateway(
+        keyId: 'rzp_test_123',
+        keySecret: 'shh',
+      );
+
+      expect(gateway, isA<RazorpayGateway>());
+      expect(gateway, isNot(isA<MockGateway>()));
     });
   });
 }

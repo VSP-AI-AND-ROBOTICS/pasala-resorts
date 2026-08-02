@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/failure_view.dart';
 import '../../core/widgets/loading_state.dart';
 import '../../data/models/reservation.dart';
 import 'providers.dart';
@@ -113,10 +113,19 @@ class AvailabilityCalendar extends ConsumerWidget {
       );
     }
     if (asyncReservations.hasError && !asyncReservations.hasValue) {
-      final error = asyncReservations.error;
-      final message = error is BookingFailure
-          ? error.message
-          : 'Could not load availability.';
+      // I2: this used to show `error.message` verbatim for ANY
+      // BookingFailure -- but UnknownFailure IS a BookingFailure and wraps
+      // whatever raw text Postgres or the transport layer produced (see
+      // FailureView's own header comment), so a permission error like
+      // "permission denied for table reservations" was printed straight to
+      // the customer. FailureView.messageFor exists precisely to intercept
+      // UnknownFailure and fall back to a generic message; every other
+      // BookingFailure's own customer-facing message still passes through
+      // unchanged.
+      final rawError = asyncReservations.error;
+      final message = rawError == null
+          ? 'Could not load availability.'
+          : FailureView.messageFor(rawError);
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: Spacing.xl),
         child: Center(

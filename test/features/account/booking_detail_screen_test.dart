@@ -121,6 +121,44 @@ Reservation _reservation({
       quote: _quote(),
     );
 
+/// I3: a quote with a coupon applied -- 12000 (line) + 1500 (cleaning) =
+/// 13500, minus a 1150 discount = 10350 total. Matches
+/// `test/features/booking/quote_sheet_test.dart`'s own couponed fixture
+/// shape, so this test proves the SAME discount row that screen renders
+/// correctly is now also rendered here.
+Quote _couponedQuote() => Quote.fromJson(const {
+      'currency': 'INR',
+      'guests': 4,
+      'lines': [
+        {
+          'date': '2026-08-03',
+          'label': 'Weekend rate',
+          'amount': 12000,
+          'extra_guests': 0,
+          'extra_guest_amount': 0,
+        },
+      ],
+      'subtotal': 12000,
+      'cleaning_fee': 1500,
+      'coupon': {'code': 'SAVE10', 'kind': 'percent', 'value': 10, 'discount': 1150},
+      'total': 10350,
+    });
+
+Reservation _couponedReservation({
+  required ReservationStatus status,
+  String id = 'r1',
+}) =>
+    Reservation(
+      id: id,
+      unitId: 'unit-1',
+      start: DateTime.utc(2026, 8, 3),
+      end: DateTime.utc(2026, 8, 5),
+      kind: ReservationKind.booking,
+      status: status,
+      guests: 4,
+      quote: _couponedQuote(),
+    );
+
 /// I4: an admin block has no customer, no guests, and no quote -- it exists
 /// purely to keep a unit off the calendar.
 Reservation _block({String id = 'block-1'}) => Reservation(
@@ -186,6 +224,38 @@ void main() {
     expect(find.text('₹13,500'), findsOneWidget,
         reason: 'the total must come straight from Quote.total, never be '
             're-derived in Dart');
+  });
+
+  // I3: `quote_sheet.dart` (the booking-time screen) renders a coupon
+  // discount row; this screen -- showing the SAME stored quote, after the
+  // fact -- used to omit it entirely. On an Rs11,500 booking with a
+  // Rs1,150 coupon the customer saw line items summing to Rs11,500,
+  // cleaning Rs1,500, and a total of Rs10,350, with no line explaining the
+  // Rs1,150 gap. Reproduced/fixed against the exact worked figures from
+  // that other screen's own test fixture (12000 + 1500 - 1150 = 13500 -
+  // 1150... i.e. 10350).
+  testWidgets(
+      'a couponed booking shows the discount row, matching quote_sheet',
+      (tester) async {
+    final reservation =
+        _couponedReservation(status: ReservationStatus.confirmed);
+    await openDetail(tester, reservation, _FakeCancelActions());
+
+    expect(find.byKey(const Key('coupon-discount-row')), findsOneWidget);
+    expect(find.text('Coupon (SAVE10)'), findsOneWidget);
+    expect(find.text('-₹1,150'), findsOneWidget);
+    expect(find.text('₹10,350'), findsOneWidget,
+        reason: 'the total shown is still the server-computed, '
+            'already-discounted figure');
+  });
+
+  testWidgets(
+      'a booking with no coupon shows no discount row, same as before',
+      (tester) async {
+    final reservation = _reservation(status: ReservationStatus.confirmed);
+    await openDetail(tester, reservation, _FakeCancelActions());
+
+    expect(find.byKey(const Key('coupon-discount-row')), findsNothing);
   });
 
   testWidgets('the cancel action is present for a confirmed reservation', (tester) async {
@@ -256,6 +326,39 @@ void main() {
       reason: 'the figure comes straight from RefundQuote, never '
           'recomputed from quote.total in Dart',
     );
+  });
+
+  // I7: every OTHER fixture in this file satisfies
+  // `refundAmount == total * refundPct / 100` exactly (13500*100%=13500,
+  // 13500*50%=6750, 13500*0%=0) -- so a Dart re-derivation of the amount
+  // from `quote.total` and `refund.refundPct`, instead of using
+  // `refund.refundAmount` verbatim, would echo back the identical number
+  // and this test file would never catch it. `refundPct: 50` here pairs
+  // with `refundAmount: 5000`, which is deliberately NOT 13500*50% (6750)
+  // -- so only reading `refundAmount` straight off the server response
+  // produces the right text; re-deriving it would show ₹6,750 instead and
+  // fail this assertion.
+  testWidgets(
+      'the refund amount shown is the server figure verbatim, not '
+      'total * pct re-derived in Dart', (tester) async {
+    final reservation = _reservation(status: ReservationStatus.confirmed);
+    final refunds = _FakeRefundSource(
+      result: const RefundQuote(daysBefore: 5, refundPct: 50, refundAmount: 5000),
+    );
+    await openDetail(tester, reservation, _FakeCancelActions(), refunds: refunds);
+
+    await tester.tap(find.byKey(const Key('cancel-booking-button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('You will be refunded ₹5,000 (50% of ₹13,500).'),
+      findsOneWidget,
+      reason: 'refundAmount (5000) does not equal total * refundPct / 100 '
+          '(6750) in this fixture on purpose -- the widget must show the '
+          'server-supplied 5000, not re-derive 6750',
+    );
+    expect(find.textContaining('₹6,750'), findsNothing,
+        reason: 'the re-derived (wrong) figure must not appear anywhere');
   });
 
   testWidgets(

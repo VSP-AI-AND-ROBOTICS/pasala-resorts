@@ -61,9 +61,24 @@ class MockGateway implements PaymentGateway {
 const _razorpayKeyId = String.fromEnvironment('RAZORPAY_KEY_ID');
 const _razorpayKeySecret = String.fromEnvironment('RAZORPAY_KEY_SECRET');
 
-final paymentGatewayProvider = Provider<PaymentGateway>((ref) {
-  if (_razorpayKeyId.isEmpty) {
+/// The actual selection logic, extracted from [paymentGatewayProvider] so it
+/// can be exercised directly in a plain unit test. `--dart-define` values
+/// are baked in as compile-time constants (see [_razorpayKeyId] above), so a
+/// normal `flutter test` run can never observe the provider itself resolving
+/// to [RazorpayGateway] -- without this seam, `razorpay_gateway_test.dart`
+/// could only ever prove the empty-key (MockGateway) branch, and deleting
+/// the [RazorpayGateway] branch entirely would pass every test in this repo
+/// just as well as keeping it (I7).
+PaymentGateway resolvePaymentGateway({
+  required String keyId,
+  required String keySecret,
+}) {
+  if (keyId.isEmpty) {
     return const MockGateway();
   }
-  return RazorpayGateway(keyId: _razorpayKeyId, keySecret: _razorpayKeySecret);
-});
+  return RazorpayGateway(keyId: keyId, keySecret: keySecret);
+}
+
+final paymentGatewayProvider = Provider<PaymentGateway>((ref) =>
+    resolvePaymentGateway(
+        keyId: _razorpayKeyId, keySecret: _razorpayKeySecret));
