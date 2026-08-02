@@ -405,7 +405,7 @@ begin
       return jsonb_build_object(
         'status', 'conflict', 'reservation_id', null,
         'conflict', jsonb_build_object(
-          'unit_id', p_unit_id, 'start', p_start, '"end"', p_end));
+          'unit_id', p_unit_id, 'start', p_start, 'end', p_end));
     end;
   end if;
 
@@ -421,7 +421,7 @@ begin
     return jsonb_build_object(
       'status', 'conflict', 'reservation_id', null,
       'conflict', jsonb_build_object(
-        'unit_id', p_unit_id, 'start', p_start, '"end"', p_end));
+        'unit_id', p_unit_id, 'start', p_start, 'end', p_end));
   end;
 end;
 $$;
@@ -606,18 +606,20 @@ security definer
 set search_path = public, extensions, net, pg_temp
 as $$
 declare
-  v_feed      public.ical_feeds;
-  v_resp      record;
-  v_body      text;
-  v_event     record;
-  v_created   int := 0;
-  v_updated   int := 0;
-  v_unchanged int := 0;
-  v_conflicts int := 0;
-  v_import    jsonb;
-  v_error     text;
-  v_req_id    bigint;
-  v_result    jsonb;
+  v_feed        public.ical_feeds;
+  v_resp        record;
+  v_body        text;
+  v_event       record;
+  v_created     int := 0;
+  v_updated     int := 0;
+  v_unchanged   int := 0;
+  v_conflicts   int := 0;
+  v_failed      int := 0;
+  v_failed_note text;
+  v_import      jsonb;
+  v_error       text;
+  v_req_id      bigint;
+  v_result      jsonb;
 begin
   -- Same "no client context at all" exemption as `ical_import_event`
   -- (which this function calls) -- the pg_cron job below invokes this
@@ -663,35 +665,69 @@ begin
       return jsonb_build_object('status', 'pending');
     end if;
 
-    if v_resp.timed_out or v_resp.error_msg is not null
-       or v_resp.status_code is distinct from 200 then
-      v_error := coalesce(
-        v_resp.error_msg,
-        case when v_resp.timed_out then 'request timed out'
-             else 'HTTP ' || coalesce(v_resp.status_code::text, 'unknown') end);
+    -- Every path from here down MUST reach the `update ical_feeds` below --
+    -- clearing pending_request_id and recording last_error -- even if
+    -- something in here raises in a way neither the per-event catch below
+    -- nor the status/error branch anticipated. Without this outer
+    -- boundary, a single unexpected exception would leave the feed wedged
+    -- re-reading the same stale response forever, with no admin-visible
+    -- signal and no way to recover it from the UI (Task 10 fix-round
+    -- Finding 1).
+    begin
+      if v_resp.timed_out or v_resp.error_msg is not null
+         or v_resp.status_code is distinct from 200 then
+        v_error := coalesce(
+          v_resp.error_msg,
+          case when v_resp.timed_out then 'request timed out'
+               else 'HTTP ' || coalesce(v_resp.status_code::text, 'unknown') end);
+        v_result := jsonb_build_object('status', 'error', 'error', v_error);
+      else
+        v_body := v_resp.content;
+
+        for v_event in select * from public.ical_parse_events(v_body) loop
+          -- One malformed event (a zero-duration DTSTART/DTEND, a blank
+          -- UID after btrim -- both raise a plain P0005 from
+          -- ical_import_event) must skip itself and let the rest of the
+          -- feed's events import, not crash the whole feed. Real and
+          -- hostile ICS feeds send both (Finding 1).
+          begin
+            v_import := public.ical_import_event(
+              v_feed.unit_id, v_event.uid, v_event.dtstart, v_event.dtend);
+            case v_import ->> 'status'
+              when 'created'   then v_created   := v_created + 1;
+              when 'updated'   then v_updated   := v_updated + 1;
+              when 'unchanged' then v_unchanged := v_unchanged + 1;
+              when 'conflict'  then v_conflicts := v_conflicts + 1;
+              else null;
+            end case;
+          exception when others then
+            v_failed := v_failed + 1;
+            v_failed_note := coalesce(nullif(btrim(v_event.uid), ''), '(blank uid)')
+              || ': ' || sqlerrm;
+          end;
+        end loop;
+
+        v_error := nullif(trim(both ', ' from concat_ws(', ',
+          case when v_conflicts > 0 then
+            v_conflicts || ' event(s) conflicted with an existing booking '
+            'and were skipped'
+          end,
+          case when v_failed > 0 then
+            v_failed || ' event(s) failed to import and were skipped '
+            '(last error: ' || v_failed_note || ')'
+          end
+        )), '');
+        v_result := jsonb_build_object('status', 'ok', 'created', v_created,
+          'updated', v_updated, 'unchanged', v_unchanged, 'conflicts', v_conflicts,
+          'failed', v_failed);
+      end if;
+    exception when others then
+      -- Belt-and-suspenders: anything else that raises while processing
+      -- this response (not just an ical_import_event failure, which is
+      -- already caught above) still leaves the feed recoverable.
+      v_error := 'poll failed while processing response: ' || sqlerrm;
       v_result := jsonb_build_object('status', 'error', 'error', v_error);
-    else
-      v_body := v_resp.content;
-
-      for v_event in select * from public.ical_parse_events(v_body) loop
-        v_import := public.ical_import_event(
-          v_feed.unit_id, v_event.uid, v_event.dtstart, v_event.dtend);
-        case v_import ->> 'status'
-          when 'created'   then v_created   := v_created + 1;
-          when 'updated'   then v_updated   := v_updated + 1;
-          when 'unchanged' then v_unchanged := v_unchanged + 1;
-          when 'conflict'  then v_conflicts := v_conflicts + 1;
-          else null;
-        end case;
-      end loop;
-
-      v_error := case when v_conflicts > 0 then
-        v_conflicts || ' event(s) conflicted with an existing booking '
-        'and were skipped'
-      else null end;
-      v_result := jsonb_build_object('status', 'ok', 'created', v_created,
-        'updated', v_updated, 'unchanged', v_unchanged, 'conflicts', v_conflicts);
-    end if;
+    end;
 
     update public.ical_feeds
       set last_synced_at = now(), last_error = v_error,
@@ -735,7 +771,20 @@ declare
   v_feed record;
 begin
   for v_feed in select id from public.ical_feeds where is_active loop
-    perform public.ical_poll_feed(v_feed.id);
+    -- One feed's failure must not abort the whole cron-tick transaction
+    -- and roll back every OTHER unit's already-processed feed result in
+    -- the same tick (Task 10 fix-round Finding 1, consequence 1).
+    -- ical_poll_feed already isolates per-event failures internally; this
+    -- is the second, independent boundary for anything that still
+    -- escapes it (e.g. a bug in ical_poll_feed itself).
+    begin
+      perform public.ical_poll_feed(v_feed.id);
+    exception when others then
+      update public.ical_feeds
+        set last_error = 'poll failed: ' || sqlerrm,
+            pending_request_id = null, pending_since = null
+        where id = v_feed.id;
+    end;
   end loop;
 end;
 $$;

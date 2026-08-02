@@ -260,28 +260,37 @@ select is(
 --
 -- This closes the gap directly: call compute_refund on the SAME
 -- reservation, in the SAME transaction (so the real wall-clock instant
--- `now()` resolves to never changes), under two wildly different `set
--- local timezone` values -- UTC and Pacific/Kiritimati (UTC+14, about as
--- far from Asia/Kolkata as a timezone gets). Because both `lower(period)
--- at time zone v_tz` and `now() at time zone v_tz` name the property's
--- timezone EXPLICITLY, the session's own TimeZone GUC must never leak
--- into the result -- days_before has to land on the same value (10, the
--- figure already proven correct for this reservation above) under both.
-set local timezone = 'UTC';
+-- `now()` resolves to never changes), under two `set local timezone`
+-- values chosen to span MORE than 24 hours apart -- `Etc/GMT+12` (UTC-12)
+-- and `Pacific/Kiritimati` (UTC+14), a 26-hour spread. (Task 10 fix-round
+-- Finding 4: the original pair here was UTC and Pacific/Kiritimati, only
+-- 14 hours apart -- since 14 < 24, there is roughly a 10-hour window each
+-- day where both zones land on the same calendar date, so a run inside
+-- that window would not have caught a regression. Spanning more than 24
+-- hours guarantees the two zones can never agree on the calendar date,
+-- so the guard holds regardless of when the suite runs.) Because both
+-- `lower(period) at time zone v_tz` and `now() at time zone v_tz` name
+-- the property's timezone EXPLICITLY, the session's own TimeZone GUC
+-- must never leak into the result -- days_before has to land on the same
+-- value (10, the figure already proven correct for this reservation
+-- above) under both.
+set local timezone = 'Etc/GMT+12';
 select is(
   (public.compute_refund('d1000000-0000-0000-0000-000000000001')
     ->> 'days_before')::int,
   10,
-  'days_before under session timezone UTC is 10, matching the baseline');
+  'days_before under session timezone Etc/GMT+12 (UTC-12) is 10, matching '
+  'the baseline');
 
 set local timezone = 'Pacific/Kiritimati';
 select is(
   (public.compute_refund('d1000000-0000-0000-0000-000000000001')
     ->> 'days_before')::int,
   10,
-  'days_before under session timezone Pacific/Kiritimati (UTC+14) is '
-  'IDENTICAL to the UTC run above -- proving the session''s own timezone '
-  'never leaks into the computation, only the property''s v_tz does');
+  'days_before under session timezone Pacific/Kiritimati (UTC+14, 26 '
+  'hours apart from the Etc/GMT+12 run above) is IDENTICAL -- proving '
+  'the session''s own timezone never leaks into the computation, only '
+  'the property''s v_tz does');
 reset timezone;
 
 -- === a property with no rules yields a zero refund, never an error =========

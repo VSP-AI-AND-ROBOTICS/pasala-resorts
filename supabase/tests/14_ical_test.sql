@@ -13,16 +13,22 @@
 --     `ical_export_public`), reachable by `anon` -- the whole point, since
 --     an OTA cannot authenticate -- and reachable ONLY with a valid token.
 --   - `ical_import_event`: create, idempotent re-import (`unchanged`, not
---     a duplicate), and a genuine double-booking caught as `conflict` and
---     applied nowhere.
+--     a duplicate), the same UID arriving with new non-overlapping dates
+--     (`updated`, with the reservation's period actually moved -- Task 10
+--     fix-round Finding 2), and a genuine double-booking caught as
+--     `conflict` and applied nowhere.
 --   - `ical_poll_feed`/the `pg_cron` schedule, exercised only on the
 --     paths that need no live network I/O (pg_net IS available in this
 --     local stack -- see the migration header and the task report for
 --     why the actual HTTP fetch itself is deliberately left untested by
---     pgTAP).
+--     pgTAP) -- including, by faking a collected response directly in
+--     `net._http_response`, that one feed's malformed event (a
+--     zero-duration event or a blank UID) cannot wedge that feed or take
+--     down another feed polled in the same batch, and that the wedged
+--     feed recovers on its very next poll (Task 10 fix-round Finding 1).
 
 begin;
-select plan(53);
+select plan(64);
 
 select has_table('public', 'ical_feeds', 'ical_feeds table exists');
 select has_column('public', 'ical_feeds', 'unit_id', 'ical_feeds has unit_id');
@@ -373,6 +379,34 @@ select is(
     where external_uid = 'airbnb-uid-conflict'),
   0, 'a conflicting import creates nothing at all');
 
+-- === same UID, different (non-overlapping) dates: `updated`, and the =====
+-- === reservation's period actually moves (Task 10 fix-round Finding 2 -- =
+-- === previously only `created`, identical re-import (`unchanged`), and a=
+-- === different-UID overlap (`conflict`) were covered; the same-UID ======
+-- === changed-dates path itself was never exercised) ========================
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"e5000000-0000-0000-0000-000000000011","role":"authenticated"}';
+
+select is(
+  (public.ical_import_event('e5000000-0000-0000-0000-000000000002',
+     'airbnb-uid-1', '2028-03-01T14:00:00Z'::timestamptz,
+     '2028-03-03T11:00:00Z'::timestamptz) ->> 'status'),
+  'updated',
+  'the same UID arriving with new, non-overlapping dates is reported as '
+  'updated');
+
+set local role postgres;
+select is(
+  (select period from public.reservations
+    where external_uid = 'airbnb-uid-1'
+      and unit_id = 'e5000000-0000-0000-0000-000000000002'),
+  tstzrange('2028-03-01T14:00:00Z'::timestamptz,
+            '2028-03-03T11:00:00Z'::timestamptz, '[)'),
+  'checked out-of-band: the reservation''s period actually moved to the '
+  'new dates, not just the status label');
+
 -- === ical_poll_feed / pg_cron: proven on the paths that need no live ======
 -- === network I/O -- see the migration header and task report for why the =
 -- === actual HTTP fetch itself is out of scope for pgTAP ===================
@@ -397,6 +431,145 @@ select throws_ok(
   'P0008', null,
   'a customer cannot trigger a feed poll -- Sync is admin-only, same as '
   'every other write path here');
+
+-- === Task 10 fix-round Finding 1 (Critical): one malformed feed event ====
+-- === must not permanently wedge sync for every unit ========================
+--
+-- Reproduced live by the reviewer against the running local stack: a
+-- feed's fetched response containing a zero-duration event (DTSTART ==
+-- DTEND, which `ical_import_event` rejects with a plain, uncaught P0005)
+-- or a blank UID (also P0005) crashed `ical_poll_feed` with no exception
+-- boundary around the per-event `ical_import_event` call. That aborted
+-- the whole call before `pending_request_id` was ever cleared or
+-- `last_error` recorded, so the bad feed re-read the same stale response
+-- and crashed identically on every subsequent poll -- forever, including
+-- via the admin Sync button, and (with no per-feed boundary in
+-- `ical_poll_all_feeds` either) took every OTHER unit's already-processed
+-- feed result down with it in the same cron tick.
+--
+-- No live network call is needed to prove this: `ical_poll_feed`'s own
+-- two-call state machine already separates "fire the request" from
+-- "collect the response" via `net._http_response`, keyed by
+-- `pending_request_id` -- so a fetched response is faked the same way a
+-- real one would eventually land, by writing directly into
+-- `net._http_response` and pointing the feed's `pending_request_id` at
+-- it, exactly as the reviewer did.
+reset role;
+set local role postgres;
+
+insert into public.ical_feeds (id, unit_id, url, label, is_active)
+values ('e5000000-0000-0000-0000-000000000040',
+        'e5000000-0000-0000-0000-000000000002',
+        'https://example.invalid/bad.ics', 'BadFeed', true);
+insert into public.ical_feeds (id, unit_id, url, label, is_active)
+values ('e5000000-0000-0000-0000-000000000041',
+        'e5000000-0000-0000-0000-000000000002',
+        'https://example.invalid/good.ics', 'GoodFeed', true);
+
+-- Fake request ids -- chosen far outside pg_net's own low, monotonically
+-- assigned range so they cannot collide with a request id pg_net itself
+-- hands out later in this same test run.
+update public.ical_feeds set pending_request_id = 987654321, pending_since = now()
+  where id = 'e5000000-0000-0000-0000-000000000040';
+update public.ical_feeds set pending_request_id = 987654322, pending_since = now()
+  where id = 'e5000000-0000-0000-0000-000000000041';
+
+-- The bad feed's response: one zero-duration event and one blank-UID
+-- event -- both malformed, both real shapes a hostile or buggy OTA feed
+-- can send, neither of which `ical_parse_events` filters out (it only
+-- requires the three fields to be non-null; an empty-string UID and an
+-- equal DTSTART/DTEND both pass that check and reach `ical_import_event`,
+-- which is what actually rejects them).
+insert into net._http_response (id, status_code, content, timed_out, error_msg)
+values (987654321, 200, E'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n'
+  'UID:zero-duration-uid\r\nDTSTART:20280301T100000Z\r\n'
+  'DTEND:20280301T100000Z\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:\r\n'
+  'DTSTART:20280310T100000Z\r\nDTEND:20280312T100000Z\r\nEND:VEVENT\r\n'
+  'END:VCALENDAR\r\n', false, null);
+
+-- The good feed's response: one perfectly valid event, in the SAME
+-- `ical_poll_all_feeds()` call as the bad feed above -- mirroring exactly
+-- how the reviewer reproduced the cross-feed blast radius.
+insert into net._http_response (id, status_code, content, timed_out, error_msg)
+values (987654322, 200, E'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n'
+  'UID:good-feed-uid\r\nDTSTART:20280401T100000Z\r\n'
+  'DTEND:20280403T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n', false, null);
+
+-- No session JWT, same as the real pg_cron job -- see the header comments
+-- on `ical_import_event` and `ical_poll_feed` for why that is the
+-- exemption that lets an automatic poll import anything at all.
+reset request.jwt.claims;
+
+select lives_ok(
+  $$select public.ical_poll_all_feeds()$$,
+  'polling a feed with a malformed event alongside a feed with a valid '
+  'event, in the same batch call, does not raise -- one bad feed no '
+  'longer takes the whole batch down');
+
+select is(
+  (select status from public.reservations
+    where external_uid = 'good-feed-uid'
+      and unit_id = 'e5000000-0000-0000-0000-000000000002')::text,
+  'confirmed',
+  'the OTHER feed''s valid event was still imported -- its own processing '
+  'was not rolled back by the bad feed''s failure in the same cron tick');
+
+select is(
+  (select count(*)::int from public.reservations
+    where external_uid = 'zero-duration-uid'),
+  0, 'the zero-duration event was never force-imported');
+
+select ok(
+  (select last_error from public.ical_feeds
+    where id = 'e5000000-0000-0000-0000-000000000040')
+    like '2 event(s) failed to import and were skipped%',
+  'the bad feed records a last_error, and it accounts for BOTH malformed '
+  'events -- the zero-duration one and the blank-UID one -- not just one '
+  'of them');
+
+select isnt(
+  (select pending_request_id from public.ical_feeds
+    where id = 'e5000000-0000-0000-0000-000000000040'),
+  987654321::bigint,
+  'the bad feed''s pending_request_id no longer points at the stale '
+  'response that crashed it -- it advanced to a freshly fired request, '
+  'proving the feed is not wedged re-reading the same response forever');
+
+select is(
+  (select last_error from public.ical_feeds
+    where id = 'e5000000-0000-0000-0000-000000000041'),
+  null,
+  'the good feed''s own last_error is untouched by the bad feed''s '
+  'failure -- the two feeds'' outcomes do not bleed into each other');
+
+-- === recovery: a SUBSEQUENT poll of the previously-wedged feed proceeds ===
+-- === rather than repeating the crash, with no direct DB access needed ====
+select pending_request_id as bad_feed_next_request
+  from public.ical_feeds where id = 'e5000000-0000-0000-0000-000000000040' \gset
+
+insert into net._http_response (id, status_code, content, timed_out, error_msg)
+values (:bad_feed_next_request, 200, E'BEGIN:VCALENDAR\r\nVERSION:2.0\r\n'
+  'BEGIN:VEVENT\r\nUID:zero-duration-uid\r\nDTSTART:20280301T100000Z\r\n'
+  'DTEND:20280301T100000Z\r\nEND:VEVENT\r\n'
+  'END:VCALENDAR\r\n', false, null);
+
+select lives_ok(
+  $$select public.ical_poll_feed('e5000000-0000-0000-0000-000000000040')$$,
+  'polling the previously-wedged feed again proceeds normally -- it does '
+  'not repeat the same crash on the same shape of bad event, and needed '
+  'no direct DB intervention to recover, only its next scheduled poll');
+
+select ok(
+  (select last_error from public.ical_feeds
+    where id = 'e5000000-0000-0000-0000-000000000040') is not null,
+  'the recovered feed still honestly records the new failure rather than '
+  'going silent about it');
+
+select is(
+  (select count(*)::int from public.reservations
+    where external_uid = 'zero-duration-uid'),
+  0, 'the zero-duration event is still never force-imported, even after '
+  'recovery');
 
 reset role;
 
