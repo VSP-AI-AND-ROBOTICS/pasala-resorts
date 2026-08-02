@@ -13,7 +13,7 @@
 -- re-deriving anything.
 
 begin;
-select plan(42);
+select plan(44);
 
 select has_table('public', 'refund_rules', 'refund_rules table exists');
 select has_column('public', 'reservations', 'refund_pct',
@@ -244,6 +244,45 @@ select is(
   'proving the check-in side is converted through the property''s own '
   'timezone, not the session''s UTC -- deterministic regardless of when '
   'this suite runs');
+
+-- === compute_refund's days_before is invariant to the SESSION's own ======
+-- === timezone -- carried-forward fix from Task 8's review =================
+--
+-- Task 8's review found a gap in the Honolulu test above: both of its
+-- calls share the same real `now()` AND the same property, so the `now()
+-- at time zone v_tz` conversion on the CHECK-OUT/"today" side of the
+-- `days_before` subtraction cancels out of the comparison and is never
+-- actually exercised -- only the check-in side is. A regression that
+-- swapped that side back to a bare `now()::date` (silently reading the
+-- SESSION's timezone instead of the property's `v_tz`) would pass every
+-- assertion above undetected, and that side is exactly what this task's
+-- brief warns about with its "cancellation at 01:00 IST" example.
+--
+-- This closes the gap directly: call compute_refund on the SAME
+-- reservation, in the SAME transaction (so the real wall-clock instant
+-- `now()` resolves to never changes), under two wildly different `set
+-- local timezone` values -- UTC and Pacific/Kiritimati (UTC+14, about as
+-- far from Asia/Kolkata as a timezone gets). Because both `lower(period)
+-- at time zone v_tz` and `now() at time zone v_tz` name the property's
+-- timezone EXPLICITLY, the session's own TimeZone GUC must never leak
+-- into the result -- days_before has to land on the same value (10, the
+-- figure already proven correct for this reservation above) under both.
+set local timezone = 'UTC';
+select is(
+  (public.compute_refund('d1000000-0000-0000-0000-000000000001')
+    ->> 'days_before')::int,
+  10,
+  'days_before under session timezone UTC is 10, matching the baseline');
+
+set local timezone = 'Pacific/Kiritimati';
+select is(
+  (public.compute_refund('d1000000-0000-0000-0000-000000000001')
+    ->> 'days_before')::int,
+  10,
+  'days_before under session timezone Pacific/Kiritimati (UTC+14) is '
+  'IDENTICAL to the UTC run above -- proving the session''s own timezone '
+  'never leaks into the computation, only the property''s v_tz does');
+reset timezone;
 
 -- === a property with no rules yields a zero refund, never an error =========
 
