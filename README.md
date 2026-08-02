@@ -37,9 +37,13 @@ full phase breakdown:
 - **Notifications** (email, then SMS, then WhatsApp). Phase 3 — WhatsApp
   needs Meta Business API approval with a multi-week lead time.
 - **OTA synchronization** (Airbnb, Booking.com, Agoda, MakeMyTrip, Goibibo).
-  Phase 4. No open two-way inventory API exists for these channels; iCal
-  import/export cannot meet a "zero double bookings" bar on its own.
-- **Reports, dashboard metrics, and housekeeping status updates.** Phase 5.
+  Phase 4 originally. iCal export/import (the two-way sync every major OTA
+  actually supports without a commercial agreement) shipped in phase 2 --
+  see "OTA calendar sync (iCal)" below. A real-time, guaranteed-zero-double-
+  booking two-way API integration (Agoda/MakeMyTrip/Goibibo, none of which
+  publish one) is still out of scope.
+- **Reports, dashboard metrics, and housekeeping status updates.** Phase 5
+  originally; reports and the dashboard shipped in phase 2.
 
 ## Prerequisites
 
@@ -98,6 +102,42 @@ All seeded accounts share the password `password123`.
 `ANON_KEY` is resolved automatically from `supabase status`, so these targets
 work as-is once `supabase start` has run — no manual key copying needed for
 `make`-driven runs.
+
+## OTA calendar sync (iCal)
+
+`/admin/ota/:unitId` (reachable from Admin → Properties → Units → a unit's
+overflow menu → "OTA sync") gives each unit two things, with no paid
+channel manager:
+
+- **An export URL** to paste into Airbnb (Listing → Availability → Sync
+  calendars → Add another calendar) or Booking.com's equivalent "Import
+  calendar" field. It lists only busy date ranges as RFC 5545 `VEVENT`s --
+  no guest name, email, or amount ever appears in it, by construction: the
+  builder reads `unit_calendar_events`, the identity-free occupancy mirror,
+  never `reservations` directly.
+- **Import feeds**: paste the OTA's own export URL back in, and this app
+  imports its busy dates as `ota`-kind reservations that block those dates
+  here too. A genuine overlap with an existing confirmed booking is caught
+  and reported as a conflict -- never silently force-applied.
+
+**The export URL is protected by a per-unit opaque token**, not the unit's
+own id -- see migration `0018_ical.sql`'s header for the full reasoning.
+If a URL leaks, the finder can read that one unit's occupancy and nothing
+else (no identity, no other units); rotating the token from the OTA screen
+invalidates the leaked URL immediately.
+
+**Automatic polling is wired and real**: `pg_net` is available in this
+local stack, so a `pg_cron` job (`ical-poll-feeds`, every 15 minutes)
+fetches every active import feed and applies it automatically -- verified
+end-to-end against a real local HTTP server, not just unit-tested. It is
+genuinely asynchronous, not a single blocking call (pg_net's own
+synchronous convenience wrapper, `net.http_collect_response`, was tried
+first and found broken in the pg_net version installed here -- see the
+migration header for the exact error and how this was diagnosed): a fetch
+is fired on one call and collected on the next, so a feed can briefly show
+`requested`/`pending` before its first real result lands. The admin
+"Sync" button drives the identical function on demand, for whenever
+waiting up to 15 minutes is not acceptable.
 
 ## Per-platform host
 

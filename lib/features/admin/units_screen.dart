@@ -11,10 +11,9 @@ import '../browse/providers.dart';
 import 'unit_form_screen.dart';
 
 /// Admin's per-property unit list. Reachable at `/admin/units/:propertyId`
-/// from `AdminPropertiesScreen`. The overflow menu's `Rates` and
-/// `Block dates` items link to `/admin/rates/:unitId` and
-/// `/admin/block/:unitId`, which arrive in Tasks 19 and 20 -- until then
-/// tapping them hits the router's not-found page, which is expected.
+/// from `AdminPropertiesScreen`. The overflow menu's `Rates`, `Block dates`
+/// and `OTA sync` items link to `/admin/rates/:unitId`,
+/// `/admin/block/:unitId` and `/admin/ota/:unitId` respectively.
 class UnitsScreen extends ConsumerWidget {
   const UnitsScreen({super.key, required this.propertyId});
 
@@ -56,6 +55,7 @@ class UnitsScreen extends ConsumerWidget {
                       PopupMenuItem(value: 'edit', child: Text('Edit')),
                       PopupMenuItem(value: 'rates', child: Text('Rates')),
                       PopupMenuItem(value: 'block', child: Text('Block dates')),
+                      PopupMenuItem(value: 'ota', child: Text('OTA sync')),
                     ],
                   ),
                 ),
@@ -88,6 +88,8 @@ class UnitsScreen extends ConsumerWidget {
         context.go('/admin/rates/${unit.id}');
       case 'block':
         context.go('/admin/block/${unit.id}');
+      case 'ota':
+        context.go('/admin/ota/${unit.id}');
     }
   }
 }

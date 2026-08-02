@@ -39,6 +39,7 @@ void main() {
         '/admin/units/u1',
         '/admin/rates/u1',
         '/admin/block/u1',
+        '/admin/ota/u1',
         '/admin/bookings',
         '/admin/dashboard',
         '/admin/reports',
@@ -68,6 +69,7 @@ void main() {
         '/admin/units/u1',
         '/admin/rates/u1',
         '/admin/block/u1',
+        '/admin/ota/u1',
         '/admin/bookings',
       ]) {
         expect(_to(_staff, path), '/404', reason: path);

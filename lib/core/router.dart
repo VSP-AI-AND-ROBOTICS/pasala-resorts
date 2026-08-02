@@ -17,6 +17,7 @@ import '../features/booking/booking_screen.dart';
 import '../features/booking/confirmation_screen.dart';
 import '../features/browse/browse_screen.dart';
 import '../features/browse/property_screen.dart';
+import '../features/ota/ical_screen.dart';
 import '../features/outbox/outbox_screen.dart';
 import '../features/reports/dashboard_screen.dart';
 import '../features/reports/reports_screen.dart';
@@ -125,6 +126,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/admin/block/:unitId',
             builder: (_, state) =>
                 BlockDatesScreen(unitId: state.pathParameters['unitId']!),
+          ),
+          GoRoute(
+            path: '/admin/ota/:unitId',
+            builder: (_, state) =>
+                IcalScreen(unitId: state.pathParameters['unitId']!),
           ),
           GoRoute(
             path: '/admin/bookings',
