@@ -3,7 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
-import '../../core/widgets/failure_view.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/async_view.dart';
 import '../../data/models/reservation.dart';
 import 'providers.dart';
 
@@ -18,12 +19,9 @@ class ConfirmationScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Booking confirmed')),
-      body: reservationAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => FailureView(
-          error: e,
-          onRetry: () => ref.invalidate(reservationProvider(reservationId)),
-        ),
+      body: AsyncView(
+        value: reservationAsync,
+        onRetry: () => ref.invalidate(reservationProvider(reservationId)),
         data: (reservation) => _Confirmed(reservation: reservation),
       ),
     );
@@ -39,42 +37,57 @@ class _Confirmed extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final unitAsync = ref.watch(unitByIdProvider(reservation.unitId));
     final quote = reservation.quote;
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
 
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(Spacing.xl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.check_circle,
-                  color: Theme.of(context).colorScheme.primary, size: 64),
-              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(Spacing.md),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.check_circle,
+                  color: scheme.onPrimaryContainer,
+                  size: 48,
+                ),
+              ),
+              const SizedBox(height: Spacing.lg),
               Text(
                 unitAsync.value?.name ?? 'Your booking',
-                style: Theme.of(context).textTheme.headlineSmall,
+                style: textTheme.headlineSmall,
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: Spacing.sm),
               Text(
                 '${formatDay(reservation.start.toLocal())} – '
                 '${formatDay(reservation.end.toLocal())}',
+                style: textTheme.bodyLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
                 textAlign: TextAlign.center,
               ),
               if (quote != null) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: Spacing.sm),
                 Text(
                   formatInr(quote.total),
-                  style: Theme.of(context).textTheme.titleLarge,
+                  style: textTheme.titleLarge?.copyWith(color: scheme.primary),
                 ),
               ],
-              const SizedBox(height: 32),
+              const SizedBox(height: Spacing.xl),
               FilledButton(
                 onPressed: () => context.go('/bookings'),
                 child: const Text('View my bookings'),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: Spacing.sm),
               OutlinedButton(
                 onPressed: () => context.go('/'),
                 child: const Text('Browse more'),

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/loading_state.dart';
 import '../../data/models/reservation.dart';
 import 'providers.dart';
 
@@ -66,7 +68,8 @@ DayStatus statusFor(
 
     final status = switch (r) {
       _ when r.kind == ReservationKind.block => DayStatus.blocked,
-      _ when r.status == ReservationStatus.hold ||
+      _
+          when r.status == ReservationStatus.hold ||
               r.status == ReservationStatus.pendingPayment =>
         DayStatus.pending,
       _ => DayStatus.booked,
@@ -105,16 +108,17 @@ class AvailabilityCalendar extends ConsumerWidget {
     // data: don't crash, don't silently render an all-available grid.
     if (asyncReservations.isLoading && !asyncReservations.hasValue) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 32),
-        child: Center(child: CircularProgressIndicator()),
+        padding: EdgeInsets.symmetric(vertical: Spacing.xl),
+        child: LoadingState(),
       );
     }
     if (asyncReservations.hasError && !asyncReservations.hasValue) {
       final error = asyncReservations.error;
-      final message =
-          error is BookingFailure ? error.message : 'Could not load availability.';
+      final message = error is BookingFailure
+          ? error.message
+          : 'Could not load availability.';
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32),
+        padding: const EdgeInsets.symmetric(vertical: Spacing.xl),
         child: Center(
           child: Text(message, style: TextStyle(color: scheme.error)),
         ),
@@ -126,14 +130,6 @@ class AvailabilityCalendar extends ConsumerWidget {
     final first = DateTime(month.year, month.month, 1);
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     final leadingBlanks = first.weekday - 1; // Monday-first grid
-
-    Color colorFor(DayStatus s) => switch (s) {
-          DayStatus.available => scheme.surfaceContainerHighest,
-          DayStatus.booked => scheme.errorContainer,
-          DayStatus.blocked => scheme.outlineVariant,
-          DayStatus.pending => scheme.tertiaryContainer,
-          DayStatus.past => scheme.surface,
-        };
 
     bool isSelected(DateTime d) {
       final s = selectedStart, e = selectedEnd;
@@ -152,19 +148,23 @@ class AvailabilityCalendar extends ConsumerWidget {
               Expanded(child: Center(child: Text(label))),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Spacing.sm),
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 7,
-            mainAxisSpacing: 4,
-            crossAxisSpacing: 4,
+            mainAxisSpacing: Spacing.xs,
+            crossAxisSpacing: Spacing.xs,
           ),
           itemCount: leadingBlanks + daysInMonth,
           itemBuilder: (context, i) {
             if (i < leadingBlanks) return const SizedBox.shrink();
-            final day = DateTime(month.year, month.month, i - leadingBlanks + 1);
+            final day = DateTime(
+              month.year,
+              month.month,
+              i - leadingBlanks + 1,
+            );
             final status = statusFor(day, reservations);
             final selectable =
                 status == DayStatus.available && onDayTap != null;
@@ -172,46 +172,224 @@ class AvailabilityCalendar extends ConsumerWidget {
             return InkWell(
               key: Key('day-${day.day}'),
               onTap: selectable ? () => onDayTap!(day) : null,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: colorFor(status),
-                  borderRadius: BorderRadius.circular(8),
-                  border: isSelected(day)
-                      ? Border.all(color: scheme.primary, width: 2)
-                      : null,
-                ),
-                child: Center(
-                  child: Text(
-                    '${day.day}',
-                    style: TextStyle(
-                      color: status == DayStatus.past
-                          ? scheme.onSurfaceVariant.withValues(alpha: 0.4)
-                          : null,
-                    ),
-                  ),
-                ),
+              child: _DayCell(
+                day: day.day,
+                status: status,
+                selected: isSelected(day),
               ),
             );
           },
         ),
-        const SizedBox(height: 12),
-        Wrap(spacing: 12, children: [
-          for (final (status, label) in [
-            (DayStatus.available, 'Available'),
-            (DayStatus.booked, 'Booked'),
-            (DayStatus.blocked, 'Blocked'),
-            (DayStatus.pending, 'On hold'),
-          ])
-            Row(mainAxisSize: MainAxisSize.min, children: [
-              Container(width: 12, height: 12,
-                  decoration: BoxDecoration(
-                      color: colorFor(status),
-                      borderRadius: BorderRadius.circular(3))),
-              const SizedBox(width: 4),
-              Text(label),
-            ]),
-        ]),
+        const SizedBox(height: Spacing.md),
+        Wrap(
+          spacing: Spacing.md,
+          runSpacing: Spacing.xs,
+          children: [
+            for (final status in DayStatus.values)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: _DayCell(day: null, status: status, selected: false),
+                  ),
+                  const SizedBox(width: Spacing.xs),
+                  Text(_legendLabel(status)),
+                ],
+              ),
+          ],
+        ),
       ],
     );
   }
+}
+
+String _legendLabel(DayStatus status) => switch (status) {
+  DayStatus.available => 'Available',
+  DayStatus.booked => 'Booked',
+  DayStatus.blocked => 'Blocked',
+  DayStatus.pending => 'On hold',
+  DayStatus.past => 'Past',
+};
+
+/// One calendar cell's visuals for [status]. Every state carries a cue
+/// beyond colour so the calendar reads correctly for colour-blind users:
+/// available is a plain outlined surface, booked is a solid filled cell,
+/// blocked carries a diagonal hatch, on-hold carries a dashed outline, and
+/// past is the whole cell at reduced opacity. [day] is null when this is
+/// used as a legend swatch rather than a real grid cell.
+class _DayCell extends StatelessWidget {
+  const _DayCell({
+    required this.day,
+    required this.status,
+    required this.selected,
+  });
+
+  final int? day;
+  final DayStatus status;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final label = day == null
+        ? const SizedBox.shrink()
+        : Text('$day', style: _textStyleFor(scheme));
+
+    Widget cell = switch (status) {
+      DayStatus.available => DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+          border: Border.all(color: scheme.outlineVariant),
+        ),
+        child: Center(child: label),
+      ),
+      DayStatus.booked => DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.errorContainer,
+          borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+        ),
+        child: Center(child: label),
+      ),
+      DayStatus.blocked => ClipRRect(
+        borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+        child: DecoratedBox(
+          decoration: BoxDecoration(color: scheme.surfaceContainerHighest),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CustomPaint(
+                painter: _DiagonalHatchPainter(
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.35),
+                ),
+              ),
+              Center(child: label),
+            ],
+          ),
+        ),
+      ),
+      DayStatus.pending => CustomPaint(
+        painter: _DashedBorderPainter(
+          color: scheme.tertiary,
+          radius: PasalaTokens.radiusSm,
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.tertiaryContainer.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+          ),
+          child: Center(child: label),
+        ),
+      ),
+      DayStatus.past => DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+          border: Border.all(color: scheme.outlineVariant),
+        ),
+        child: Center(child: label),
+      ),
+    };
+
+    // Past is muted at reduced opacity regardless of its underlying shape --
+    // it never overlaps with booked/blocked/pending in `statusFor` (the past
+    // check runs first and wins), so this only ever mutes the plain style
+    // above, but stays written generically in case that ever changes.
+    if (status == DayStatus.past) {
+      cell = Opacity(opacity: 0.45, child: cell);
+    }
+
+    if (selected) {
+      cell = DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+          border: Border.all(color: scheme.primary, width: 2),
+        ),
+        child: cell,
+      );
+    }
+    return cell;
+  }
+
+  TextStyle? _textStyleFor(ColorScheme scheme) => switch (status) {
+    DayStatus.booked => TextStyle(
+      color: scheme.onErrorContainer,
+      fontWeight: FontWeight.w700,
+    ),
+    DayStatus.pending => TextStyle(color: scheme.onTertiaryContainer),
+    DayStatus.blocked => TextStyle(color: scheme.onSurfaceVariant),
+    DayStatus.available => null,
+    DayStatus.past => TextStyle(color: scheme.onSurfaceVariant),
+  };
+}
+
+/// Diagonal hatch texture for a blocked day -- a shape cue independent of
+/// hue, so it still reads for a colour-blind viewer.
+class _DiagonalHatchPainter extends CustomPainter {
+  const _DiagonalHatchPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.2;
+    const gap = 6.0;
+    for (var x = -size.height; x < size.width; x += gap) {
+      canvas.drawLine(
+        Offset(x, size.height),
+        Offset(x + size.height, 0),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DiagonalHatchPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+/// Dashed rounded-rect outline for an on-hold day -- distinct in shape from
+/// the solid borders used elsewhere on the grid, independent of hue.
+class _DashedBorderPainter extends CustomPainter {
+  const _DashedBorderPainter({required this.color, required this.radius});
+
+  final Color color;
+  final double radius;
+
+  static const _dashArray = [4.0, 3.0];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rrect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    final source = Path()..addRRect(rrect);
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    for (final metric in source.computeMetrics()) {
+      var distance = 0.0;
+      var draw = true;
+      var i = 0;
+      while (distance < metric.length) {
+        final len = _dashArray[i % _dashArray.length];
+        if (draw) {
+          canvas.drawPath(metric.extractPath(distance, distance + len), paint);
+        }
+        distance += len;
+        draw = !draw;
+        i++;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedBorderPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.radius != radius;
 }

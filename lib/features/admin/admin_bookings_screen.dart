@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/widgets/failure_view.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/async_view.dart';
+import '../../core/widgets/empty_state.dart';
 import '../../data/models/reservation.dart';
 import '../account/my_bookings_screen.dart' show BookingTile;
 import '../staff/providers.dart';
@@ -35,23 +37,21 @@ List<Reservation> filterBookings(
     BookingStatusFilter.all => bookings.toList(),
     BookingStatusFilter.onHold =>
       bookings.where((r) => r.status == ReservationStatus.hold).toList(),
-    BookingStatusFilter.confirmed => bookings
-        .where((r) => r.status == ReservationStatus.confirmed)
-        .toList(),
-    BookingStatusFilter.cancelled => bookings
-        .where((r) => r.status == ReservationStatus.cancelled)
-        .toList(),
+    BookingStatusFilter.confirmed =>
+      bookings.where((r) => r.status == ReservationStatus.confirmed).toList(),
+    BookingStatusFilter.cancelled =>
+      bookings.where((r) => r.status == ReservationStatus.cancelled).toList(),
     BookingStatusFilter.blocks => const [], // unreachable, handled above
   };
 }
 
 String _filterLabel(BookingStatusFilter filter) => switch (filter) {
-      BookingStatusFilter.all => 'All',
-      BookingStatusFilter.onHold => 'On hold',
-      BookingStatusFilter.confirmed => 'Confirmed',
-      BookingStatusFilter.cancelled => 'Cancelled',
-      BookingStatusFilter.blocks => 'Blocks',
-    };
+  BookingStatusFilter.all => 'All',
+  BookingStatusFilter.onHold => 'On hold',
+  BookingStatusFilter.confirmed => 'Confirmed',
+  BookingStatusFilter.cancelled => 'Cancelled',
+  BookingStatusFilter.blocks => 'Blocks',
+};
 
 /// `/admin/bookings` -- every reservation the admin may see (RLS grants
 /// admin/super_admin all rows), filterable by status. Reuses [BookingTile]
@@ -78,7 +78,7 @@ class _AdminBookingsScreenState extends ConsumerState<AdminBookingsScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(Spacing.md),
             child: SegmentedButton<BookingStatusFilter>(
               segments: [
                 for (final f in BookingStatusFilter.values)
@@ -90,25 +90,26 @@ class _AdminBookingsScreenState extends ConsumerState<AdminBookingsScreen> {
             ),
           ),
           Expanded(
-            child: bookingsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => FailureView(
-                error: e,
-                onRetry: () => ref.invalidate(allBookingsProvider),
-              ),
+            child: AsyncView(
+              value: bookingsAsync,
+              onRetry: () => ref.invalidate(allBookingsProvider),
               data: (all) {
                 final bookings = filterBookings(all, _filter);
                 if (bookings.isEmpty) {
-                  return const Center(
-                      child: Text('No bookings match this filter.'));
+                  // The exact string (including the trailing period) is
+                  // asserted verbatim by admin_bookings_screen_test.dart.
+                  return const EmptyState(
+                    icon: Icons.event_busy_outlined,
+                    title: 'No bookings match this filter.',
+                  );
                 }
                 return ListView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(Spacing.md),
                   itemCount: bookings.length,
                   itemBuilder: (context, i) {
                     final reservation = bookings[i];
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.only(bottom: Spacing.sm),
                       child: BookingTile(
                         reservation: reservation,
                         onTap: () =>

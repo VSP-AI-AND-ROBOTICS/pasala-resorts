@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/widgets/failure_view.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/async_view.dart';
+import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/section_header.dart';
 import '../../data/models/reservation.dart';
 import '../account/my_bookings_screen.dart' show BookingTile;
 import 'providers.dart';
@@ -63,42 +66,65 @@ class TodayScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Today')),
-      body: bookings.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => FailureView(
-          error: e,
-          onRetry: () => ref.invalidate(allBookingsProvider),
-        ),
+      body: AsyncView(
+        value: bookings,
+        onRetry: () => ref.invalidate(allBookingsProvider),
         data: (all) {
           final lists = partitionToday(all, DateTime.now());
-          Widget section(String title, List<Reservation> items) => Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Text('$title (${items.length})',
-                        style: Theme.of(context).textTheme.titleMedium),
+          final scheme = Theme.of(context).colorScheme;
+
+          if (lists.arrivals.isEmpty &&
+              lists.departures.isEmpty &&
+              lists.staying.isEmpty) {
+            return RefreshIndicator(
+              onRefresh: () async => ref.invalidate(allBookingsProvider),
+              child: ListView(
+                children: const [
+                  EmptyState(
+                    icon: Icons.task_alt_outlined,
+                    title: 'Nothing on today',
+                    message: 'No arrivals, departures, or in-house guests.',
                   ),
-                  if (items.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: Text('None'),
-                    ),
-                  for (final r in items)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: BookingTile(reservation: r),
-                    ),
                 ],
-              );
+              ),
+            );
+          }
+
+          Widget section(String title, List<Reservation> items) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SectionHeader(title: title, subtitle: '${items.length}'),
+              if (items.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+                  child: Text(
+                    'None',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              for (final r in items)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.md,
+                    vertical: Spacing.xs,
+                  ),
+                  child: BookingTile(reservation: r),
+                ),
+            ],
+          );
 
           return RefreshIndicator(
             onRefresh: () async => ref.invalidate(allBookingsProvider),
-            child: ListView(children: [
-              section('Arrivals', lists.arrivals),
-              section('Departures', lists.departures),
-              section('In house', lists.staying),
-            ]),
+            child: ListView(
+              children: [
+                section('Arrivals', lists.arrivals),
+                section('Departures', lists.departures),
+                section('In house', lists.staying),
+                const SizedBox(height: Spacing.md),
+              ],
+            ),
           );
         },
       ),

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/widgets/failure_view.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/async_view.dart';
+import '../../core/widgets/empty_state.dart';
 import '../../data/models/unit.dart';
 import '../browse/property_screen.dart' show bookingModeLabel;
 import '../browse/providers.dart';
@@ -24,22 +26,22 @@ class UnitsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Units')),
-      body: units.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => FailureView(
-          error: e,
-          onRetry: () => ref.invalidate(unitsProvider(propertyId)),
+      body: AsyncView(
+        value: units,
+        onRetry: () => ref.invalidate(unitsProvider(propertyId)),
+        empty: () => const EmptyState(
+          icon: Icons.bed_outlined,
+          title: 'No units yet',
+          message: 'Add one with the button below.',
         ),
-        data: (list) {
-          if (list.isEmpty) {
-            return const Center(child: Text('No units yet.'));
-          }
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: list.length,
-            itemBuilder: (context, i) {
-              final unit = list[i];
-              return Card(
+        data: (list) => ListView.builder(
+          padding: const EdgeInsets.all(Spacing.md),
+          itemCount: list.length,
+          itemBuilder: (context, i) {
+            final unit = list[i];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.sm),
+              child: Card(
                 child: ListTile(
                   title: Text(unit.name),
                   subtitle: Text(
@@ -48,24 +50,26 @@ class UnitsScreen extends ConsumerWidget {
                     '${unit.isActive ? '' : ' · Inactive'}',
                   ),
                   trailing: PopupMenuButton<String>(
-                    onSelected: (value) => _onMenuSelected(context, unit, value),
+                    onSelected: (value) =>
+                        _onMenuSelected(context, unit, value),
                     itemBuilder: (context) => const [
                       PopupMenuItem(value: 'edit', child: Text('Edit')),
                       PopupMenuItem(value: 'rates', child: Text('Rates')),
-                      PopupMenuItem(
-                          value: 'block', child: Text('Block dates')),
+                      PopupMenuItem(value: 'block', child: Text('Block dates')),
                     ],
                   ),
                 ),
-              );
-            },
-          );
-        },
+              ),
+            );
+          },
+        ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => UnitFormScreen(propertyId: propertyId),
-        )),
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => UnitFormScreen(propertyId: propertyId),
+          ),
+        ),
         child: const Icon(Icons.add),
       ),
     );
@@ -74,10 +78,12 @@ class UnitsScreen extends ConsumerWidget {
   void _onMenuSelected(BuildContext context, Unit unit, String value) {
     switch (value) {
       case 'edit':
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) =>
-              UnitFormScreen(propertyId: propertyId, existing: unit),
-        ));
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) =>
+                UnitFormScreen(propertyId: propertyId, existing: unit),
+          ),
+        );
       case 'rates':
         context.go('/admin/rates/${unit.id}');
       case 'block':

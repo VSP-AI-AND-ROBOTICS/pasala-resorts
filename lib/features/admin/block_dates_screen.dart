@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/repositories/booking_repository.dart';
 import '../calendar/availability_calendar.dart';
@@ -90,7 +91,9 @@ class _BlockDatesScreenState extends ConsumerState<BlockDatesScreen> {
     if (!_canSave) return;
     setState(() => _busy = true);
     try {
-      await ref.read(blockDatesActionProvider).blockDates(
+      await ref
+          .read(blockDatesActionProvider)
+          .blockDates(
             unitId: widget.unitId,
             ranges: collapseToRanges(_selected),
             reason: _reason.text.trim(),
@@ -98,8 +101,9 @@ class _BlockDatesScreenState extends ConsumerState<BlockDatesScreen> {
       ref.invalidate(unitReservationsProvider(widget.unitId));
       if (mounted) {
         setState(_selected.clear);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Dates blocked')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Dates blocked')));
       }
     } on BookingFailure catch (e) {
       // A UnitUnavailable here means a real booking is in the way; the
@@ -108,8 +112,9 @@ class _BlockDatesScreenState extends ConsumerState<BlockDatesScreen> {
       // for this branch) so the admin can drop the conflicting day and
       // retry without re-picking everything.
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(FailureView.messageFor(e))));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -117,16 +122,20 @@ class _BlockDatesScreenState extends ConsumerState<BlockDatesScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Block dates')),
-        body: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Row(children: [
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Block dates')),
+      body: ListView(
+        padding: const EdgeInsets.all(Spacing.md),
+        children: [
+          Row(
+            children: [
               IconButton(
                 icon: const Icon(Icons.chevron_left),
                 onPressed: () => setState(
-                    () => _month = DateTime(_month.year, _month.month - 1)),
+                  () => _month = DateTime(_month.year, _month.month - 1),
+                ),
               ),
               Expanded(
                 child: Center(child: Text('${_month.month}/${_month.year}')),
@@ -134,36 +143,44 @@ class _BlockDatesScreenState extends ConsumerState<BlockDatesScreen> {
               IconButton(
                 icon: const Icon(Icons.chevron_right),
                 onPressed: () => setState(
-                    () => _month = DateTime(_month.year, _month.month + 1)),
+                  () => _month = DateTime(_month.year, _month.month + 1),
+                ),
               ),
-            ]),
-            AvailabilityCalendar(
-              unitId: widget.unitId,
-              month: _month,
-              onDayTap: (day) => setState(() {
-                _selected.contains(day)
-                    ? _selected.remove(day)
-                    : _selected.add(day);
-              }),
+            ],
+          ),
+          AvailabilityCalendar(
+            unitId: widget.unitId,
+            month: _month,
+            onDayTap: (day) => setState(() {
+              _selected.contains(day)
+                  ? _selected.remove(day)
+                  : _selected.add(day);
+            }),
+          ),
+          const SizedBox(height: Spacing.md),
+          Text(
+            '${_selected.length} days selected · '
+            '${collapseToRanges(_selected).length} ranges',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: Spacing.sm),
+          TextField(
+            key: const Key('block-reason'),
+            controller: _reason,
+            decoration: const InputDecoration(
+              labelText: 'Reason',
+              hintText: 'Maintenance, private event, owner stay…',
             ),
-            const SizedBox(height: 16),
-            Text('${_selected.length} days selected · '
-                '${collapseToRanges(_selected).length} ranges'),
-            const SizedBox(height: 8),
-            TextField(
-              key: const Key('block-reason'),
-              controller: _reason,
-              decoration: const InputDecoration(
-                labelText: 'Reason',
-                hintText: 'Maintenance, private event, owner stay…',
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _canSave ? _save : null,
-              child: const Text('Block selected dates'),
-            ),
-          ],
-        ),
-      );
+          ),
+          const SizedBox(height: Spacing.md),
+          FilledButton(
+            onPressed: _canSave ? _save : null,
+            child: const Text('Block selected dates'),
+          ),
+        ],
+      ),
+    );
+  }
 }

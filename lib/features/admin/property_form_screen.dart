@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/widgets/async_view.dart';
+import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/property.dart';
 import '../../data/repositories/catalog_repository.dart';
@@ -31,8 +34,7 @@ class PropertyFormScreen extends ConsumerStatefulWidget {
   final Property? existing;
 
   @override
-  ConsumerState<PropertyFormScreen> createState() =>
-      _PropertyFormScreenState();
+  ConsumerState<PropertyFormScreen> createState() => _PropertyFormScreenState();
 }
 
 class _PropertyFormScreenState extends ConsumerState<PropertyFormScreen> {
@@ -55,8 +57,9 @@ class _PropertyFormScreenState extends ConsumerState<PropertyFormScreen> {
     _slug = TextEditingController(text: existing?.slug ?? '');
     _description = TextEditingController(text: existing?.description ?? '');
     _address = TextEditingController(text: existing?.address ?? '');
-    _amenities =
-        TextEditingController(text: existing?.amenities.join(', ') ?? '');
+    _amenities = TextEditingController(
+      text: existing?.amenities.join(', ') ?? '',
+    );
     _checkInTime = _parseTime(existing?.checkInTime ?? '14:00');
     _checkOutTime = _parseTime(existing?.checkOutTime ?? '11:00');
     _isActive = existing?.isActive ?? true;
@@ -73,14 +76,18 @@ class _PropertyFormScreenState extends ConsumerState<PropertyFormScreen> {
   }
 
   Future<void> _pickCheckIn() async {
-    final picked =
-        await showTimePicker(context: context, initialTime: _checkInTime);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _checkInTime,
+    );
     if (picked != null) setState(() => _checkInTime = picked);
   }
 
   Future<void> _pickCheckOut() async {
-    final picked =
-        await showTimePicker(context: context, initialTime: _checkOutTime);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _checkOutTime,
+    );
     if (picked != null) setState(() => _checkOutTime = picked);
   }
 
@@ -114,8 +121,9 @@ class _PropertyFormScreenState extends ConsumerState<PropertyFormScreen> {
       if (mounted) Navigator.of(context).pop();
     } on BookingFailure catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(FailureView.messageFor(e))));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -124,90 +132,86 @@ class _PropertyFormScreenState extends ConsumerState<PropertyFormScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title:
-              Text(widget.existing == null ? 'New property' : 'Edit property'),
-        ),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Form(
-              key: _formKey,
-              child: ListView(
-                shrinkWrap: true,
-                padding: const EdgeInsets.all(24),
-                children: [
-                  TextFormField(
-                    key: const Key('property-name'),
-                    controller: _name,
-                    decoration: const InputDecoration(labelText: 'Name'),
-                    validator: (v) => (v == null || v.trim().isEmpty)
-                        ? 'Enter a name'
-                        : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    key: const Key('property-slug'),
-                    controller: _slug,
-                    decoration: const InputDecoration(labelText: 'Slug'),
-                    validator: (v) => (v == null || v.trim().isEmpty)
-                        ? 'Enter a slug'
-                        : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    key: const Key('property-description'),
-                    controller: _description,
-                    decoration:
-                        const InputDecoration(labelText: 'Description'),
-                    maxLines: 3,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    key: const Key('property-address'),
-                    controller: _address,
-                    decoration: const InputDecoration(labelText: 'Address'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    key: const Key('property-amenities'),
-                    controller: _amenities,
-                    decoration: const InputDecoration(
-                      labelText: 'Amenities',
-                      helperText: 'Comma-separated, e.g. Pool, Wi-Fi',
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Check-in time'),
-                    trailing: Text(_formatTimeOfDay(_checkInTime)),
-                    onTap: _pickCheckIn,
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Check-out time'),
-                    trailing: Text(_formatTimeOfDay(_checkOutTime)),
-                    onTap: _pickCheckOut,
-                  ),
-                  SwitchListTile(
-                    key: const Key('property-active'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Active'),
-                    value: _isActive,
-                    onChanged: (v) => setState(() => _isActive = v),
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: _busy ? null : _save,
-                    child: const Text('Save'),
-                  ),
-                ],
+    appBar: AppBar(
+      title: Text(widget.existing == null ? 'New property' : 'Edit property'),
+    ),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.all(Spacing.lg),
+            children: [
+              TextFormField(
+                key: const Key('property-name'),
+                controller: _name,
+                decoration: const InputDecoration(labelText: 'Name'),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Enter a name' : null,
               ),
-            ),
+              const SizedBox(height: Spacing.sm),
+              TextFormField(
+                key: const Key('property-slug'),
+                controller: _slug,
+                decoration: const InputDecoration(labelText: 'Slug'),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Enter a slug' : null,
+              ),
+              const SizedBox(height: Spacing.sm),
+              TextFormField(
+                key: const Key('property-description'),
+                controller: _description,
+                decoration: const InputDecoration(labelText: 'Description'),
+                maxLines: 3,
+              ),
+              const SizedBox(height: Spacing.sm),
+              TextFormField(
+                key: const Key('property-address'),
+                controller: _address,
+                decoration: const InputDecoration(labelText: 'Address'),
+              ),
+              const SizedBox(height: Spacing.sm),
+              TextFormField(
+                key: const Key('property-amenities'),
+                controller: _amenities,
+                decoration: const InputDecoration(
+                  labelText: 'Amenities',
+                  helperText: 'Comma-separated, e.g. Pool, Wi-Fi',
+                ),
+              ),
+              const SizedBox(height: Spacing.md),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Check-in time'),
+                trailing: Text(_formatTimeOfDay(_checkInTime)),
+                onTap: _pickCheckIn,
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Check-out time'),
+                trailing: Text(_formatTimeOfDay(_checkOutTime)),
+                onTap: _pickCheckOut,
+              ),
+              SwitchListTile(
+                key: const Key('property-active'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Active'),
+                value: _isActive,
+                onChanged: (v) => setState(() => _isActive = v),
+              ),
+              const SizedBox(height: Spacing.lg),
+              FilledButton(
+                onPressed: _busy ? null : _save,
+                child: const Text('Save'),
+              ),
+            ],
           ),
         ),
-      );
+      ),
+    ),
+  );
 }
 
 /// Admin's property list at `/admin/properties`, reusing `PropertyCard` from
@@ -222,19 +226,21 @@ class AdminPropertiesScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Properties')),
-      body: properties.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => FailureView(
-          error: e,
-          onRetry: () => ref.invalidate(propertiesProvider),
+      body: AsyncView(
+        value: properties,
+        onRetry: () => ref.invalidate(propertiesProvider),
+        empty: () => const EmptyState(
+          icon: Icons.home_work_outlined,
+          title: 'No properties yet',
+          message: 'Add one with the button below.',
         ),
         data: (list) => ListView.builder(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(Spacing.md),
           itemCount: list.length,
           itemBuilder: (context, i) {
             final property = list[i];
             return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.only(bottom: Spacing.sm),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -249,8 +255,7 @@ class AdminPropertiesScreen extends ConsumerWidget {
                     icon: const Icon(Icons.edit_outlined),
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) =>
-                            PropertyFormScreen(existing: property),
+                        builder: (_) => PropertyFormScreen(existing: property),
                       ),
                     ),
                   ),
@@ -261,9 +266,9 @@ class AdminPropertiesScreen extends ConsumerWidget {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const PropertyFormScreen()),
-        ),
+        onPressed: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const PropertyFormScreen())),
         child: const Icon(Icons.add),
       ),
     );

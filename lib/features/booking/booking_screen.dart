@@ -6,7 +6,10 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/errors.dart';
+import '../../core/format.dart';
+import '../../core/theme/tokens.dart';
 import '../../core/widgets/failure_view.dart';
+import '../../core/widgets/loading_state.dart';
 import '../../data/models/quote.dart';
 import '../../data/models/reservation.dart';
 import '../../data/models/slot_type.dart';
@@ -319,40 +322,46 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     } else {
       newTo = day;
     }
-    unawaited(_changeSelection(
-      from: newFrom,
-      to: newTo,
-      guests: _guests,
-      slotTypeId: _slotTypeId,
-      applyLocalChange: () {
-        _from = newFrom;
-        _to = newTo;
-      },
-    ));
+    unawaited(
+      _changeSelection(
+        from: newFrom,
+        to: newTo,
+        guests: _guests,
+        slotTypeId: _slotTypeId,
+        applyLocalChange: () {
+          _from = newFrom;
+          _to = newTo;
+        },
+      ),
+    );
   }
 
   void _onSlotTypeChanged(String? slotTypeId) {
     final newTo = (slotTypeId != null && _from != null) ? _from : _to;
-    unawaited(_changeSelection(
-      from: _from,
-      to: newTo,
-      guests: _guests,
-      slotTypeId: slotTypeId,
-      applyLocalChange: () {
-        _slotTypeId = slotTypeId;
-        _to = newTo;
-      },
-    ));
+    unawaited(
+      _changeSelection(
+        from: _from,
+        to: newTo,
+        guests: _guests,
+        slotTypeId: slotTypeId,
+        applyLocalChange: () {
+          _slotTypeId = slotTypeId;
+          _to = newTo;
+        },
+      ),
+    );
   }
 
   void _onGuestsChanged(int guests) {
-    unawaited(_changeSelection(
-      from: _from,
-      to: _to,
-      guests: guests,
-      slotTypeId: _slotTypeId,
-      applyLocalChange: () => _guests = guests,
-    ));
+    unawaited(
+      _changeSelection(
+        from: _from,
+        to: _to,
+        guests: guests,
+        slotTypeId: _slotTypeId,
+        applyLocalChange: () => _guests = guests,
+      ),
+    );
   }
 
   /// The Finding-1 fix: applies a dates/guests/slot-type change, first
@@ -411,9 +420,14 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       // already cleared above so the customer can keep picking dates; the
       // orphaned hold (if the cancel truly didn't land) still expires on its
       // own within 15 minutes.
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Could not release your previous hold: '
-              '${FailureView.messageFor(releaseFailure)}')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not release your previous hold: '
+            '${FailureView.messageFor(releaseFailure)}',
+          ),
+        ),
+      );
     }
     unawaited(_maybeFetchQuote());
   }
@@ -423,7 +437,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     if (from == null || to == null) return;
     setState(() => _quoteLoading = true);
     try {
-      final quote = await ref.read(bookingActionsProvider).quote(
+      final quote = await ref
+          .read(bookingActionsProvider)
+          .quote(
             unitId: widget.unitId,
             from: from,
             to: to,
@@ -439,8 +455,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     } on BookingFailure catch (e) {
       if (!mounted) return;
       setState(() => _quoteLoading = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
     }
   }
 
@@ -543,10 +560,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       });
       _startHoldTicker();
 
-      final payment = await ref.read(paymentGatewayProvider).charge(
-            reservationId: hold.id,
-            amount: quote.total,
-          );
+      final payment = await ref
+          .read(paymentGatewayProvider)
+          .charge(reservationId: hold.id, amount: quote.total);
       if (!payment.succeeded) {
         throw InvalidState(payment.failureMessage ?? 'Payment failed');
       }
@@ -573,10 +589,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     if (hold == null) return;
     _setBusy(true);
     try {
-      await ref.read(bookingActionsProvider).cancel(
-            reservationId: hold.id,
-            reason: 'customer cancelled hold',
-          );
+      await ref
+          .read(bookingActionsProvider)
+          .cancel(reservationId: hold.id, reason: 'customer cancelled hold');
       if (!mounted) return;
       _ticker?.cancel();
       _ticker = null;
@@ -587,8 +602,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       });
     } on BookingFailure catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
     } finally {
       _setBusy(false);
     }
@@ -631,8 +647,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     if (failure is UnitUnavailable) {
       ref.invalidate(unitReservationsProvider(widget.unitId));
     }
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(FailureView.messageFor(failure))));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(FailureView.messageFor(failure))));
   }
 
   @override
@@ -651,6 +668,14 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     );
   }
 
+  /// Section 1's subtitle: the current date selection, or a prompt when
+  /// nothing has been picked yet. Never renders a raw `DateTime.toString`.
+  String get _datesSubtitle {
+    if (_from == null) return 'Choose your check-in and check-out';
+    if (_to == null) return '${formatDay(_from!)} → pick a check-out date';
+    return '${formatDay(_from!)} → ${formatDay(_to!)}';
+  }
+
   Widget _buildBody(BuildContext context, Unit unit) {
     Widget slotSelector = const SizedBox.shrink();
     if (unit.supportsSlots) {
@@ -659,120 +684,204 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         loading: () => const SizedBox.shrink(),
         error: (e, _) => FailureView(error: e),
         data: (slotTypes) => Padding(
-          padding: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.only(bottom: Spacing.md),
           child: _slotSelector(unit, slotTypes),
         ),
       );
     }
 
     final remaining = _hold?.holdRemaining;
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text(unit.name, style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 4),
-        Text('Sleeps ${unit.capacityBase}–${unit.capacityMax}'),
-        const SizedBox(height: 16),
-        if (remaining != null)
-          Container(
-            key: const Key('hold-banner'),
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.tertiaryContainer,
-              borderRadius: BorderRadius.circular(8),
+    // A plain Column inside a SingleChildScrollView, not a ListView: a
+    // ListView's Sliver machinery builds children lazily by cache extent,
+    // and the calendar's own shrink-wrapped GridView (nested sliver inside
+    // a sliver list item) throws that lazy accounting off -- items further
+    // down silently never get built, no matter how large `cacheExtent` is
+    // set. A Column always builds every child eagerly.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(Spacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(unit.name, style: textTheme.headlineSmall),
+          const SizedBox(height: Spacing.xs),
+          Text(
+            'Sleeps ${unit.capacityBase}–${unit.capacityMax}',
+            style: textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
             ),
+          ),
+
+          // The hold countdown: a prominent, persistent surface pinned
+          // above the numbered flow -- not nested inside it -- so it stays
+          // in reach (and, in particular, its Resume/Cancel buttons stay
+          // reachable) no matter how far a customer scrolls into the
+          // sections below. Section 4 (`Pay`) still narrates its status as
+          // part of the numbered flow, but this is the one live control
+          // surface for it.
+          if (remaining != null) ...[
+            const SizedBox(height: Spacing.md),
+            _HoldBanner(
+              remaining: remaining,
+              showResume: shouldShowResumeHold(
+                hold: _hold,
+                remaining: remaining,
+              ),
+              busy: _busy,
+              onResume: _showQuoteSheet,
+              onCancel: _cancelHold,
+            ),
+          ],
+          const SizedBox(height: Spacing.lg),
+
+          // 1 · Dates -- always actionable: picking dates is where the flow
+          // starts, so this section is never muted.
+          _NumberedSection(
+            number: 1,
+            title: 'Dates',
+            subtitle: _datesSubtitle,
+            active: true,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('Holding your dates — ${formatHoldRemaining(remaining)}'),
-                // The dead-end fix: a live hold has no other way back to
-                // payment once the sheet has closed (e.g. after a declined
-                // card) -- the calendar shows the customer's own held dates
-                // as occupied and disables tapping them, same as it does for
-                // everyone else. This reopens the SAME hold/quote, never a
-                // new one.
-                if (shouldShowResumeHold(hold: _hold, remaining: remaining)) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.tonal(
-                          key: const Key('resume-hold-button'),
-                          onPressed: _busy ? null : _showQuoteSheet,
-                          child: const Text('Resume payment'),
-                        ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left),
+                      onPressed: () => setState(
+                        () => _month = DateTime(_month.year, _month.month - 1),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton(
-                          key: const Key('cancel-hold-button'),
-                          onPressed: _busy ? null : _cancelHold,
-                          child: const Text('Cancel hold'),
-                        ),
+                    ),
+                    Text(
+                      DateFormat.yMMMM().format(_month),
+                      style: textTheme.titleSmall,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right),
+                      onPressed: () => setState(
+                        () => _month = DateTime(_month.year, _month.month + 1),
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
+                AvailabilityCalendar(
+                  unitId: widget.unitId,
+                  month: _month,
+                  selectedStart: _from,
+                  selectedEnd: _to,
+                  onDayTap: _pickDay,
+                ),
               ],
             ),
           ),
-        if (remaining != null) const SizedBox(height: 16),
-        slotSelector,
-        _guestStepper(unit),
-        const SizedBox(height: 16),
+          const SizedBox(height: Spacing.lg),
+
+          // 2 · Guests -- also always actionable; guest count and slot type
+          // can be set before or after dates.
+          _NumberedSection(
+            number: 2,
+            title: 'Guests',
+            subtitle: '$_guests guest${_guests == 1 ? '' : 's'}',
+            active: true,
+            child: Column(children: [slotSelector, _guestStepper(unit)]),
+          ),
+          const SizedBox(height: Spacing.lg),
+
+          // 3 · Price -- genuinely not actionable until a quote exists (or is
+          // in flight), so it is the first section that can render muted.
+          _NumberedSection(
+            number: 3,
+            title: 'Price',
+            subtitle: _quoteLoading
+                ? 'Calculating…'
+                : (_quote != null
+                      ? formatInr(_quote!.total)
+                      : 'Select your dates to see pricing'),
+            active: _quoteLoading || _quote != null,
+            child: _priceSectionContent(context),
+          ),
+          const SizedBox(height: Spacing.lg),
+
+          // 4 · Pay -- narrates whatever the hold banner above is doing;
+          // muted once there is nothing to pay yet. The live Resume/Cancel
+          // controls live in that pinned banner, not here, so they never
+          // depend on how far this section has scrolled.
+          _NumberedSection(
+            number: 4,
+            title: 'Pay',
+            subtitle: remaining != null
+                ? formatHoldRemaining(remaining)
+                : 'Nothing to pay yet',
+            active: remaining != null,
+            child: Text(
+              remaining != null
+                  ? 'Your dates are held above while you complete payment.'
+                  : 'Once your dates are quoted, paying holds them for 15 '
+                        'minutes while you complete checkout.',
+              style: textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _priceSectionContent(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+
+    if (_quoteLoading) {
+      return const LoadingState(message: 'Calculating your price…');
+    }
+    final quote = _quote;
+    if (quote == null) {
+      return Text(
+        'Pick a check-in and check-out date above to see a price breakdown.',
+        style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            IconButton(
-              icon: const Icon(Icons.chevron_left),
-              onPressed: () => setState(
-                  () => _month = DateTime(_month.year, _month.month - 1)),
-            ),
-            Text(DateFormat.yMMMM().format(_month)),
-            IconButton(
-              icon: const Icon(Icons.chevron_right),
-              onPressed: () => setState(
-                  () => _month = DateTime(_month.year, _month.month + 1)),
-            ),
+            Expanded(child: Text('Total', style: textTheme.titleMedium)),
+            Text(formatInr(quote.total), style: textTheme.titleLarge),
           ],
         ),
-        AvailabilityCalendar(
-          unitId: widget.unitId,
-          month: _month,
-          selectedStart: _from,
-          selectedEnd: _to,
-          onDayTap: _pickDay,
+        const SizedBox(height: Spacing.sm),
+        OutlinedButton(
+          key: const Key('review-price-button'),
+          onPressed: _showQuoteSheet,
+          child: const Text('Review price breakdown'),
         ),
-        if (_quoteLoading) ...[
-          const SizedBox(height: 16),
-          const Center(child: CircularProgressIndicator()),
-        ],
       ],
     );
   }
 
   Widget _guestStepper(Unit unit) => Row(
-        children: [
-          const Text('Guests'),
-          const Spacer(),
-          IconButton(
-            key: const Key('guests-minus'),
-            icon: const Icon(Icons.remove_circle_outline),
-            onPressed:
-                _guests > 1 ? () => _onGuestsChanged(_guests - 1) : null,
-          ),
-          Text('$_guests', style: Theme.of(context).textTheme.titleMedium),
-          IconButton(
-            key: const Key('guests-plus'),
-            icon: const Icon(Icons.add_circle_outline),
-            onPressed: _guests < unit.capacityMax
-                ? () => _onGuestsChanged(_guests + 1)
-                : null,
-          ),
-        ],
-      );
+    children: [
+      const Text('Guests'),
+      const Spacer(),
+      IconButton(
+        key: const Key('guests-minus'),
+        icon: const Icon(Icons.remove_circle_outline),
+        onPressed: _guests > 1 ? () => _onGuestsChanged(_guests - 1) : null,
+      ),
+      Text('$_guests', style: Theme.of(context).textTheme.titleMedium),
+      IconButton(
+        key: const Key('guests-plus'),
+        icon: const Icon(Icons.add_circle_outline),
+        onPressed: _guests < unit.capacityMax
+            ? () => _onGuestsChanged(_guests + 1)
+            : null,
+      ),
+    ],
+  );
 
   Widget _slotSelector(Unit unit, List<SlotType> slotTypes) {
     final segments = <ButtonSegment<String?>>[
@@ -785,8 +894,166 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     return SegmentedButton<String?>(
       segments: segments,
       selected: {_slotTypeId},
-      onSelectionChanged: (selection) =>
-          _onSlotTypeChanged(selection.first),
+      onSelectionChanged: (selection) => _onSlotTypeChanged(selection.first),
+    );
+  }
+}
+
+/// One step of the booking flow's `1 Dates` / `2 Guests` / `3 Price` /
+/// `4 Pay` structure. Every section always renders -- nothing is ever
+/// hidden -- so the customer can see the whole flow ahead of them; a
+/// section that has nothing to act on yet ([active] false) is dimmed rather
+/// than removed. This is purely a presentation choice: it never gates
+/// interaction, since every control it wraps already governs its own
+/// enabled state (see `_guestStepper`, the hold banner's resume/cancel
+/// buttons).
+class _NumberedSection extends StatelessWidget {
+  const _NumberedSection({
+    required this.number,
+    required this.title,
+    required this.subtitle,
+    required this.active,
+    required this.child,
+  });
+
+  final int number;
+  final String title;
+  final String subtitle;
+  final bool active;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return AnimatedOpacity(
+      duration: PasalaTokens.motionBase,
+      opacity: active ? 1 : 0.6,
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    radius: 14,
+                    backgroundColor: active
+                        ? scheme.primary
+                        : scheme.surfaceContainerHighest,
+                    foregroundColor: active
+                        ? scheme.onPrimary
+                        : scheme.onSurfaceVariant,
+                    child: Text('$number'),
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: textTheme.titleMedium),
+                        Text(
+                          subtitle,
+                          style: textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: Spacing.md),
+              child,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The live hold countdown: a prominent, persistent surface in
+/// `colorScheme.tertiaryContainer` with real Resume/Cancel buttons, pinned
+/// above the numbered flow rather than nested inside it.
+///
+/// The dead-end fix: a live hold has no other way back to payment once the
+/// quote sheet has closed (e.g. after a declined card) -- the calendar
+/// shows the customer's own held dates as occupied and disables tapping
+/// them, same as it does for everyone else. [onResume] reopens the SAME
+/// hold/quote, never a new one.
+class _HoldBanner extends StatelessWidget {
+  const _HoldBanner({
+    required this.remaining,
+    required this.showResume,
+    required this.busy,
+    required this.onResume,
+    required this.onCancel,
+  });
+
+  final Duration remaining;
+  final bool showResume;
+  final bool busy;
+  final VoidCallback onResume;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      key: const Key('hold-banner'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(Spacing.md),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(PasalaTokens.radiusMd),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.timer_outlined, color: scheme.onTertiaryContainer),
+              const SizedBox(width: Spacing.sm),
+              Expanded(
+                child: Text(
+                  'Holding your dates — ${formatHoldRemaining(remaining)}',
+                  style: textTheme.titleMedium?.copyWith(
+                    color: scheme.onTertiaryContainer,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (showResume) ...[
+            const SizedBox(height: Spacing.md),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.tonal(
+                    key: const Key('resume-hold-button'),
+                    onPressed: busy ? null : onResume,
+                    child: const Text('Resume payment'),
+                  ),
+                ),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: OutlinedButton(
+                    key: const Key('cancel-hold-button'),
+                    onPressed: busy ? null : onCancel,
+                    child: const Text('Cancel hold'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
