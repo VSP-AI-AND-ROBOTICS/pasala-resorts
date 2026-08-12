@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
+import '../../core/theme/app_assets.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
+import '../../core/widgets/hero_backdrop.dart';
 import '../../data/models/reservation.dart';
 import 'providers.dart';
 
@@ -40,59 +42,78 @@ class _Confirmed extends ConsumerWidget {
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.xl),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(Spacing.md),
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  shape: BoxShape.circle,
+    return HeroBackdrop(
+      imageAsset: AppAssets.eventStringLights,
+      scrimOpacity: 0.7,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.all(Spacing.xl),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(Spacing.xl),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: 1),
+                      duration: PasalaTokens.motionBase,
+                      curve: Curves.elasticOut,
+                      builder: (context, value, child) => Transform.scale(
+                        scale: value,
+                        child: child,
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(Spacing.md),
+                        decoration: BoxDecoration(
+                          color: scheme.primaryContainer,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.check_circle,
+                          color: scheme.onPrimaryContainer,
+                          size: 48,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: Spacing.lg),
+                    Text(
+                      unitAsync.value?.name ?? 'Your booking',
+                      style: textTheme.headlineSmall,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: Spacing.sm),
+                    Text(
+                      '${formatDay(reservation.start.toLocal())} – '
+                      '${formatDay(reservation.end.toLocal())}',
+                      style: textTheme.bodyLarge?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (quote != null) ...[
+                      const SizedBox(height: Spacing.sm),
+                      Text(
+                        formatInr(quote.total),
+                        style: textTheme.titleLarge
+                            ?.copyWith(color: scheme.primary),
+                      ),
+                    ],
+                    const SizedBox(height: Spacing.xl),
+                    FilledButton(
+                      onPressed: () => context.go('/bookings'),
+                      child: const Text('View my bookings'),
+                    ),
+                    const SizedBox(height: Spacing.sm),
+                    OutlinedButton(
+                      onPressed: () => context.go('/'),
+                      child: const Text('Browse more'),
+                    ),
+                  ],
                 ),
-                child: Icon(
-                  Icons.check_circle,
-                  color: scheme.onPrimaryContainer,
-                  size: 48,
-                ),
               ),
-              const SizedBox(height: Spacing.lg),
-              Text(
-                unitAsync.value?.name ?? 'Your booking',
-                style: textTheme.headlineSmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: Spacing.sm),
-              Text(
-                '${formatDay(reservation.start.toLocal())} – '
-                '${formatDay(reservation.end.toLocal())}',
-                style: textTheme.bodyLarge?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              if (quote != null) ...[
-                const SizedBox(height: Spacing.sm),
-                Text(
-                  formatInr(quote.total),
-                  style: textTheme.titleLarge?.copyWith(color: scheme.primary),
-                ),
-              ],
-              const SizedBox(height: Spacing.xl),
-              FilledButton(
-                onPressed: () => context.go('/bookings'),
-                child: const Text('View my bookings'),
-              ),
-              const SizedBox(height: Spacing.sm),
-              OutlinedButton(
-                onPressed: () => context.go('/'),
-                child: const Text('Browse more'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
