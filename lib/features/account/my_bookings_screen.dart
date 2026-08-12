@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
+import '../../core/theme/app_assets.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/staggered_fade_in.dart';
 import '../../data/models/reservation.dart';
 import '../booking/booking_screen.dart' show formatHoldRemaining;
 import 'providers.dart';
@@ -24,6 +26,7 @@ class MyBookingsScreen extends ConsumerWidget {
         onRetry: () => ref.invalidate(myBookingsProvider),
         empty: () => const EmptyState(
           icon: Icons.event_busy_outlined,
+          image: AppAssets.facadeDaytime,
           title: 'No bookings yet',
           message: 'Your stays will appear here.',
         ),
@@ -34,16 +37,20 @@ class MyBookingsScreen extends ConsumerWidget {
             final reservation = bookings[i];
             return Padding(
               padding: const EdgeInsets.only(bottom: Spacing.sm),
-              child: BookingTile(
-                reservation: reservation,
-                // A hold is a 15-minute reservation, not a finished
-                // booking -- there is nothing to view or cancel about it
-                // on a read-only detail screen. `BookingScreen` is the
-                // only place with a live pay/resume affordance, so that is
-                // where a tap on a hold belongs, rather than a dead end.
-                onTap: reservation.isHold
-                    ? () => context.go('/book/${reservation.unitId}')
-                    : () => context.push('/booking-detail/${reservation.id}'),
+              child: StaggeredFadeIn(
+                key: ValueKey(reservation.id),
+                index: i,
+                child: BookingTile(
+                  reservation: reservation,
+                  // A hold is a 15-minute reservation, not a finished
+                  // booking -- there is nothing to view or cancel about it
+                  // on a read-only detail screen. `BookingScreen` is the
+                  // only place with a live pay/resume affordance, so that is
+                  // where a tap on a hold belongs, rather than a dead end.
+                  onTap: reservation.isHold
+                      ? () => context.go('/book/${reservation.unitId}')
+                      : () => context.push('/booking-detail/${reservation.id}'),
+                ),
               ),
             );
           },
