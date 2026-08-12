@@ -37,7 +37,10 @@ class PropertyScreen extends ConsumerWidget {
         children: [
           AspectRatio(
             aspectRatio: 16 / 9,
-            child: PropertyMedia(property: p),
+            child: Hero(
+              tag: 'property-media-${p.id}',
+              child: PropertyMedia(property: p),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.all(Spacing.md),
