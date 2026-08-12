@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/spacing.dart';
+import '../theme/tokens.dart';
 
 /// Shown when a query succeeded and returned nothing. Distinct from an
 /// error: nothing is wrong, there is simply nothing yet.
@@ -11,12 +11,17 @@ class EmptyState extends StatelessWidget {
     required this.title,
     this.message,
     this.action,
+    this.image,
   });
 
   final IconData icon;
   final String title;
   final String? message;
   final Widget? action;
+
+  /// An optional bundled illustration asset path. When set, it replaces
+  /// [icon] entirely rather than sitting alongside it.
+  final String? image;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +32,18 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 48, color: scheme.onSurfaceVariant),
+            if (image != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(PasalaTokens.radiusMd),
+                child: Image.asset(
+                  image!,
+                  width: 160,
+                  height: 100,
+                  fit: BoxFit.cover,
+                ),
+              )
+            else
+              Icon(icon, size: 48, color: scheme.onSurfaceVariant),
             const SizedBox(height: Spacing.md),
             Text(title,
                 style: Theme.of(context).textTheme.titleMedium,
