@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/brand_mark.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/app_user.dart';
 import '../../data/repositories/auth_repository.dart';
@@ -62,11 +63,11 @@ class AppShell extends ConsumerWidget {
 
     void go(int i) => context.go(destinations[i].path);
 
-    final wide = MediaQuery.sizeOf(context).width >= 840;
+    final wide = MediaQuery.sizeOf(context).width >= PasalaTokens.wideBreakpoint;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pasala Resorts'),
+        title: const BrandMark(),
         actionsPadding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
         actions: [
           if (user != null)

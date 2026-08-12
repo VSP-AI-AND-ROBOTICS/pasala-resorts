@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pasala/core/widgets/brand_mark.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/features/shell/app_shell.dart';
@@ -97,5 +98,12 @@ void main() {
     expect(find.text('Dashboard'), findsOneWidget);
     expect(find.text('Reports'), findsOneWidget);
     expect(find.text('Admin'), findsNothing);
+  });
+
+  testWidgets('shows the brand mark in the app bar', (tester) async {
+    await tester.pumpWidget(_appFor(_customer));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BrandMark), findsOneWidget);
   });
 }
