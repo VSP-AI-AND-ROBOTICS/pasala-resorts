@@ -31,14 +31,14 @@ class BrowseScreen extends ConsumerWidget {
         onRefresh: () async => ref.invalidate(propertiesProvider),
         child: CustomScrollView(
           slivers: [
-            const SliverToBoxAdapter(child: _BrowseHero()),
+            SliverToBoxAdapter(child: _BrowseHero(wide: wide)),
             if (wide)
               SliverPadding(
                 padding: const EdgeInsets.all(Spacing.md),
                 sliver: SliverGrid(
                   gridDelegate:
-                      const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 420,
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
                     mainAxisSpacing: Spacing.md,
                     crossAxisSpacing: Spacing.md,
                     childAspectRatio: 0.82,
@@ -84,11 +84,12 @@ class BrowseScreen extends ConsumerWidget {
 }
 
 class _BrowseHero extends StatelessWidget {
-  const _BrowseHero();
+  const _BrowseHero({required this.wide});
+
+  final bool wide;
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= PasalaTokens.wideBreakpoint;
     return SizedBox(
       // Taller on wide/web layouts so the hero doesn't look like a thin
       // strip on a desktop-width browser window (spec section 7).

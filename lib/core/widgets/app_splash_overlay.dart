@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../theme/tokens.dart';
@@ -19,16 +21,25 @@ class AppSplashOverlay extends StatefulWidget {
 class _AppSplashOverlayState extends State<AppSplashOverlay> {
   bool _showOverlay = true;
   double _opacity = 1;
+  Timer? _fadeTimer;
+  Timer? _hideTimer;
 
   @override
   void initState() {
     super.initState();
-    Future.delayed(PasalaTokens.motionBase, () {
+    _fadeTimer = Timer(PasalaTokens.motionBase, () {
       if (mounted) setState(() => _opacity = 0);
     });
-    Future.delayed(PasalaTokens.motionBase * 2, () {
+    _hideTimer = Timer(PasalaTokens.motionBase * 2, () {
       if (mounted) setState(() => _showOverlay = false);
     });
+  }
+
+  @override
+  void dispose() {
+    _fadeTimer?.cancel();
+    _hideTimer?.cancel();
+    super.dispose();
   }
 
   @override

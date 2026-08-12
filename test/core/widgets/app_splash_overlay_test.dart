@@ -1,4 +1,3 @@
-// test/core/widgets/app_splash_overlay_test.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/theme/tokens.dart';

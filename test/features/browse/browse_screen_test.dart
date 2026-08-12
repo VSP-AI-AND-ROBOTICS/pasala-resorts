@@ -74,4 +74,41 @@ void main() {
 
     expect(find.byType(SliverList), findsOneWidget);
   });
+
+  testWidgets(
+    'does not overflow a grid tile with a long address and many amenities',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const longAddressProperty = Property(
+        id: 'a3',
+        name: 'Pasala Overlook',
+        slug: 'overlook',
+        description: null,
+        address:
+            '1234 Extremely Long Winding Countryside Road, Near the Old '
+            'Bridge, Beyond the Third Hill, Sector 7, Farmhouse District',
+        images: [],
+        amenities: [
+          'Swimming pool',
+          'Bonfire pit',
+          'Free parking',
+          'Air conditioning',
+          'Board games',
+          'Pet friendly',
+        ],
+        checkInTime: '14:00',
+        checkOutTime: '11:00',
+        isActive: true,
+      );
+
+      await tester.pumpWidget(_appFor([..._properties, longAddressProperty]));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

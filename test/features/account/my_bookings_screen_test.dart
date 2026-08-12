@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/widgets/staggered_fade_in.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/features/account/my_bookings_screen.dart';
 import 'package:pasala/features/account/providers.dart';
@@ -48,5 +49,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Confirmed'), findsOneWidget);
+    expect(find.byType(StaggeredFadeIn), findsAtLeastNWidgets(1));
   });
 }

@@ -48,10 +48,11 @@ class BrandMark extends StatelessWidget {
       children: [
         mark,
         const SizedBox(width: Spacing.sm),
-        Text(
-          'Pasala Resorts',
-          style: Theme.of(context).textTheme.titleLarge,
-          semanticsLabel: '',
+        ExcludeSemantics(
+          child: Text(
+            'Pasala Resorts',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
         ),
       ],
     );
