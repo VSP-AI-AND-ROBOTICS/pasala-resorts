@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -25,6 +26,7 @@ import '../features/reports/reports_screen.dart';
 import '../features/shell/app_shell.dart';
 import '../features/shell/not_found_screen.dart';
 import '../features/staff/today_screen.dart';
+import 'theme/tokens.dart';
 
 /// Decides where `path` should redirect to, given the signed-in [user]
 /// (`null` before sign-in) and whether `path` is the login/signup screen.
@@ -85,6 +87,30 @@ String landingPathFor(AppUser user) {
   return '/';
 }
 
+/// A fade + slight upward slide, used for every customer-facing route so
+/// navigation reads as one continuous surface rather than a hard cut.
+/// Admin/staff routes keep GoRouter's default transition — this is a
+/// customer-facing polish detail, not a platform-wide behaviour change.
+Page<void> fadeSlidePage(Widget child, GoRouterState state) =>
+    CustomTransitionPage<void>(
+      key: state.pageKey,
+      child: child,
+      transitionDuration: PasalaTokens.motionBase,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOut);
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.04),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(currentUserProvider);
 
@@ -97,33 +123,54 @@ final routerProvider = Provider<GoRouter>((ref) {
           state.matchedLocation == '/signup',
     ),
     routes: [
-      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
-      GoRoute(path: '/signup', builder: (_, _) => const SignupScreen()),
+      GoRoute(
+        path: '/login',
+        pageBuilder: (_, state) => fadeSlidePage(const LoginScreen(), state),
+      ),
+      GoRoute(
+        path: '/signup',
+        pageBuilder: (_, state) => fadeSlidePage(const SignupScreen(), state),
+      ),
       GoRoute(path: '/404', builder: (_, _) => const NotFoundScreen()),
       ShellRoute(
         builder: (_, _, child) => AppShell(child: child),
         routes: [
-          GoRoute(path: '/', builder: (_, _) => const BrowseScreen()),
+          GoRoute(
+            path: '/',
+            pageBuilder: (_, state) => fadeSlidePage(const BrowseScreen(), state),
+          ),
           GoRoute(
             path: '/property/:id',
-            builder: (_, state) =>
-                PropertyScreen(propertyId: state.pathParameters['id']!),
+            pageBuilder: (_, state) => fadeSlidePage(
+              PropertyScreen(propertyId: state.pathParameters['id']!),
+              state,
+            ),
           ),
           GoRoute(
             path: '/book/:unitId',
-            builder: (_, state) =>
-                BookingScreen(unitId: state.pathParameters['unitId']!),
+            pageBuilder: (_, state) => fadeSlidePage(
+              BookingScreen(unitId: state.pathParameters['unitId']!),
+              state,
+            ),
           ),
           GoRoute(
             path: '/booking/:id',
-            builder: (_, state) =>
-                ConfirmationScreen(reservationId: state.pathParameters['id']!),
+            pageBuilder: (_, state) => fadeSlidePage(
+              ConfirmationScreen(reservationId: state.pathParameters['id']!),
+              state,
+            ),
           ),
-          GoRoute(path: '/bookings', builder: (_, _) => const MyBookingsScreen()),
+          GoRoute(
+            path: '/bookings',
+            pageBuilder: (_, state) =>
+                fadeSlidePage(const MyBookingsScreen(), state),
+          ),
           GoRoute(
             path: '/booking-detail/:id',
-            builder: (_, state) =>
-                BookingDetailScreen(reservationId: state.pathParameters['id']!),
+            pageBuilder: (_, state) => fadeSlidePage(
+              BookingDetailScreen(reservationId: state.pathParameters['id']!),
+              state,
+            ),
           ),
           GoRoute(path: '/admin', builder: (_, _) => const AdminHomeScreen()),
           GoRoute(
