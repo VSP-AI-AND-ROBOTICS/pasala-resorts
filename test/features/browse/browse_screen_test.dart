@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/features/browse/browse_screen.dart';
 import 'package:pasala/features/browse/providers.dart';
@@ -109,6 +110,49 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'redirects straight to the property page when there is exactly one',
+    (tester) async {
+      const property = Property(
+        id: 'solo-1',
+        name: 'Pasala Farm House',
+        slug: 'pasala-farm-house',
+        description: null,
+        address: null,
+        images: [],
+        amenities: [],
+        checkInTime: '14:00',
+        checkOutTime: '11:00',
+        isActive: true,
+      );
+
+      final router = GoRouter(
+        initialLocation: '/',
+        routes: [
+          GoRoute(path: '/', builder: (_, _) => const BrowseScreen()),
+          GoRoute(
+            path: '/property/:id',
+            builder: (_, state) =>
+                Text('Property page: ${state.pathParameters['id']}'),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            propertiesProvider.overrideWith((ref) => Future.value([property])),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Property page: solo-1'), findsOneWidget);
+      expect(find.text('Pasala Farm House'), findsNothing);
     },
   );
 }

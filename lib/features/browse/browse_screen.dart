@@ -7,6 +7,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/hero_backdrop.dart';
+import '../../core/widgets/loading_state.dart';
 import '../../core/widgets/staggered_fade_in.dart';
 import '../../data/models/property.dart';
 import 'providers.dart';
@@ -17,7 +18,8 @@ class BrowseScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final properties = ref.watch(propertiesProvider);
-    final wide = MediaQuery.sizeOf(context).width >= PasalaTokens.wideBreakpoint;
+    final wide =
+        MediaQuery.sizeOf(context).width >= PasalaTokens.wideBreakpoint;
 
     return AsyncView(
       value: properties,
@@ -27,43 +29,37 @@ class BrowseScreen extends ConsumerWidget {
         title: 'No properties yet',
         message: 'Ask an admin to add one.',
       ),
-      data: (list) => RefreshIndicator(
-        onRefresh: () async => ref.invalidate(propertiesProvider),
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(child: _BrowseHero(wide: wide)),
-            if (wide)
-              SliverPadding(
-                padding: const EdgeInsets.all(Spacing.md),
-                sliver: SliverGrid(
-                  gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    mainAxisSpacing: Spacing.md,
-                    crossAxisSpacing: Spacing.md,
-                    childAspectRatio: 0.82,
-                  ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, i) => StaggeredFadeIn(
-                      key: ValueKey(list[i].id),
-                      index: i,
-                      child: PropertyCard(
-                        property: list[i],
-                        onTap: () => context.go('/property/${list[i].id}'),
-                      ),
-                    ),
-                    childCount: list.length,
-                  ),
-                ),
-              )
-            else
-              SliverPadding(
-                padding: const EdgeInsets.all(Spacing.md),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, i) => Padding(
-                      padding: const EdgeInsets.only(bottom: Spacing.md),
-                      child: StaggeredFadeIn(
+      data: (list) {
+        // With exactly one active property, skip the list entirely and
+        // land the customer straight on it -- self-correcting if a second
+        // property is ever seeded (see
+        // docs/superpowers/specs/2026-08-13-single-property-onboarding-design.md
+        // section 4.4). Scheduled post-frame so this never navigates
+        // mid-build.
+        if (list.length == 1) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) context.go('/property/${list.single.id}');
+          });
+          return const LoadingState();
+        }
+        return RefreshIndicator(
+          onRefresh: () async => ref.invalidate(propertiesProvider),
+          child: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(child: _BrowseHero(wide: wide)),
+              if (wide)
+                SliverPadding(
+                  padding: const EdgeInsets.all(Spacing.md),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: Spacing.md,
+                          crossAxisSpacing: Spacing.md,
+                          childAspectRatio: 0.82,
+                        ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => StaggeredFadeIn(
                         key: ValueKey(list[i].id),
                         index: i,
                         child: PropertyCard(
@@ -71,14 +67,34 @@ class BrowseScreen extends ConsumerWidget {
                           onTap: () => context.go('/property/${list[i].id}'),
                         ),
                       ),
+                      childCount: list.length,
                     ),
-                    childCount: list.length,
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.all(Spacing.md),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => Padding(
+                        padding: const EdgeInsets.only(bottom: Spacing.md),
+                        child: StaggeredFadeIn(
+                          key: ValueKey(list[i].id),
+                          index: i,
+                          child: PropertyCard(
+                            property: list[i],
+                            onTap: () => context.go('/property/${list[i].id}'),
+                          ),
+                        ),
+                      ),
+                      childCount: list.length,
+                    ),
                   ),
                 ),
-              ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -127,8 +143,9 @@ class PropertyMedia extends StatelessWidget {
 
   final Property property;
 
-  String get _initial =>
-      property.name.trim().isEmpty ? '?' : property.name.trim()[0].toUpperCase();
+  String get _initial => property.name.trim().isEmpty
+      ? '?'
+      : property.name.trim()[0].toUpperCase();
 
   @override
   Widget build(BuildContext context) {
@@ -195,9 +212,9 @@ class _PropertyPlaceholder extends StatelessWidget {
       child: Text(
         initial,
         style: Theme.of(context).textTheme.displayMedium?.copyWith(
-              color: scheme.onPrimaryContainer,
-              fontWeight: FontWeight.w700,
-            ),
+          color: scheme.onPrimaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -207,9 +224,8 @@ class _PropertyLoadingBox extends StatelessWidget {
   const _PropertyLoadingBox();
 
   @override
-  Widget build(BuildContext context) => Container(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      );
+  Widget build(BuildContext context) =>
+      Container(color: Theme.of(context).colorScheme.surfaceContainerHighest);
 }
 
 /// Up to four amenity chips styled as metadata rather than actions, with a
@@ -225,21 +241,20 @@ class AmenityWrap extends StatelessWidget {
   Widget build(BuildContext context) {
     if (amenities.isEmpty) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    final labelStyle = Theme.of(context)
-        .textTheme
-        .bodySmall
-        ?.copyWith(color: scheme.onSurfaceVariant);
+    final labelStyle = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     final shown = amenities.take(max).toList();
     final overflow = amenities.length - shown.length;
 
     Widget metaChip(String label) => Chip(
-          label: Text(label),
-          labelStyle: labelStyle,
-          backgroundColor: scheme.surfaceContainerHigh,
-          side: BorderSide.none,
-          visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-        );
+      label: Text(label),
+      labelStyle: labelStyle,
+      backgroundColor: scheme.surfaceContainerHigh,
+      side: BorderSide.none,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+    );
 
     return Wrap(
       spacing: Spacing.sm,
@@ -318,8 +333,9 @@ class _PropertyCardState extends State<PropertyCard> {
                         const SizedBox(height: Spacing.xs),
                         Text(
                           property.address!,
-                          style: textTheme.bodyMedium
-                              ?.copyWith(color: scheme.onSurfaceVariant),
+                          style: textTheme.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                       const SizedBox(height: Spacing.sm),
@@ -333,8 +349,9 @@ class _PropertyCardState extends State<PropertyCard> {
                       Text(
                         'Check-in ${Property.normalizeTime(property.checkInTime)} · '
                         'Check-out ${Property.normalizeTime(property.checkOutTime)}',
-                        style: textTheme.bodySmall
-                            ?.copyWith(color: scheme.onSurfaceVariant),
+                        style: textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
