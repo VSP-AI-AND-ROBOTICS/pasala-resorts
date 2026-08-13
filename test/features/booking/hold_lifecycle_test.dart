@@ -176,6 +176,7 @@ HoldParams _params({
   DateTime? to,
   String? unitId,
   String? couponCode,
+  String? occasion,
 }) =>
     HoldParams(
       unitId: unitId ?? 'unit-1',
@@ -184,9 +185,26 @@ HoldParams _params({
       guests: 2,
       slotTypeId: null,
       couponCode: couponCode,
+      occasion: occasion,
     );
 
 void main() {
+  test('HoldParams equality includes occasion', () {
+    HoldParams params(String? occasion) => HoldParams(
+          unitId: 'u1',
+          from: DateTime.utc(2026, 8, 3),
+          to: DateTime.utc(2026, 8, 5),
+          guests: 2,
+          slotTypeId: null,
+          couponCode: null,
+          occasion: occasion,
+        );
+
+    expect(params('Birthday'), params('Birthday'));
+    expect(params('Birthday') == params('Anniversary'), isFalse);
+    expect(params('Birthday') == params(null), isFalse);
+  });
+
   group('decideHoldAction (pure)', () {
     test('no live hold -> none, regardless of the incoming selection', () {
       expect(

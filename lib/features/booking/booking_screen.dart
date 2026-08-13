@@ -80,6 +80,7 @@ class HoldParams {
     required this.guests,
     required this.slotTypeId,
     required this.couponCode,
+    required this.occasion,
   });
 
   final String unitId;
@@ -99,6 +100,13 @@ class HoldParams {
   /// payment gateway had already been charged the discounted amount.
   final String? couponCode;
 
+  /// Unlike `couponCode`, an occasion change never affects the quote --
+  /// `get_quote` never reads it -- but it's still part of a hold's
+  /// identity so editing it while a hold is live flows through the same
+  /// `_changeSelection`/`resolveSelectionChange` machinery every other
+  /// selection field already uses, instead of a bespoke code path.
+  final String? occasion;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -108,11 +116,19 @@ class HoldParams {
           other.to == to &&
           other.guests == guests &&
           other.slotTypeId == slotTypeId &&
-          other.couponCode == couponCode);
+          other.couponCode == couponCode &&
+          other.occasion == occasion);
 
   @override
-  int get hashCode =>
-      Object.hash(unitId, from, to, guests, slotTypeId, couponCode);
+  int get hashCode => Object.hash(
+        unitId,
+        from,
+        to,
+        guests,
+        slotTypeId,
+        couponCode,
+        occasion,
+      );
 }
 
 /// What should happen to a live hold when the selection is about to become
@@ -242,6 +258,7 @@ Future<Reservation> resolveHoldForPayment({
     slotTypeId: params.slotTypeId,
     expectedTotal: expectedTotal,
     couponCode: params.couponCode,
+    occasion: params.occasion,
   );
 }
 
@@ -320,6 +337,8 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   String? _couponError;
   bool _couponBusy = false;
 
+  String? _occasion;
+
   bool _sheetShown = false;
   StateSetter? _sheetSetState;
 
@@ -389,6 +408,19 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     );
   }
 
+  void _onOccasionChanged(String occasion) {
+    final trimmed = occasion.trim();
+    unawaited(
+      _changeSelection(
+        from: _from,
+        to: _to,
+        guests: _guests,
+        slotTypeId: _slotTypeId,
+        applyLocalChange: () => _occasion = trimmed.isEmpty ? null : trimmed,
+      ),
+    );
+  }
+
   /// The Finding-1 fix: applies a dates/guests/slot-type change, first
   /// releasing a live hold that no longer matches (or reusing it if it still
   /// does) via [resolveSelectionChange] BEFORE the local selection state
@@ -415,6 +447,10 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
             // against the fresh quote `_maybeFetchQuote` is about to fetch,
             // never silently carried over.
             couponCode: null,
+            // Unlike couponCode, occasion carries over unchanged -- it has
+            // nothing to do with pricing, so a dates/guests change has no
+            // reason to clear it.
+            occasion: _occasion,
           )
         : null;
     final result = await resolveSelectionChange(
@@ -537,6 +573,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         guests: _guests,
         slotTypeId: _slotTypeId,
         couponCode: code,
+        occasion: _occasion,
       );
       final result = await resolveSelectionChange(
         actions: actions,
@@ -668,6 +705,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         guests: _guests,
         slotTypeId: _slotTypeId,
         couponCode: _couponCode,
+        occasion: _occasion,
       );
       // Finding 1: reuses a still-live hold that matches `params` exactly
       // (the retry-after-decline path) instead of creating a duplicate,
@@ -924,7 +962,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
             title: 'Guests',
             subtitle: '$_guests guest${_guests == 1 ? '' : 's'}',
             active: true,
-            child: Column(children: [slotSelector, _guestStepper(unit)]),
+            child: Column(
+              children: [slotSelector, _guestStepper(unit), _occasionField()],
+            ),
           ),
           const SizedBox(height: Spacing.lg),
 
@@ -1020,6 +1060,19 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
             : null,
       ),
     ],
+  );
+
+  Widget _occasionField() => Padding(
+    padding: const EdgeInsets.only(top: Spacing.sm),
+    child: TextFormField(
+      key: const Key('occasion-field'),
+      initialValue: _occasion,
+      decoration: const InputDecoration(
+        labelText: 'Occasion (optional)',
+        helperText: 'Tell us what you\'re celebrating',
+      ),
+      onChanged: _onOccasionChanged,
+    ),
   );
 
   Widget _slotSelector(Unit unit, List<SlotType> slotTypes) {
