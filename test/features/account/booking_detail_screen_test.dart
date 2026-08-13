@@ -462,6 +462,32 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
+  testWidgets('shows the occasion when one was given', (tester) async {
+    final reservation = Reservation(
+      id: 'r-occasion',
+      unitId: 'unit-1',
+      start: DateTime.utc(2026, 8, 3),
+      end: DateTime.utc(2026, 8, 5),
+      kind: ReservationKind.booking,
+      status: ReservationStatus.confirmed,
+      guests: 4,
+      quote: _quote(),
+      occasion: 'Family reunion',
+    );
+    await openDetail(tester, reservation, _FakeCancelActions());
+
+    expect(find.textContaining('Family reunion'), findsOneWidget);
+  });
+
+  testWidgets('shows nothing extra when no occasion was given', (
+    tester,
+  ) async {
+    final reservation = _reservation(status: ReservationStatus.confirmed);
+    await openDetail(tester, reservation, _FakeCancelActions());
+
+    expect(find.textContaining('Occasion:'), findsNothing);
+  });
+
   group('admin block (I4)', () {
     testWidgets('renders without a guest count or a quote row', (tester) async {
       await openDetail(tester, _block(), _FakeCancelActions());
