@@ -57,6 +57,7 @@ class _FakeBookingActions implements BookingActions {
     String? slotTypeId,
     num? expectedTotal,
     String? couponCode,
+    String? occasion,
   }) async {
     calls.add('createHold');
     couponCodesSeen.add(couponCode);
@@ -76,6 +77,7 @@ class _FakeBookingActions implements BookingActions {
       kind: ReservationKind.booking,
       status: ReservationStatus.hold,
       holdExpiresAt: DateTime.now().toUtc().add(const Duration(minutes: 15)),
+      occasion: occasion,
     );
     _live[id] = reservation;
     return reservation;
@@ -494,6 +496,21 @@ void main() {
     });
   });
 
+  testWidgets('createHold passes the occasion through to the fake', (
+    tester,
+  ) async {
+    final actions = _FakeBookingActions()
+      ..quoteToReturn = _quote();
+    final reservation = await actions.createHold(
+      unitId: 'u1',
+      from: DateTime.utc(2026, 8, 3),
+      to: DateTime.utc(2026, 8, 5),
+      guests: 2,
+      occasion: 'Birthday celebration',
+    );
+    expect(reservation.occasion, 'Birthday celebration');
+  });
+
   // ---------------------------------------------------------------------
   // Widget-level test: Finding 3 (re-entrancy) needs a real button and two
   // taps with no `pump()` between them, which only a widget test can give.
@@ -754,6 +771,7 @@ class _ThrowingCancelActions implements BookingActions {
     String? slotTypeId,
     num? expectedTotal,
     String? couponCode,
+    String? occasion,
   }) =>
       throw UnimplementedError();
 

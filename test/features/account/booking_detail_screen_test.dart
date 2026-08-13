@@ -77,6 +77,7 @@ class _FakeCancelActions implements BookingActions {
     String? slotTypeId,
     num? expectedTotal,
     String? couponCode,
+    String? occasion,
   }) =>
       throw UnimplementedError();
 
