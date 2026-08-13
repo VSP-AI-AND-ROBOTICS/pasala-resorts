@@ -27,9 +27,10 @@ const _unit = Unit(
   isActive: true,
 );
 
-Widget _appFor() {
+Widget _appFor({Reservation? reservation}) {
+  final res = reservation ?? _reservation;
   final router = GoRouter(
-    initialLocation: '/booking/r1',
+    initialLocation: '/booking/${res.id}',
     routes: [
       GoRoute(
         path: '/booking/:id',
@@ -43,7 +44,7 @@ Widget _appFor() {
 
   return ProviderScope(
     overrides: [
-      reservationProvider('r1').overrideWith((ref) => Future.value(_reservation)),
+      reservationProvider(res.id).overrideWith((ref) => Future.value(res)),
       unitByIdProvider('u1').overrideWith((ref) => Future.value(_unit)),
     ],
     child: MaterialApp.router(routerConfig: router),
@@ -71,5 +72,32 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.check_circle), findsOneWidget);
+  });
+
+  testWidgets('shows the occasion when one was given', (tester) async {
+    final reservation = Reservation(
+      id: 'r-occasion',
+      unitId: 'u1',
+      start: DateTime.utc(2026, 8, 20),
+      end: DateTime.utc(2026, 8, 22),
+      kind: ReservationKind.booking,
+      status: ReservationStatus.confirmed,
+      guests: 2,
+      occasion: 'Anniversary weekend',
+    );
+
+    await tester.pumpWidget(_appFor(reservation: reservation));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Anniversary weekend'), findsOneWidget);
+  });
+
+  testWidgets('shows nothing extra when no occasion was given', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_appFor());
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('For:'), findsNothing);
   });
 }

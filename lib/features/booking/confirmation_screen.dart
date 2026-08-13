@@ -92,6 +92,17 @@ class _Confirmed extends ConsumerWidget {
                       ),
                       textAlign: TextAlign.center,
                     ),
+                    if (reservation.occasion != null &&
+                        reservation.occasion!.trim().isNotEmpty) ...[
+                      const SizedBox(height: Spacing.sm),
+                      Text(
+                        'For: ${reservation.occasion}',
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                     if (quote != null) ...[
                       const SizedBox(height: Spacing.sm),
                       Text(
