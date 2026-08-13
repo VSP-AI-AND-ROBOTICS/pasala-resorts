@@ -12,7 +12,7 @@ const _customer =
     AppUser(id: 'c', email: 'customer@pasala.test', role: UserRole.customer);
 
 String? _to(AppUser? user, String path) =>
-    redirectFor(user: user, path: path, loggingIn: false);
+    redirectFor(user: user, path: path, onPreAuthScreen: false);
 
 void main() {
   group('unauthenticated', () {
@@ -21,15 +21,29 @@ void main() {
       expect(_to(null, '/admin/dashboard'), '/login');
     });
 
-    test('is left on /login and /signup', () {
-      expect(redirectFor(user: null, path: '/login', loggingIn: true), null);
-      expect(redirectFor(user: null, path: '/signup', loggingIn: true), null);
+    test('is left on /splash, /welcome, /login, and /signup', () {
+      for (final path in ['/splash', '/welcome', '/login', '/signup']) {
+        expect(
+          redirectFor(user: null, path: path, onPreAuthScreen: true),
+          null,
+          reason: path,
+        );
+      }
     });
   });
 
-  test('a signed-in customer hitting /login or /signup is sent home', () {
-    expect(redirectFor(user: _customer, path: '/login', loggingIn: true), '/');
-  });
+  test(
+    'a signed-in customer hitting any pre-auth screen is sent home',
+    () {
+      for (final path in ['/splash', '/welcome', '/login', '/signup']) {
+        expect(
+          redirectFor(user: _customer, path: path, onPreAuthScreen: true),
+          '/',
+          reason: path,
+        );
+      }
+    },
+  );
 
   group('landingPathFor', () {
     test('customer lands on /', () {
@@ -55,7 +69,7 @@ void main() {
 
   group('redirectFor sends a signed-in user hitting /login by role', () {
     String? loginRedirect(AppUser user) =>
-        redirectFor(user: user, path: '/login', loggingIn: true);
+        redirectFor(user: user, path: '/login', onPreAuthScreen: true);
 
     test('customer -> /', () {
       expect(loginRedirect(_customer), '/');

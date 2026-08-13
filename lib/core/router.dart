@@ -15,6 +15,7 @@ import '../features/admin/units_screen.dart';
 import '../features/admin/users_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
+import '../features/auth/welcome_screen.dart';
 import '../features/booking/booking_screen.dart';
 import '../features/booking/confirmation_screen.dart';
 import '../features/browse/browse_screen.dart';
@@ -25,11 +26,13 @@ import '../features/reports/dashboard_screen.dart';
 import '../features/reports/reports_screen.dart';
 import '../features/shell/app_shell.dart';
 import '../features/shell/not_found_screen.dart';
+import '../features/splash/splash_screen.dart';
 import '../features/staff/today_screen.dart';
 import 'theme/tokens.dart';
 
 /// Decides where `path` should redirect to, given the signed-in [user]
-/// (`null` before sign-in) and whether `path` is the login/signup screen.
+/// (`null` before sign-in) and whether `path` is one of the four
+/// pre-authentication screens (splash, welcome, login, signup).
 /// `null` means "let the navigation proceed as requested".
 ///
 /// Pure so the admin/staff/accountant/customer matrix -- in particular that
@@ -44,10 +47,10 @@ import 'theme/tokens.dart';
 String? redirectFor({
   required AppUser? user,
   required String path,
-  required bool loggingIn,
+  required bool onPreAuthScreen,
 }) {
-  if (user == null) return loggingIn ? null : '/login';
-  if (loggingIn) return landingPathFor(user);
+  if (user == null) return onPreAuthScreen ? null : '/login';
+  if (onPreAuthScreen) return landingPathFor(user);
 
   if (path.startsWith('/admin')) {
     // `report_revenue`, `report_occupancy`, and `dashboard_summary` all
@@ -72,7 +75,7 @@ String? redirectFor({
 
 /// Where [user] lands immediately after signing in (or after navigating to
 /// `/login`/`/signup` while already signed in) -- see `redirectFor`'s
-/// `loggingIn` branch above, and the two call sites in `login_screen.dart`
+/// `onPreAuthScreen` branch above, and the two call sites in `login_screen.dart`
 /// and `signup_screen.dart`. Every role used to land on `/` (customer
 /// browse), including staff and admins, who have no reason to browse
 /// holidays the moment they sign in.
@@ -114,15 +117,23 @@ Page<void> fadeSlidePage(Widget child, GoRouterState state) =>
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(currentUserProvider);
 
+  const preAuthPaths = {'/splash', '/welcome', '/login', '/signup'};
   return GoRouter(
-    initialLocation: '/',
+    initialLocation: '/splash',
     redirect: (context, state) => redirectFor(
       user: auth.value,
       path: state.matchedLocation,
-      loggingIn: state.matchedLocation == '/login' ||
-          state.matchedLocation == '/signup',
+      onPreAuthScreen: preAuthPaths.contains(state.matchedLocation),
     ),
     routes: [
+      GoRoute(
+        path: '/splash',
+        pageBuilder: (_, state) => fadeSlidePage(const SplashScreen(), state),
+      ),
+      GoRoute(
+        path: '/welcome',
+        pageBuilder: (_, state) => fadeSlidePage(const WelcomeScreen(), state),
+      ),
       GoRoute(
         path: '/login',
         pageBuilder: (_, state) => fadeSlidePage(const LoginScreen(), state),
