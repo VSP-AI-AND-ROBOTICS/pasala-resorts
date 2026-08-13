@@ -51,45 +51,44 @@ update public.profiles set role = 'accountant'
 insert into public.properties
   (id, name, slug, description, address, check_in_time, check_out_time, amenities)
 values
-  ('a0000000-0000-0000-0000-000000000001','Pasala Riverside','riverside',
-   'Riverside farmhouse with private pool.','Shamirpet, Hyderabad',
-   '14:00','11:00', array['Pool','Wi-Fi','Barbecue','Parking']),
-  ('a0000000-0000-0000-0000-000000000002','Pasala Hilltop','hilltop',
-   'Hilltop farmhouse with open lawn.','Moinabad, Hyderabad',
-   '15:00','10:00', array['Lawn','Bonfire','Wi-Fi']);
+  ('a0000000-0000-0000-0000-000000000001','Pasala Farm House','pasala-farm-house',
+   'A boutique farmhouse resort with a private pool and themed cottages.',
+   'Shamirpet, Hyderabad',
+   '14:00','11:00', array['Pool','Wi-Fi','Barbecue','Parking','Garden']);
 
 insert into public.slot_types (id, property_id, code, start_time, end_time)
 values
   ('50000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000001',
    'day','09:00','18:00'),
   ('50000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000001',
-   'night','18:00','09:00'),
-  ('50000000-0000-0000-0000-000000000003','a0000000-0000-0000-0000-000000000002',
-   'full_day','09:00','08:00');
+   'night','18:00','09:00');
 
 insert into public.units
   (id, property_id, name, capacity_base, capacity_max, booking_mode)
 values
   ('b0000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000001',
-   'Whole Villa', 10, 16, 'both'),
+   'Dallas', 2, 4, 'nightly'),
   ('b0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000001',
-   'Garden Room', 2, 4, 'nightly'),
+   'Las Vegas', 2, 4, 'nightly'),
   ('b0000000-0000-0000-0000-000000000003','a0000000-0000-0000-0000-000000000001',
-   'Pool Deck', 20, 40, 'slot'),
-  ('b0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000002',
-   'Main House', 8, 12, 'nightly'),
-  ('b0000000-0000-0000-0000-000000000005','a0000000-0000-0000-0000-000000000002',
-   'Lawn', 30, 60, 'slot');
+   'New York', 2, 4, 'nightly'),
+  ('b0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000001',
+   'Boston', 2, 4, 'nightly'),
+  ('b0000000-0000-0000-0000-000000000005','a0000000-0000-0000-0000-000000000001',
+   'Detroit', 2, 4, 'nightly'),
+  ('b0000000-0000-0000-0000-000000000006','a0000000-0000-0000-0000-000000000001',
+   'Miami', 20, 40, 'slot');
 
 -- base rates for every unit
 insert into public.rate_rules
   (unit_id, kind, label, price, extra_guest_price, cleaning_fee, priority)
 values
-  ('b0000000-0000-0000-0000-000000000001','base','Weekday',25000,1500,2500,0),
-  ('b0000000-0000-0000-0000-000000000002','base','Weekday', 4500, 800, 600,0),
-  ('b0000000-0000-0000-0000-000000000003','base','Weekday',12000, 400,1500,0),
-  ('b0000000-0000-0000-0000-000000000004','base','Weekday',18000,1200,2000,0),
-  ('b0000000-0000-0000-0000-000000000005','base','Weekday',15000, 300,2000,0);
+  ('b0000000-0000-0000-0000-000000000001','base','Weekday', 6000, 800, 800,0),
+  ('b0000000-0000-0000-0000-000000000002','base','Weekday', 6000, 800, 800,0),
+  ('b0000000-0000-0000-0000-000000000003','base','Weekday', 6500, 900, 800,0),
+  ('b0000000-0000-0000-0000-000000000004','base','Weekday', 6000, 800, 800,0),
+  ('b0000000-0000-0000-0000-000000000005','base','Weekday', 6000, 800, 800,0),
+  ('b0000000-0000-0000-0000-000000000006','base','Weekday',12000, 400,1500,0);
 
 -- weekend uplift, Saturday and Sunday (ISO dow 6 and 7)
 insert into public.rate_rules
@@ -110,15 +109,15 @@ from public.rate_rules where kind = 'base';
 insert into public.reservations
   (unit_id, period, kind, status, customer_id, guests, source)
 values
-  ('b0000000-0000-0000-0000-000000000002',
-   public.build_period('b0000000-0000-0000-0000-000000000002',
+  ('b0000000-0000-0000-0000-000000000001',
+   public.build_period('b0000000-0000-0000-0000-000000000001',
                        current_date + 7, current_date + 9),
    'booking','confirmed','10000000-0000-0000-0000-000000000005',2,'app');
 
 insert into public.reservations
   (unit_id, period, kind, status, block_reason, source)
 values
-  ('b0000000-0000-0000-0000-000000000001',
-   public.build_period('b0000000-0000-0000-0000-000000000001',
+  ('b0000000-0000-0000-0000-000000000002',
+   public.build_period('b0000000-0000-0000-0000-000000000002',
                        current_date + 14, current_date + 16),
    'block','confirmed','Deep cleaning','admin');
