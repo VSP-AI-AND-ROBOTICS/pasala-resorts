@@ -15,7 +15,6 @@ void main() {
       AppAssets.eventStringLights,
       AppAssets.facadeDaytime,
       AppAssets.patioFirepitNight,
-      AppAssets.entranceGateNight,
     ];
 
     for (final path in paths) {

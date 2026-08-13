@@ -8,9 +8,9 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/brand_mark.dart';
 import '../../core/widgets/hero_backdrop.dart';
 
-/// The app's very first screen. Reuses the entrance-gate night photo
-/// (bundled but unused by the prior redesign round) so it reads as a
-/// distinct moment from login/signup's own hero backdrop. Auto-advances to
+/// The app's very first screen. Reuses the cinematic night aerial photo
+/// (the same one login/signup use) for a consistent night-time mood across
+/// the whole pre-auth flow. Auto-advances to
 /// `/welcome` after a brief delay -- a signed-out user never has to tap
 /// anything to get past it, and a signed-in user never even sees it, since
 /// `redirectFor` (see `core/router.dart`) sends them straight to their
@@ -44,7 +44,7 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: HeroBackdrop(
-        imageAsset: AppAssets.entranceGateNight,
+        imageAsset: AppAssets.heroNightAerial,
         scrimOpacity: 0.6,
         child: Center(
           child: TweenAnimationBuilder<double>(

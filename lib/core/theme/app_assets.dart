@@ -17,6 +17,4 @@ abstract final class AppAssets {
   static const String facadeDaytime = 'assets/images/facade_daytime.webp';
   static const String patioFirepitNight =
       'assets/images/patio_firepit_night.webp';
-  static const String entranceGateNight =
-      'assets/images/entrance_gate_night.webp';
 }

@@ -19,7 +19,7 @@ class WelcomeScreen extends StatelessWidget {
 
     return Scaffold(
       body: HeroBackdrop(
-        imageAsset: AppAssets.entranceGateNight,
+        imageAsset: AppAssets.heroNightAerial,
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(Spacing.lg),
