@@ -67,28 +67,13 @@ insert into public.units
   (id, property_id, name, capacity_base, capacity_max, booking_mode)
 values
   ('b0000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000001',
-   'Dallas', 2, 4, 'nightly'),
-  ('b0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000001',
-   'Las Vegas', 2, 4, 'nightly'),
-  ('b0000000-0000-0000-0000-000000000003','a0000000-0000-0000-0000-000000000001',
-   'New York', 2, 4, 'nightly'),
-  ('b0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000001',
-   'Boston', 2, 4, 'nightly'),
-  ('b0000000-0000-0000-0000-000000000005','a0000000-0000-0000-0000-000000000001',
-   'Detroit', 2, 4, 'nightly'),
-  ('b0000000-0000-0000-0000-000000000006','a0000000-0000-0000-0000-000000000001',
-   'Miami', 20, 40, 'slot');
+   'Pasala Farm House', 20, 40, 'nightly');
 
--- base rates for every unit
+-- base rate for the one whole-property unit
 insert into public.rate_rules
   (unit_id, kind, label, price, extra_guest_price, cleaning_fee, priority)
 values
-  ('b0000000-0000-0000-0000-000000000001','base','Weekday', 6000, 800, 800,0),
-  ('b0000000-0000-0000-0000-000000000002','base','Weekday', 6000, 800, 800,0),
-  ('b0000000-0000-0000-0000-000000000003','base','Weekday', 6500, 900, 800,0),
-  ('b0000000-0000-0000-0000-000000000004','base','Weekday', 6000, 800, 800,0),
-  ('b0000000-0000-0000-0000-000000000005','base','Weekday', 6000, 800, 800,0),
-  ('b0000000-0000-0000-0000-000000000006','base','Weekday',12000, 400,1500,0);
+  ('b0000000-0000-0000-0000-000000000001','base','Weekday',18000,1000,2500,0);
 
 -- weekend uplift, Saturday and Sunday (ISO dow 6 and 7)
 insert into public.rate_rules
@@ -117,7 +102,7 @@ values
 insert into public.reservations
   (unit_id, period, kind, status, block_reason, source)
 values
-  ('b0000000-0000-0000-0000-000000000002',
-   public.build_period('b0000000-0000-0000-0000-000000000002',
+  ('b0000000-0000-0000-0000-000000000001',
+   public.build_period('b0000000-0000-0000-0000-000000000001',
                        current_date + 14, current_date + 16),
    'block','confirmed','Deep cleaning','admin');
