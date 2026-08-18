@@ -30,7 +30,8 @@ class CatalogRepository {
       });
 
   /// Fetches a single unit by id. Used by the booking flow, which only ever
-  /// arrives with a `unitId` (from `/book/:unitId`) and needs the unit's
+  /// arrives with a `unitId` (from the booking flow embedded on the
+  /// property page) and needs the unit's
   /// capacity, booking mode, and property before it can render a calendar
   /// or a guest picker.
   Future<Unit> unit(String id) => _guard(() async {

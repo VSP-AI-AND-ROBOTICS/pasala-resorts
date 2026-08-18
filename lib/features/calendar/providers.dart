@@ -11,7 +11,8 @@ import 'calendar_refresh_controller.dart';
 /// the realtime stream, in case that stream has silently stalled (see
 /// [CalendarRefreshController]).
 ///
-/// This calendar is customer-facing (`/book/:unitId`, reached from every
+/// This calendar is customer-facing (embedded in the booking flow on the
+/// property page, reached from every
 /// property's booking flow), not a low-traffic staff tool -- so the
 /// interval has to be judged against what it actually gates: the window
 /// during which a customer can see a date as free after someone else has

@@ -44,11 +44,16 @@ class MyBookingsScreen extends ConsumerWidget {
                   reservation: reservation,
                   // A hold is a 15-minute reservation, not a finished
                   // booking -- there is nothing to view or cancel about it
-                  // on a read-only detail screen. `BookingScreen` is the
-                  // only place with a live pay/resume affordance, so that is
-                  // where a tap on a hold belongs, rather than a dead end.
+                  // on a read-only detail screen. The property page is now
+                  // the only place with a live pay/resume affordance (the
+                  // booking flow is embedded there for the property's one
+                  // unit), so a tap on a hold goes to `/` -- Browse's
+                  // existing single-property redirect lands the customer
+                  // on that page, where re-picking the held dates reuses
+                  // the live hold via the same `resolveSelectionChange`
+                  // machinery every other selection change already uses.
                   onTap: reservation.isHold
-                      ? () => context.go('/book/${reservation.unitId}')
+                      ? () => context.go('/')
                       : () => context.push('/booking-detail/${reservation.id}'),
                 ),
               ),

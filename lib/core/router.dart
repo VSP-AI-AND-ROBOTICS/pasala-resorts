@@ -16,7 +16,6 @@ import '../features/admin/users_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
 import '../features/auth/welcome_screen.dart';
-import '../features/booking/booking_screen.dart';
 import '../features/booking/confirmation_screen.dart';
 import '../features/browse/browse_screen.dart';
 import '../features/browse/property_screen.dart';
@@ -154,13 +153,6 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/property/:id',
             pageBuilder: (_, state) => fadeSlidePage(
               PropertyScreen(propertyId: state.pathParameters['id']!),
-              state,
-            ),
-          ),
-          GoRoute(
-            path: '/book/:unitId',
-            pageBuilder: (_, state) => fadeSlidePage(
-              BookingScreen(unitId: state.pathParameters['unitId']!),
               state,
             ),
           ),
