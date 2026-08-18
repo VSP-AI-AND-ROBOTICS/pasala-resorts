@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/theme/app_assets.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/models/unit.dart';
@@ -62,32 +63,36 @@ Widget _appFor() => ProviderScope(
     );
 
 void main() {
-  testWidgets('wraps the header media in a Hero tagged with the property id', (
+  testWidgets(
+    'the gallery has one page per bundled photo, with no property-media '
+    'placeholder page',
+    (tester) async {
+      await tester.pumpWidget(_appFor());
+      await tester.pumpAndSettle();
+
+      final pageView = tester.widget<PageView>(find.byType(PageView));
+      expect(pageView.controller!.positions, isNotEmpty);
+      expect(
+        (pageView.childrenDelegate as SliverChildBuilderDelegate).childCount,
+        8,
+      );
+      expect(
+        find.byWidgetPredicate((w) => w is Hero && w.tag == 'property-media-p1'),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets('the first gallery page is the night aerial photo', (
     tester,
   ) async {
     await tester.pumpWidget(_appFor());
     await tester.pumpAndSettle();
 
+    final firstPageImage = tester.widget<Image>(find.byType(Image).first);
     expect(
-      find.byWidgetPredicate((w) => w is Hero && w.tag == 'property-media-p1'),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('the gallery carries the property Hero as its first page, '
-      'plus one page per bundled photo', (tester) async {
-    await tester.pumpWidget(_appFor());
-    await tester.pumpAndSettle();
-
-    final pageView = tester.widget<PageView>(find.byType(PageView));
-    expect(pageView.controller!.positions, isNotEmpty);
-    expect(
-      (pageView.childrenDelegate as SliverChildBuilderDelegate).childCount,
-      9,
-    );
-    expect(
-      find.byWidgetPredicate((w) => w is Hero && w.tag == 'property-media-p1'),
-      findsOneWidget,
+      (firstPageImage.image as AssetImage).assetName,
+      AppAssets.heroNightAerial,
     );
   });
 

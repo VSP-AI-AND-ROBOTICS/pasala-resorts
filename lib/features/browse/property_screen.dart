@@ -8,7 +8,7 @@ import '../../core/widgets/empty_state.dart';
 import '../../data/models/property.dart';
 import '../../data/models/unit.dart';
 import '../booking/booking_screen.dart';
-import 'browse_screen.dart' show AmenityWrap, PropertyMedia;
+import 'browse_screen.dart' show AmenityWrap;
 import 'providers.dart';
 
 /// Label shown on a unit's booking-mode chip. Pure so it can be tested
@@ -21,13 +21,15 @@ String bookingModeLabel(BookingMode mode) => switch (mode) {
 
 /// Every bundled farmhouse photo, shown as a swipeable gallery on the
 /// property page. Deliberately separate from [Property.images] (the
-/// database-backed network photo `PropertyMedia` renders) -- these are
-/// bundled app assets, not per-property data, so the same 8 photos show on
-/// every property page regardless of what that property's own `images`
-/// column holds.
+/// database-backed network photo `PropertyMedia` renders, used elsewhere by
+/// `PropertyCard`) -- these are bundled app assets, not per-property data,
+/// so the same 8 photos show on every property page regardless of what that
+/// property's own `images` column holds. The cinematic night aerial leads
+/// (it's the strongest shot), rather than following alphabetical/upload
+/// order.
 const _galleryPhotos = [
-  AppAssets.heroDayAerial,
   AppAssets.heroNightAerial,
+  AppAssets.heroDayAerial,
   AppAssets.cottagesPoolRow,
   AppAssets.cottagesDallasVegas,
   AppAssets.cottagesBostonDetroit,
@@ -36,11 +38,11 @@ const _galleryPhotos = [
   AppAssets.patioFirepitNight,
 ];
 
-/// A swipeable gallery whose first page is the property's own (network or
-/// placeholder) photo -- carrying the same `Hero` tag [PropertyCard] uses,
-/// so the shared-element transition from Browse still lands here -- followed
-/// by one page per bundled farmhouse photo, with dot indicators showing
-/// position.
+/// A swipeable gallery of the bundled farmhouse photos, with dot indicators
+/// showing position. Does not render the property's own database-backed
+/// photo at all -- with no `images` set on the seeded property, that page
+/// only ever showed the tinted-placeholder fallback, not a real photo, so
+/// it added a dead first page rather than useful content.
 class PropertyGallery extends StatefulWidget {
   const PropertyGallery({super.key, required this.property});
 
@@ -62,7 +64,7 @@ class _PropertyGalleryState extends State<PropertyGallery> {
 
   @override
   Widget build(BuildContext context) {
-    final pageCount = 1 + _galleryPhotos.length;
+    final pageCount = _galleryPhotos.length;
     return SizedBox(
       height: 280,
       child: Stack(
@@ -72,15 +74,8 @@ class _PropertyGalleryState extends State<PropertyGallery> {
             controller: _controller,
             itemCount: pageCount,
             onPageChanged: (i) => setState(() => _page = i),
-            itemBuilder: (context, i) {
-              if (i == 0) {
-                return Hero(
-                  tag: 'property-media-${widget.property.id}',
-                  child: PropertyMedia(property: widget.property),
-                );
-              }
-              return Image.asset(_galleryPhotos[i - 1], fit: BoxFit.cover);
-            },
+            itemBuilder: (context, i) =>
+                Image.asset(_galleryPhotos[i], fit: BoxFit.cover),
           ),
           Padding(
             padding: const EdgeInsets.only(bottom: Spacing.sm),
