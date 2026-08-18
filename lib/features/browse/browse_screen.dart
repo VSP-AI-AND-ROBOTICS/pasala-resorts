@@ -228,6 +228,20 @@ class _PropertyLoadingBox extends StatelessWidget {
       Container(color: Theme.of(context).colorScheme.surfaceContainerHighest);
 }
 
+/// The icon shown alongside an amenity's label. Pure so it's testable
+/// without a widget, and falls back to a generic icon for anything an
+/// admin adds that isn't in this list -- an unrecognised amenity must
+/// never crash or render blank.
+IconData amenityIcon(String label) => switch (label.toLowerCase()) {
+  'pool' => Icons.pool,
+  'wi-fi' || 'wifi' => Icons.wifi,
+  'barbecue' => Icons.outdoor_grill,
+  'parking' => Icons.local_parking,
+  'garden' || 'lawn' => Icons.grass,
+  'bonfire' => Icons.local_fire_department,
+  _ => Icons.check_circle_outline,
+};
+
 /// Up to four amenity chips styled as metadata rather than actions, with a
 /// `+N` chip absorbing the rest. Amenities never appear elsewhere on the
 /// card, so styling this once here is enough.
@@ -247,7 +261,10 @@ class AmenityWrap extends StatelessWidget {
     final shown = amenities.take(max).toList();
     final overflow = amenities.length - shown.length;
 
-    Widget metaChip(String label) => Chip(
+    Widget metaChip(String label, {IconData? icon}) => Chip(
+      avatar: icon != null
+          ? Icon(icon, size: 16, color: scheme.onSurfaceVariant)
+          : null,
       label: Text(label),
       labelStyle: labelStyle,
       backgroundColor: scheme.surfaceContainerHigh,
@@ -260,7 +277,7 @@ class AmenityWrap extends StatelessWidget {
       spacing: Spacing.sm,
       runSpacing: Spacing.xs,
       children: [
-        for (final a in shown) metaChip(a),
+        for (final a in shown) metaChip(a, icon: amenityIcon(a)),
         if (overflow > 0) metaChip('+$overflow'),
       ],
     );

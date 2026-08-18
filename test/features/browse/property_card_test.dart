@@ -99,6 +99,32 @@ void main() {
     );
   });
 
+  group('amenityIcon', () {
+    test('maps known amenities to a matching icon', () {
+      expect(amenityIcon('Pool'), Icons.pool);
+      expect(amenityIcon('Wi-Fi'), Icons.wifi);
+      expect(amenityIcon('Barbecue'), Icons.outdoor_grill);
+      expect(amenityIcon('Parking'), Icons.local_parking);
+      expect(amenityIcon('Garden'), Icons.grass);
+    });
+
+    test('falls back to a generic icon for an unknown amenity', () {
+      expect(amenityIcon('Table Tennis'), Icons.check_circle_outline);
+    });
+  });
+
+  testWidgets('amenity chips carry a matching leading icon', (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(body: PropertyCard(property: property)),
+    ));
+
+    final poolChip = tester.widget<Chip>(
+      find.ancestor(of: find.text('Pool'), matching: find.byType(Chip)),
+    );
+    expect(poolChip.avatar, isA<Icon>());
+    expect((poolChip.avatar! as Icon).icon, Icons.pool);
+  });
+
   group('PropertyMedia semantics', () {
     testWidgets(
         'the placeholder (no images) carries a semantic label naming the '

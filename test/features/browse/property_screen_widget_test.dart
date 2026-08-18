@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/theme/app_assets.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/unit.dart';
 import 'package:pasala/features/browse/property_screen.dart';
@@ -51,6 +52,59 @@ void main() {
     expect(
       find.byWidgetPredicate((w) => w is Hero && w.tag == 'property-media-p1'),
       findsOneWidget,
+    );
+  });
+
+  testWidgets('the gallery carries the property Hero as its first page, '
+      'plus one page per bundled photo', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          propertyProvider('p1').overrideWith((ref) => Future.value(_property)),
+          unitsProvider('p1').overrideWith((ref) => Future.value(_units)),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: PropertyScreen(propertyId: 'p1')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pageView = tester.widget<PageView>(find.byType(PageView));
+    expect(pageView.controller!.positions, isNotEmpty);
+    expect(
+      (pageView.childrenDelegate as SliverChildBuilderDelegate).childCount,
+      9,
+    );
+    expect(
+      find.byWidgetPredicate((w) => w is Hero && w.tag == 'property-media-p1'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('each unit card shows a representative photo', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          propertyProvider('p1').overrideWith((ref) => Future.value(_property)),
+          unitsProvider('p1').overrideWith((ref) => Future.value(_units)),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: PropertyScreen(propertyId: 'p1')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final unitCardImage = tester.widget<Image>(
+      find.descendant(
+        of: find.byType(UnitCard),
+        matching: find.byType(Image),
+      ),
+    );
+    expect(
+      (unitCardImage.image as AssetImage).assetName,
+      AppAssets.cottagesDallasVegas,
     );
   });
 }
