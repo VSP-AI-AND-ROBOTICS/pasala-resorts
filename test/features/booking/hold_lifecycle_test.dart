@@ -545,7 +545,9 @@ void main() {
           GoRoute(
             path: '/book/:unitId',
             builder: (_, state) => Scaffold(
-              body: BookingScreen(unitId: state.pathParameters['unitId']!),
+              body: SingleChildScrollView(
+                child: BookingScreen(unitId: state.pathParameters['unitId']!),
+              ),
             ),
           ),
           GoRoute(
@@ -572,20 +574,6 @@ void main() {
     testWidgets('does not wrap itself in its own Scaffold or AppBar', (
       tester,
     ) async {
-      // Now that BookingScreen no longer supplies its own
-      // SingleChildScrollView, its content needs a real scrollable ancestor
-      // to avoid overflowing the fixed test viewport -- in the real app,
-      // Task 2's PropertyScreen provides that; here, since this test's own
-      // router route wraps BookingScreen in a bare Scaffold with no
-      // scrollable, the surface is grown instead so the unrelated overflow
-      // doesn't mask the thing this test actually checks.
-      addTearDown(() {
-        tester.view.resetPhysicalSize();
-        tester.view.resetDevicePixelRatio();
-      });
-      tester.view.physicalSize = const Size(800, 4000);
-      tester.view.devicePixelRatio = 1.0;
-
       final actions = _FakeBookingActions()..quoteToReturn = _quote();
       final gateway = _ScriptedGateway([const PaymentResult.success('ref-1')]);
 

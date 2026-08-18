@@ -11,11 +11,10 @@ import 'calendar_refresh_controller.dart';
 /// the realtime stream, in case that stream has silently stalled (see
 /// [CalendarRefreshController]).
 ///
-/// This calendar is customer-facing (embedded in the booking flow on the
-/// property page, reached from every
-/// property's booking flow), not a low-traffic staff tool -- so the
-/// interval has to be judged against what it actually gates: the window
-/// during which a customer can see a date as free after someone else has
+/// This calendar is customer-facing (embedded on every property's page, in
+/// the booking flow), not a low-traffic staff tool -- so the interval has to
+/// be judged against what it actually gates: the window during which a
+/// customer can see a date as free after someone else has
 /// already taken it. Concretely, up to [calendarRefreshInterval] can pass
 /// between a competing hold/booking landing and this calendar reflecting
 /// it, during which a customer could pick that date, only to have

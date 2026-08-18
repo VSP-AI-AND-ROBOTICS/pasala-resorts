@@ -7,8 +7,7 @@ import '../../data/repositories/catalog_repository.dart';
 
 /// The unit being booked. `BookingScreen` only ever has a `unitId` (from the
 /// property page's embedded booking flow), so it needs this rather than the
-/// property-scoped
-/// `unitsProvider` in `features/browse/providers.dart`.
+/// property-scoped `unitsProvider` in `features/browse/providers.dart`.
 final unitByIdProvider = FutureProvider.family<Unit, String>(
   (ref, unitId) => ref.watch(catalogRepositoryProvider).unit(unitId),
 );

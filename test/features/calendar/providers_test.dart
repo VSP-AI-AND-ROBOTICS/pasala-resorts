@@ -124,7 +124,8 @@ void main() {
       // ProviderScheduler.scheduleProviderDispose) to actually run, so the
       // first instance's `CalendarRefreshController` and its `Timer.periodic`
       // are genuinely disposed before we watch again. This simulates
-      // rapidly navigating away from and back to `/book/:unitId`.
+      // rapidly navigating away from and back to the property page's
+      // embedded booking flow.
       sub.close();
       await Future<void>.delayed(Duration.zero);
 

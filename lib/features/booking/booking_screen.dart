@@ -880,8 +880,6 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(unit.name, style: textTheme.headlineSmall),
-        const SizedBox(height: Spacing.xs),
         Text(
           'Sleeps ${unit.capacityBase}–${unit.capacityMax}',
           style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),

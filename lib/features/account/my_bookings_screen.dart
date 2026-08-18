@@ -44,14 +44,18 @@ class MyBookingsScreen extends ConsumerWidget {
                   reservation: reservation,
                   // A hold is a 15-minute reservation, not a finished
                   // booking -- there is nothing to view or cancel about it
-                  // on a read-only detail screen. The property page is now
-                  // the only place with a live pay/resume affordance (the
-                  // booking flow is embedded there for the property's one
-                  // unit), so a tap on a hold goes to `/` -- Browse's
+                  // on a read-only detail screen. The booking flow is now
+                  // embedded on the property page rather than living at its
+                  // own route, so a tap on a hold goes to `/` -- Browse's
                   // existing single-property redirect lands the customer
-                  // on that page, where re-picking the held dates reuses
-                  // the live hold via the same `resolveSelectionChange`
-                  // machinery every other selection change already uses.
+                  // on that page. Note: this does not automatically resume
+                  // the specific held dates -- BookingScreen does not
+                  // recover an existing server-side hold on mount, and the
+                  // calendar disables tapping the customer's own currently
+                  // -held dates. This is a pre-existing limitation (the
+                  // retired /book/:unitId route had the same gap), not
+                  // something this change fixes; it only ensures the tap
+                  // lands somewhere live instead of a dead route.
                   onTap: reservation.isHold
                       ? () => context.go('/')
                       : () => context.push('/booking-detail/${reservation.id}'),
