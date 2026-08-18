@@ -120,8 +120,15 @@ class HoldParams {
           other.occasion == occasion);
 
   @override
-  int get hashCode =>
-      Object.hash(unitId, from, to, guests, slotTypeId, couponCode, occasion);
+  int get hashCode => Object.hash(
+        unitId,
+        from,
+        to,
+        guests,
+        slotTypeId,
+        couponCode,
+        occasion,
+      );
 }
 
 /// What should happen to a live hold when the selection is about to become
