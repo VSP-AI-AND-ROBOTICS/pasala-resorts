@@ -120,15 +120,8 @@ class HoldParams {
           other.occasion == occasion);
 
   @override
-  int get hashCode => Object.hash(
-        unitId,
-        from,
-        to,
-        guests,
-        slotTypeId,
-        couponCode,
-        occasion,
-      );
+  int get hashCode =>
+      Object.hash(unitId, from, to, guests, slotTypeId, couponCode, occasion);
 }
 
 /// What should happen to a live hold when the selection is about to become
@@ -832,16 +825,13 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   @override
   Widget build(BuildContext context) {
     final unitAsync = ref.watch(unitByIdProvider(widget.unitId));
-    return Scaffold(
-      appBar: AppBar(title: Text(unitAsync.value?.name ?? 'Book')),
-      body: unitAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => FailureView(
-          error: e,
-          onRetry: () => ref.invalidate(unitByIdProvider(widget.unitId)),
-        ),
-        data: (unit) => _buildBody(context, unit),
+    return unitAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => FailureView(
+        error: e,
+        onRetry: () => ref.invalidate(unitByIdProvider(widget.unitId)),
       ),
+      data: (unit) => _buildBody(context, unit),
     );
   }
 
@@ -871,141 +861,136 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
-    // A plain Column inside a SingleChildScrollView, not a ListView: a
-    // ListView's Sliver machinery builds children lazily by cache extent,
-    // and the calendar's own shrink-wrapped GridView (nested sliver inside
-    // a sliver list item) throws that lazy accounting off -- items further
-    // down silently never get built, no matter how large `cacheExtent` is
-    // set. A Column always builds every child eagerly.
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(Spacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(unit.name, style: textTheme.headlineSmall),
-          const SizedBox(height: Spacing.xs),
-          Text(
-            'Sleeps ${unit.capacityBase}–${unit.capacityMax}',
+    // A plain Column, not a ListView: a ListView's Sliver machinery builds
+    // children lazily by cache extent, and the calendar's own
+    // shrink-wrapped GridView (nested sliver inside a sliver list item)
+    // throws that lazy accounting off -- items further down silently never
+    // get built, no matter how large `cacheExtent` is set. This widget is
+    // embedded inside `PropertyScreen`'s own single `SingleChildScrollView`
+    // (see `property_screen.dart`) rather than owning one itself, for the
+    // same reason -- there must be exactly one scrollable ancestor between
+    // here and the calendar.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(unit.name, style: textTheme.headlineSmall),
+        const SizedBox(height: Spacing.xs),
+        Text(
+          'Sleeps ${unit.capacityBase}–${unit.capacityMax}',
+          style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+
+        // The hold countdown: a prominent, persistent surface pinned
+        // above the numbered flow -- not nested inside it -- so it stays
+        // in reach (and, in particular, its Resume/Cancel buttons stay
+        // reachable) no matter how far a customer scrolls into the
+        // sections below. Section 4 (`Pay`) still narrates its status as
+        // part of the numbered flow, but this is the one live control
+        // surface for it.
+        if (remaining != null) ...[
+          const SizedBox(height: Spacing.md),
+          _HoldBanner(
+            remaining: remaining,
+            showResume: shouldShowResumeHold(hold: _hold, remaining: remaining),
+            busy: _busy,
+            onResume: _showQuoteSheet,
+            onCancel: _cancelHold,
+          ),
+        ],
+        const SizedBox(height: Spacing.lg),
+
+        // 1 · Dates -- always actionable: picking dates is where the flow
+        // starts, so this section is never muted.
+        _NumberedSection(
+          number: 1,
+          title: 'Dates',
+          subtitle: _datesSubtitle,
+          active: true,
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left),
+                    onPressed: () => setState(
+                      () => _month = DateTime(_month.year, _month.month - 1),
+                    ),
+                  ),
+                  Text(
+                    DateFormat.yMMMM().format(_month),
+                    style: textTheme.titleSmall,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right),
+                    onPressed: () => setState(
+                      () => _month = DateTime(_month.year, _month.month + 1),
+                    ),
+                  ),
+                ],
+              ),
+              AvailabilityCalendar(
+                unitId: widget.unitId,
+                month: _month,
+                selectedStart: _from,
+                selectedEnd: _to,
+                onDayTap: _pickDay,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: Spacing.lg),
+
+        // 2 · Guests -- also always actionable; guest count and slot type
+        // can be set before or after dates.
+        _NumberedSection(
+          number: 2,
+          title: 'Guests',
+          subtitle: '$_guests guest${_guests == 1 ? '' : 's'}',
+          active: true,
+          child: Column(
+            children: [slotSelector, _guestStepper(unit), _occasionField()],
+          ),
+        ),
+        const SizedBox(height: Spacing.lg),
+
+        // 3 · Price -- genuinely not actionable until a quote exists (or is
+        // in flight), so it is the first section that can render muted.
+        _NumberedSection(
+          number: 3,
+          title: 'Price',
+          subtitle: _quoteLoading
+              ? 'Calculating…'
+              : (_quote != null
+                    ? formatInr(_quote!.total)
+                    : 'Select your dates to see pricing'),
+          active: _quoteLoading || _quote != null,
+          child: _priceSectionContent(context),
+        ),
+        const SizedBox(height: Spacing.lg),
+
+        // 4 · Pay -- narrates whatever the hold banner above is doing;
+        // muted once there is nothing to pay yet. The live Resume/Cancel
+        // controls live in that pinned banner, not here, so they never
+        // depend on how far this section has scrolled.
+        _NumberedSection(
+          number: 4,
+          title: 'Pay',
+          subtitle: remaining != null
+              ? formatHoldRemaining(remaining)
+              : 'Nothing to pay yet',
+          active: remaining != null,
+          child: Text(
+            remaining != null
+                ? 'Your dates are held above while you complete payment.'
+                : 'Once your dates are quoted, paying holds them for 15 '
+                      'minutes while you complete checkout.',
             style: textTheme.bodyMedium?.copyWith(
               color: scheme.onSurfaceVariant,
             ),
           ),
-
-          // The hold countdown: a prominent, persistent surface pinned
-          // above the numbered flow -- not nested inside it -- so it stays
-          // in reach (and, in particular, its Resume/Cancel buttons stay
-          // reachable) no matter how far a customer scrolls into the
-          // sections below. Section 4 (`Pay`) still narrates its status as
-          // part of the numbered flow, but this is the one live control
-          // surface for it.
-          if (remaining != null) ...[
-            const SizedBox(height: Spacing.md),
-            _HoldBanner(
-              remaining: remaining,
-              showResume: shouldShowResumeHold(
-                hold: _hold,
-                remaining: remaining,
-              ),
-              busy: _busy,
-              onResume: _showQuoteSheet,
-              onCancel: _cancelHold,
-            ),
-          ],
-          const SizedBox(height: Spacing.lg),
-
-          // 1 · Dates -- always actionable: picking dates is where the flow
-          // starts, so this section is never muted.
-          _NumberedSection(
-            number: 1,
-            title: 'Dates',
-            subtitle: _datesSubtitle,
-            active: true,
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      onPressed: () => setState(
-                        () => _month = DateTime(_month.year, _month.month - 1),
-                      ),
-                    ),
-                    Text(
-                      DateFormat.yMMMM().format(_month),
-                      style: textTheme.titleSmall,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      onPressed: () => setState(
-                        () => _month = DateTime(_month.year, _month.month + 1),
-                      ),
-                    ),
-                  ],
-                ),
-                AvailabilityCalendar(
-                  unitId: widget.unitId,
-                  month: _month,
-                  selectedStart: _from,
-                  selectedEnd: _to,
-                  onDayTap: _pickDay,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: Spacing.lg),
-
-          // 2 · Guests -- also always actionable; guest count and slot type
-          // can be set before or after dates.
-          _NumberedSection(
-            number: 2,
-            title: 'Guests',
-            subtitle: '$_guests guest${_guests == 1 ? '' : 's'}',
-            active: true,
-            child: Column(
-              children: [slotSelector, _guestStepper(unit), _occasionField()],
-            ),
-          ),
-          const SizedBox(height: Spacing.lg),
-
-          // 3 · Price -- genuinely not actionable until a quote exists (or is
-          // in flight), so it is the first section that can render muted.
-          _NumberedSection(
-            number: 3,
-            title: 'Price',
-            subtitle: _quoteLoading
-                ? 'Calculating…'
-                : (_quote != null
-                      ? formatInr(_quote!.total)
-                      : 'Select your dates to see pricing'),
-            active: _quoteLoading || _quote != null,
-            child: _priceSectionContent(context),
-          ),
-          const SizedBox(height: Spacing.lg),
-
-          // 4 · Pay -- narrates whatever the hold banner above is doing;
-          // muted once there is nothing to pay yet. The live Resume/Cancel
-          // controls live in that pinned banner, not here, so they never
-          // depend on how far this section has scrolled.
-          _NumberedSection(
-            number: 4,
-            title: 'Pay',
-            subtitle: remaining != null
-                ? formatHoldRemaining(remaining)
-                : 'Nothing to pay yet',
-            active: remaining != null,
-            child: Text(
-              remaining != null
-                  ? 'Your dates are held above while you complete payment.'
-                  : 'Once your dates are quoted, paying holds them for 15 '
-                        'minutes while you complete checkout.',
-              style: textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
