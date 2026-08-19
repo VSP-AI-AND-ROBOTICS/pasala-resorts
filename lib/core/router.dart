@@ -30,6 +30,7 @@ import '../features/splash/splash_screen.dart';
 import '../features/staff/placeholder_section_screen.dart';
 import '../features/staff/staff_dashboard_hub_screen.dart';
 import '../features/staff/staff_profile_screen.dart';
+import '../features/staff/time_slots_screen.dart';
 import '../features/staff/today_screen.dart';
 import 'theme/tokens.dart';
 
@@ -272,10 +273,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/staff/time-slots',
-            builder: (_, _) => const PlaceholderSectionScreen(
-              title: 'Time Slots',
-              icon: Icons.access_time_outlined,
-            ),
+            builder: (_, _) => const TimeSlotsScreen(),
           ),
           GoRoute(
             path: '/staff/daily-status',
