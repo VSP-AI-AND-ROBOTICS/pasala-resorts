@@ -17,7 +17,7 @@ create table public.staff_shifts (
   start_time time not null,
   end_time   time not null,
   notes      text,
-  created_by uuid not null references public.profiles(id),
+  created_by uuid not null default auth.uid() references public.profiles(id),
   created_at timestamptz not null default now(),
   constraint staff_shifts_time_order check (end_time > start_time)
 );

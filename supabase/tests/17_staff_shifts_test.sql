@@ -4,7 +4,7 @@
 -- no-overlap-restriction and no-overnight-shift decisions.
 
 begin;
-select plan(18);
+select plan(20);
 
 select has_table('public', 'staff_shifts', 'staff_shifts table exists');
 select has_function('public', 'list_staff_shifts', 'list_staff_shifts() exists');
@@ -134,6 +134,31 @@ select is(
   (select count(*)::int from public.list_staff_shifts(p_from => '2026-09-02')),
   1,
   'admin filtering by p_from excludes earlier shifts');
+
+-- === created_by defaults to the inserting admin (matches exactly what the ===
+-- === real Dart repository sends: no id, no created_by) ======================
+--
+-- Still authenticated as the admin (10000000-...-0002) from above. staff_id
+-- must reference a seeded profile (FK), so it can't itself be the fresh
+-- fixture id -- the fresh id (97333333...) is instead embedded in `notes`
+-- purely so this row can be picked back out unambiguously, the same role
+-- the explicit `id` plays in the insert tests above. This block runs after
+-- all the row-count assertions above so the extra row doesn't perturb them.
+
+select lives_ok(
+  $$insert into public.staff_shifts
+      (staff_id, shift_date, start_time, end_time, notes)
+    values ('10000000-0000-0000-0000-000000000003','2026-09-04','09:00','17:00',
+            'fixture-97333333-3333-3333-3333-333333333333')$$,
+  'admin can insert a shift omitting id and created_by, matching the real '
+  'payload the Dart repository sends');
+
+select is(
+  (select created_by from public.staff_shifts
+    where notes = 'fixture-97333333-3333-3333-3333-333333333333'),
+  '10000000-0000-0000-0000-000000000002'::uuid,
+  'created_by defaults to auth.uid(), i.e. the inserting admin, when the '
+  'client omits it entirely');
 
 reset role;
 set local role anon;
