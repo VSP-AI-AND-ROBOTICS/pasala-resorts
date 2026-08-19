@@ -52,6 +52,12 @@ class AdminHomeScreen extends StatelessWidget {
       subtitle: 'See every account and promote staff to the right role',
       path: '/admin/users',
     ),
+    (
+      icon: Icons.event_busy_outlined,
+      title: 'Staff shifts',
+      subtitle: 'Assign and manage staff work shifts',
+      path: '/admin/staff-shifts',
+    ),
   ];
 
   @override

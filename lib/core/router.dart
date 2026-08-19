@@ -11,6 +11,7 @@ import '../features/admin/admin_home_screen.dart';
 import '../features/admin/block_dates_screen.dart';
 import '../features/admin/property_form_screen.dart';
 import '../features/admin/rate_rules_screen.dart';
+import '../features/admin/staff_shifts_screen.dart';
 import '../features/admin/units_screen.dart';
 import '../features/admin/users_screen.dart';
 import '../features/auth/login_screen.dart';
@@ -227,6 +228,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/users',
             builder: (_, _) => const UsersScreen(),
+          ),
+          GoRoute(
+            path: '/admin/staff-shifts',
+            builder: (_, _) => const StaffShiftsScreen(),
           ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
           GoRoute(
