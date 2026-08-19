@@ -26,6 +26,9 @@ import '../features/reports/reports_screen.dart';
 import '../features/shell/app_shell.dart';
 import '../features/shell/not_found_screen.dart';
 import '../features/splash/splash_screen.dart';
+import '../features/staff/placeholder_section_screen.dart';
+import '../features/staff/staff_dashboard_hub_screen.dart';
+import '../features/staff/staff_profile_screen.dart';
 import '../features/staff/today_screen.dart';
 import 'theme/tokens.dart';
 
@@ -84,7 +87,12 @@ String? redirectFor({
 /// can never be the path [landingPathFor] sends that same role to.
 String landingPathFor(AppUser user) {
   if (user.isAdmin) return '/admin';
-  if (user.role == UserRole.accountant) return '/admin/dashboard';
+  // Both land on the staff-operations hub, not `/admin/dashboard` (the
+  // financial summary `AdminHomeScreen` still links to for admin) -- that
+  // route is no longer reachable from either role's own nav (see
+  // `AppShell._staffDestinations`), so landing there would strand them one
+  // tap short of the tabs they actually have.
+  if (user.role == UserRole.accountant) return '/staff/dashboard';
   if (user.role == UserRole.staff) return '/staff';
   return '/';
 }
@@ -221,6 +229,56 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, _) => const UsersScreen(),
           ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
+          GoRoute(
+            path: '/staff/dashboard',
+            builder: (_, _) => const StaffDashboardHubScreen(),
+          ),
+          GoRoute(
+            path: '/staff/profile',
+            builder: (_, _) => const StaffProfileScreen(),
+          ),
+          GoRoute(
+            path: '/staff/working-hours',
+            builder: (_, _) => const PlaceholderSectionScreen(
+              title: 'Working Hours',
+              icon: Icons.schedule_outlined,
+            ),
+          ),
+          GoRoute(
+            path: '/staff/leave',
+            builder: (_, _) => const PlaceholderSectionScreen(
+              title: 'Leave Management',
+              icon: Icons.event_busy_outlined,
+            ),
+          ),
+          GoRoute(
+            path: '/staff/tasks',
+            builder: (_, _) => const PlaceholderSectionScreen(
+              title: 'Assigned Work',
+              icon: Icons.checklist_outlined,
+            ),
+          ),
+          GoRoute(
+            path: '/staff/schedules',
+            builder: (_, _) => const PlaceholderSectionScreen(
+              title: 'Work Schedules',
+              icon: Icons.calendar_month_outlined,
+            ),
+          ),
+          GoRoute(
+            path: '/staff/time-slots',
+            builder: (_, _) => const PlaceholderSectionScreen(
+              title: 'Time Slots',
+              icon: Icons.access_time_outlined,
+            ),
+          ),
+          GoRoute(
+            path: '/staff/daily-status',
+            builder: (_, _) => const PlaceholderSectionScreen(
+              title: 'Daily Work Status',
+              icon: Icons.fact_check_outlined,
+            ),
+          ),
         ],
       ),
     ],

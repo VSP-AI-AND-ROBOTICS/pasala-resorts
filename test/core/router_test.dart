@@ -54,8 +54,8 @@ void main() {
       expect(landingPathFor(_staff), '/staff');
     });
 
-    test('accountant lands on /admin/dashboard', () {
-      expect(landingPathFor(_accountant), '/admin/dashboard');
+    test('accountant lands on /staff/dashboard', () {
+      expect(landingPathFor(_accountant), '/staff/dashboard');
     });
 
     test('admin lands on /admin', () {
@@ -79,8 +79,8 @@ void main() {
       expect(loginRedirect(_staff), '/staff');
     });
 
-    test('accountant -> /admin/dashboard', () {
-      expect(loginRedirect(_accountant), '/admin/dashboard');
+    test('accountant -> /staff/dashboard', () {
+      expect(loginRedirect(_accountant), '/staff/dashboard');
     });
 
     test('admin -> /admin', () {
@@ -139,8 +139,20 @@ void main() {
       }
     });
 
-    test('reaches /staff', () {
-      expect(_to(_staff, '/staff'), null);
+    test('reaches /staff and every /staff/* section route', () {
+      for (final path in [
+        '/staff',
+        '/staff/dashboard',
+        '/staff/profile',
+        '/staff/working-hours',
+        '/staff/leave',
+        '/staff/tasks',
+        '/staff/schedules',
+        '/staff/time-slots',
+        '/staff/daily-status',
+      ]) {
+        expect(_to(_staff, path), null, reason: path);
+      }
     });
   });
 
@@ -155,6 +167,21 @@ void main() {
       expect(_to(_accountant, '/admin/properties'), '/404');
       expect(_to(_accountant, '/admin/bookings'), '/404');
       expect(_to(_accountant, '/admin/users'), '/404');
+    });
+
+    test('reaches every /staff/* section route', () {
+      for (final path in [
+        '/staff/dashboard',
+        '/staff/profile',
+        '/staff/working-hours',
+        '/staff/leave',
+        '/staff/tasks',
+        '/staff/schedules',
+        '/staff/time-slots',
+        '/staff/daily-status',
+      ]) {
+        expect(_to(_accountant, path), null, reason: path);
+      }
     });
   });
 
@@ -173,8 +200,20 @@ void main() {
       }
     });
 
-    test('is redirected away from /staff', () {
-      expect(_to(_customer, '/staff'), '/404');
+    test('is redirected away from /staff and every /staff/* section route', () {
+      for (final path in [
+        '/staff',
+        '/staff/dashboard',
+        '/staff/profile',
+        '/staff/working-hours',
+        '/staff/leave',
+        '/staff/tasks',
+        '/staff/schedules',
+        '/staff/time-slots',
+        '/staff/daily-status',
+      ]) {
+        expect(_to(_customer, path), '/404', reason: path);
+      }
     });
 
     test('reaches ordinary customer routes', () {

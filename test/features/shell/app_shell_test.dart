@@ -100,6 +100,26 @@ void main() {
     expect(find.text('Admin'), findsNothing);
   });
 
+  // Staff/accountant work entirely within their own tools now -- Browse is
+  // the customer holiday-shopping flow, which is not one of them.
+  testWidgets('does not show the Browse destination for staff', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_appFor(_staff));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Browse'), findsNothing);
+  });
+
+  testWidgets('does not show the Browse destination for an accountant', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_appFor(_accountant));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Browse'), findsNothing);
+  });
+
   testWidgets('shows the brand mark in the app bar', (tester) async {
     await tester.pumpWidget(_appFor(_customer));
     await tester.pumpAndSettle();
