@@ -262,14 +262,47 @@ Future<Reservation> resolveHoldForPayment({
   );
 }
 
-/// Formats a hold's remaining time for the "Holding your dates — mm:ss
-/// left" banner. Pure so the countdown text is testable without a running
-/// [Timer].
+/// Formats a hold's remaining time for the "Your dates are reserved —
+/// mm:ss left to complete payment" banner. Pure so the countdown text is
+/// testable without a running [Timer].
 String formatHoldRemaining(Duration remaining) {
   final clamped = remaining.isNegative ? Duration.zero : remaining;
   final minutes = clamped.inMinutes.remainder(60).toString().padLeft(2, '0');
   final seconds = clamped.inSeconds.remainder(60).toString().padLeft(2, '0');
   return '$minutes:$seconds left';
+}
+
+/// Whether any night between [from] (inclusive) and [to] (the checkout day,
+/// exclusive) is not [DayStatus.available] -- i.e. already booked, blocked,
+/// or reserved by someone else's hold. Reuses [statusFor], the same rule the
+/// calendar grid colours itself by, so a range that looks fully green never
+/// disagrees with this check. [to] itself is excluded because it is the
+/// departure day, not a night of this stay -- `statusFor` already treats a
+/// checkout day as available for the next arrival.
+///
+/// This is a client-side courtesy check only: it can only see whatever
+/// [reservations] were fetched as of the last calendar refresh, so a
+/// same-second collision with another customer still surfaces later as a
+/// `23P01`/[UnitUnavailable] from `createHold`, which the flow already
+/// handles. Its job is to catch the far more common case -- a stale grid
+/// that shows a multi-day drag as selectable before the customer commits to
+/// paying for it -- before that costs a round trip.
+bool rangeHasUnavailableDay({
+  required DateTime from,
+  required DateTime to,
+  required List<Reservation> reservations,
+  DateTime? today,
+}) {
+  for (
+    var day = DateUtils.dateOnly(from);
+    day.isBefore(to);
+    day = day.add(const Duration(days: 1))
+  ) {
+    if (statusFor(day, reservations, today: today) != DayStatus.available) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /// The dead-end fix: whether the hold banner should show a "Resume
@@ -366,6 +399,33 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     } else {
       newTo = day;
     }
+
+    // A completed range can still cross a night that was booked, blocked,
+    // or put on hold by someone else after this calendar last refreshed --
+    // the grid only disables the exact day tapped, not every day a drag
+    // between two available days might pass through. Catching that here,
+    // before a hold is ever created for it, turns a `23P01`/UnitUnavailable
+    // failure deep in the payment flow into an immediate, in-place message.
+    if (newFrom != null && newTo != null) {
+      final reservations =
+          ref.read(unitReservationsProvider(widget.unitId)).value ??
+              const <Reservation>[];
+      if (rangeHasUnavailableDay(
+        from: newFrom,
+        to: newTo,
+        reservations: reservations,
+      )) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Some of those dates aren't available. Pick a different range.",
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     unawaited(
       _changeSelection(
         from: newFrom,
@@ -1204,7 +1264,8 @@ class _HoldBanner extends StatelessWidget {
               const SizedBox(width: Spacing.sm),
               Expanded(
                 child: Text(
-                  'Holding your dates — ${formatHoldRemaining(remaining)}',
+                  'Your dates are reserved — '
+                  '${formatHoldRemaining(remaining)} to complete payment',
                   style: textTheme.titleMedium?.copyWith(
                     color: scheme.onTertiaryContainer,
                   ),

@@ -79,14 +79,14 @@ class BookingTile extends StatelessWidget {
   final VoidCallback? onTap;
 
   static String statusLabel(ReservationStatus status) => switch (status) {
-        ReservationStatus.hold => 'On hold',
+        ReservationStatus.hold => 'Reserved',
         ReservationStatus.pendingPayment => 'Payment due',
         ReservationStatus.confirmed => 'Confirmed',
         ReservationStatus.cancelled => 'Cancelled',
       };
 
   /// A hold's subtitle is its countdown, never a guest count -- showing
-  /// "4 guests" next to a chip that reads "On hold" would make a 15-minute
+  /// "4 guests" next to a chip that reads "Reserved" would make a 15-minute
   /// placeholder look like a real booking. [holdRemaining] is a snapshot
   /// from whenever the list was fetched, not a live ticker (this is a list
   /// row, not `BookingScreen`), so a hold that has since actually expired
