@@ -32,6 +32,7 @@ import '../features/staff/staff_dashboard_hub_screen.dart';
 import '../features/staff/staff_profile_screen.dart';
 import '../features/staff/time_slots_screen.dart';
 import '../features/staff/today_screen.dart';
+import '../features/staff/work_schedules_screen.dart';
 import 'theme/tokens.dart';
 
 /// Decides where `path` should redirect to, given the signed-in [user]
@@ -266,10 +267,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/staff/schedules',
-            builder: (_, _) => const PlaceholderSectionScreen(
-              title: 'Work Schedules',
-              icon: Icons.calendar_month_outlined,
-            ),
+            builder: (_, _) => const WorkSchedulesScreen(),
           ),
           GoRoute(
             path: '/staff/time-slots',
