@@ -15,7 +15,7 @@ create table public.attendance_records (
   id            uuid primary key default gen_random_uuid(),
   staff_id      uuid not null references public.profiles(id) on delete cascade,
   work_date     date not null,
-  check_in_at   timestamptz not null default clock_timestamp(),
+  check_in_at   timestamptz not null default now(),
   check_out_at  timestamptz,
   constraint attendance_records_unique_per_day unique (staff_id, work_date),
   constraint attendance_records_checkout_after_checkin
@@ -25,7 +25,9 @@ create table public.attendance_records (
 create index attendance_records_staff_idx on public.attendance_records(staff_id, work_date);
 
 -- No delete grant -- an attendance record is never deleted by anyone.
-grant select, insert, update on public.attendance_records to authenticated;
+-- No update grant either -- checkout goes through the check_out_attendance()
+-- RPC below, not a direct client UPDATE (see that function's comment).
+grant select, insert on public.attendance_records to authenticated;
 
 alter table public.attendance_records enable row level security;
 
@@ -48,24 +50,11 @@ create policy attendance_records_own_insert on public.attendance_records
     and check_out_at is null
   );
 
--- `using (true)`, not `using (staff_id = auth.uid())`: a restrictive
--- USING clause here would let RLS silently exclude a denied caller's
--- target row before the trigger below ever runs, producing a silent
--- zero-rows-affected "success" instead of a clear 42501 -- the same
--- problem the sibling features' admin-write triggers already solved
--- (see 0021_staff_shifts.sql, 0022_leave_requests.sql). Enforcement is
--- entirely the trigger's job.
-create policy attendance_records_own_update on public.attendance_records
-  for update to authenticated
-  using (true);
-
 -- Enforces everything a plain RLS policy cannot express on its own:
 -- (1) only the record's OWNER may update it (never admin -- admin only
 -- reads attendance, it never writes), (2) the only column that may
 -- change is check_out_at, and (3) it can only move from null to a real
--- timestamp once -- never cleared, never re-done. Also ensures
--- check_out_at is strictly after check_in_at (handles edge case where
--- now() returns the same value within a transaction).
+-- timestamp once -- never cleared, never re-done.
 create function public.attendance_records_enforce_own_checkout()
 returns trigger
 language plpgsql
@@ -109,12 +98,6 @@ begin
       hint = 'an update to this table must be a check-out';
   end if;
 
-  -- Ensure check_out_at is strictly after check_in_at (handles edge case
-  -- where now() returns the same value within a single transaction)
-  if new.check_out_at <= old.check_in_at then
-    new.check_out_at := old.check_in_at + interval '1 millisecond';
-  end if;
-
   return new;
 end;
 $$;
@@ -122,3 +105,54 @@ $$;
 create trigger attendance_records_enforce_own_checkout_trigger
   before update on public.attendance_records
   for each row execute function public.attendance_records_enforce_own_checkout();
+
+-- Client checkout goes through this function, not a direct table UPDATE --
+-- see the migration's own note above the (now-removed)
+-- attendance_records_own_update policy for why a raw client UPDATE cannot
+-- reliably deny a same-tier staff peer: Postgres RLS requires SELECT-policy
+-- visibility before an UPDATE policy's own USING clause is even consulted,
+-- and a non-owner, non-admin caller has none. This function runs as its
+-- owner (bypassing RLS on its own internal queries, the same as every other
+-- SECURITY DEFINER function in this schema), does its own explicit ownership
+-- and already-checked-out check, and raises an immediate, clear error rather
+-- than depending on RLS row-visibility to gate the caller. The BEFORE UPDATE
+-- trigger still fires on this function's internal UPDATE and remains a
+-- harmless defense-in-depth backstop.
+create function public.check_out_attendance(p_id uuid)
+returns public.attendance_records
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_record public.attendance_records;
+begin
+  select * into v_record from public.attendance_records where id = p_id;
+  if not found then
+    raise sqlstate 'P0002' using message = 'attendance record not found';
+  end if;
+
+  if v_record.staff_id <> auth.uid() then
+    raise sqlstate '42501' using
+      message = 'permission denied for table attendance_records',
+      hint = 'only the staff member who checked in may check themselves out';
+  end if;
+
+  if v_record.check_out_at is not null then
+    raise sqlstate '42501' using
+      message = 'this record is already checked out',
+      hint = 'a check-out cannot be changed once recorded';
+  end if;
+
+  update public.attendance_records
+    set check_out_at = clock_timestamp()
+    where id = p_id;
+
+  select * into v_record from public.attendance_records where id = p_id;
+  return v_record;
+end;
+$$;
+
+grant execute on function public.check_out_attendance(uuid) to authenticated;
+revoke execute on function public.check_out_attendance(uuid) from public;
+revoke execute on function public.check_out_attendance(uuid) from anon;

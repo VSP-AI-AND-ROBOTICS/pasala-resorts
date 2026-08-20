@@ -5,11 +5,13 @@
 -- design decision.
 
 begin;
-select plan(18);
+select plan(19);
 
 select has_table('public', 'attendance_records', 'attendance_records table exists');
 select has_function('public', 'attendance_records_enforce_own_checkout',
   'the enforcement trigger function exists');
+select has_function('public', 'check_out_attendance',
+  'the checkout RPC exists');
 
 -- === insert: staff can check themselves in today, nothing else ============
 
@@ -73,8 +75,7 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
 select lives_ok(
-  $$update public.attendance_records set check_out_at = now()
-    where id = '99111111-1111-1111-1111-111111111111'$$,
+  $$select public.check_out_attendance('99111111-1111-1111-1111-111111111111')$$,
   'a staff member can check themselves out');
 
 reset role;
@@ -89,24 +90,21 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000004","role":"authenticated"}';
 
 select throws_ok(
-  $$update public.attendance_records set check_out_at = now()
-    where id = '99111111-1111-1111-1111-111111111111'$$,
+  $$select public.check_out_attendance('99111111-1111-1111-1111-111111111111')$$,
   '42501', null, 'a different staff member cannot check someone else out');
 
 set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000002","role":"authenticated"}';
 
 select throws_ok(
-  $$update public.attendance_records set check_out_at = now()
-    where id = '99111111-1111-1111-1111-111111111111'$$,
+  $$select public.check_out_attendance('99111111-1111-1111-1111-111111111111')$$,
   '42501', null, 'admin cannot check someone out either -- attendance is never admin-written');
 
 set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
 select throws_ok(
-  $$update public.attendance_records set check_out_at = now()
-    where id = '99111111-1111-1111-1111-111111111111'$$,
+  $$select public.check_out_attendance('99111111-1111-1111-1111-111111111111')$$,
   '42501', null, 'an already-checked-out record cannot be checked out again');
 
 select throws_ok(
