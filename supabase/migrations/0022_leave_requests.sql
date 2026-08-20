@@ -45,10 +45,12 @@ create policy leave_requests_own_read on public.leave_requests
 -- UPDATE/DELETE, a failed INSERT `with check` genuinely raises 42501
 -- (Postgres does not silently drop a rejected insert the way it silently
 -- excludes a row from an UPDATE/DELETE target set), so no trigger is
--- needed here for a clear error on denial.
+-- needed here for a clear error on denial. Also guard decided_by and
+-- decided_at to prevent a staff member's own insert from creating a
+-- nonsensical "decided-looking" pending row.
 create policy leave_requests_own_insert on public.leave_requests
   for insert to authenticated
-  with check (staff_id = auth.uid() and status = 'pending');
+  with check (staff_id = auth.uid() and status = 'pending' and decided_by is null and decided_at is null);
 
 -- `using (true)`, not `using (public.is_admin())`: a restrictive USING
 -- clause here would let RLS silently exclude a denied caller's target
@@ -60,14 +62,16 @@ create policy leave_requests_admin_update on public.leave_requests
   for update to authenticated
   using (true);
 
--- Enforces two things a plain RLS policy cannot express on its own:
--- (1) only admin may update a leave_requests row at all, and (2) even an
+-- Enforces three things a plain RLS policy cannot express on its own:
+-- (1) only admin may update a leave_requests row at all, (2) even an
 -- admin's update may only change status/decided_by/decided_at -- never
--- staff_id, the dates, or the reason. RLS policies compare a proposed
--- NEW row against a boolean expression; they have no OLD/NEW column
--- comparison the way a trigger does, so "only these three columns may
--- change" can only be expressed here.
-create function public.leave_requests_enforce_admin_decision()
+-- staff_id, the dates, or the reason, and (3) a decision, once made
+-- (old.status != 'pending'), is final and can never be revisited.
+-- RLS policies compare a proposed NEW row against a boolean expression;
+-- they have no OLD/NEW column comparison the way a trigger does, so
+-- "only these three columns may change" and "no status reversals" can
+-- only be expressed here.
+create or replace function public.leave_requests_enforce_admin_decision()
 returns trigger
 language plpgsql
 security definer
@@ -87,6 +91,18 @@ begin
     raise sqlstate '42501' using
       message = 'only status, decided_by, and decided_at may be changed',
       hint = 'admins decide requests, they do not edit their content';
+  end if;
+
+  if old.status <> 'pending' then
+    raise sqlstate '42501' using
+      message = 'a decided leave request cannot be changed',
+      hint = 'once approved or rejected, a decision is final';
+  end if;
+
+  if new.status not in ('approved', 'rejected') then
+    raise sqlstate '42501' using
+      message = 'leave request status must be approved or rejected',
+      hint = 'a decision must decide: approved or rejected, not pending or any other value';
   end if;
 
   return new;

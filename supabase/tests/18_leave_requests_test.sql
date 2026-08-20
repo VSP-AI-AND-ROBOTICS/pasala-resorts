@@ -5,7 +5,7 @@
 -- decisions.
 
 begin;
-select plan(16);
+select plan(24);
 
 select has_table('public', 'leave_requests', 'leave_requests table exists');
 select has_function('public', 'leave_requests_enforce_admin_decision',
@@ -34,6 +34,18 @@ select throws_ok(
     values ('10000000-0000-0000-0000-000000000003','2026-09-20','2026-09-21',
             'approved')$$,
   '42501', null, 'staff cannot insert a request that is already approved');
+
+select throws_ok(
+  $$insert into public.leave_requests (staff_id, start_date, end_date, decided_by)
+    values ('10000000-0000-0000-0000-000000000003','2026-09-25','2026-09-26',
+            '10000000-0000-0000-0000-000000000002')$$,
+  '42501', null, 'staff cannot insert with decided_by set on a pending request');
+
+select throws_ok(
+  $$insert into public.leave_requests (staff_id, start_date, end_date, decided_at)
+    values ('10000000-0000-0000-0000-000000000003','2026-10-01','2026-10-02',
+            now())$$,
+  '42501', null, 'staff cannot insert with decided_at set on a pending request');
 
 -- === the date-order check constraint =======================================
 
@@ -100,6 +112,54 @@ select throws_ok(
   $$update public.leave_requests set status = 'approved'
     where id = '98111111-1111-1111-1111-111111111111'$$,
   '42501', null, 'a staff member cannot approve their own request');
+
+-- === decision finality: no reversals or re-decisions =======================
+-- Switch back to admin role for these tests
+
+set local request.jwt.claims to
+  '{"sub":"10000000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+select throws_ok(
+  $$update public.leave_requests
+      set status = 'rejected'
+    where id = '98111111-1111-1111-1111-111111111111'$$,
+  '42501', null,
+  'admin cannot flip an approved request to rejected -- decision is final');
+
+select throws_ok(
+  $$update public.leave_requests
+      set status = 'approved'
+    where id = '98111111-1111-1111-1111-111111111111'$$,
+  '42501', null,
+  'admin cannot re-approve an already approved request -- decision is final');
+
+select throws_ok(
+  $$update public.leave_requests
+      set status = 'pending'
+    where id = '98111111-1111-1111-1111-111111111111'$$,
+  '42501', null,
+  'admin cannot reset an approved request back to pending -- decision is final');
+
+select lives_ok(
+  $$update public.leave_requests
+      set status = 'rejected', decided_by = '10000000-0000-0000-0000-000000000002',
+          decided_at = now()
+    where id = '98222222-2222-2222-2222-222222222222'$$,
+  'admin can reject a pending request');
+
+select throws_ok(
+  $$update public.leave_requests
+      set status = 'approved'
+    where id = '98222222-2222-2222-2222-222222222222'$$,
+  '42501', null,
+  'admin cannot flip a rejected request to approved -- decision is final');
+
+select throws_ok(
+  $$update public.leave_requests
+      set status = 'pending'
+    where id = '98222222-2222-2222-2222-222222222222'$$,
+  '42501', null,
+  'admin cannot reset a rejected request back to pending -- decision is final');
 
 -- === delete: nobody, not even admin =========================================
 
