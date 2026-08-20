@@ -90,14 +90,26 @@ Notes on the design choices:
   is already captured by the value itself — an extra `updated_at` column
   would carry the identical information.
 
-RLS, following the same `is_admin()` / `is_staff_or_above()` /
-`using(true)`-plus-trigger convention established by the two sibling
-features:
+RLS for select/insert follows the same `is_admin()` convention
+established by the sibling features. Checkout, however, does **not**
+follow the two sibling features' `using(true)`-plus-trigger convention —
+that shape was tried first and rejected once Task 1's own implementation
+review worked through it: a same-tier staff peer attempting to check
+someone else out has no applicable SELECT-policy visibility on that row
+(they're neither its owner nor admin), and Postgres RLS requires that
+visibility before an UPDATE policy's own `using` clause is even
+consulted — so a raw client `UPDATE`, whatever its `using`/trigger logic,
+silently affects zero rows for a denied caller instead of raising an
+error. The shipped design closes that gap by removing the client-facing
+UPDATE path entirely and routing checkout through a `SECURITY DEFINER`
+RPC that does its own explicit ownership check and raises immediately:
 
 ```sql
 alter table public.attendance_records enable row level security;
 
-grant select, insert, update on public.attendance_records to authenticated;
+-- No update grant -- checkout goes through the check_out_attendance()
+-- RPC below, not a direct client UPDATE.
+grant select, insert on public.attendance_records to authenticated;
 
 create policy attendance_records_admin_select on public.attendance_records
   for select to authenticated
@@ -110,78 +122,87 @@ create policy attendance_records_own_read on public.attendance_records
 -- A caller may only insert TODAY'S check-in for THEMSELVES, not yet
 -- checked out (a fresh check-in never arrives pre-closed). Unlike
 -- UPDATE, a failed INSERT `with check` genuinely raises an error, so no
--- trigger is needed here.
+-- trigger is needed here. "Today" is judged in the resort's own local
+-- (IST) calendar day, not the database server's own configured
+-- timezone -- see the migration for why.
 create policy attendance_records_own_insert on public.attendance_records
   for insert to authenticated
   with check (
     staff_id = auth.uid()
-    and work_date = current_date
+    and work_date = (now() at time zone 'Asia/Kolkata')::date
     and check_out_at is null
   );
 
--- `using (true)`, not `using (staff_id = auth.uid())`: a restrictive
--- USING clause here would let RLS silently exclude a denied caller's
--- target row before the trigger below ever runs, producing a silent
--- zero-rows-affected "success" instead of a clear error -- the same
--- problem the sibling features' admin-write triggers already solved.
--- Enforcement (own-row-only, check-out-only, no re-opening) is entirely
--- the trigger's job.
-create policy attendance_records_own_update on public.attendance_records
-  for update to authenticated
-  using (true);
-
--- Enforces everything a plain RLS policy cannot express on its own:
--- (1) only the record's OWNER may update it (not admin -- admin never
--- writes attendance, only reads it), (2) the only column that may
--- change is check_out_at, and (3) it can only move from null to a real
--- timestamp, never be cleared or overwritten once set (no "correcting"
--- a checkout).
-create function public.attendance_records_enforce_own_checkout()
+-- check_in_at is not client-writable in any meaningful sense either --
+-- a BEFORE INSERT trigger unconditionally overwrites it to now(), so an
+-- insert cannot arrive pre-backdated or post-dated, keeping the "honest,
+-- unedited record" property intact end to end.
+create function public.attendance_records_force_checkin_time()
 returns trigger
 language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if new.staff_id <> auth.uid() then
+  new.check_in_at := now();
+  return new;
+end;
+$$;
+
+create trigger attendance_records_force_checkin_time_trigger
+  before insert on public.attendance_records
+  for each row execute function public.attendance_records_force_checkin_time();
+
+-- The sole checkout path. Runs as its own owner (bypassing RLS on its
+-- internal queries, same as every other SECURITY DEFINER function in
+-- this schema), does its own explicit ownership and already-checked-out
+-- checks, and raises an immediate, clear error rather than depending on
+-- RLS row-visibility to gate the caller -- the fix for the gap described
+-- above.
+create function public.check_out_attendance(p_id uuid)
+returns public.attendance_records
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_record public.attendance_records;
+begin
+  select * into v_record from public.attendance_records where id = p_id;
+  if not found then
+    raise sqlstate 'P0002' using message = 'attendance record not found';
+  end if;
+
+  if v_record.staff_id <> auth.uid() then
     raise sqlstate '42501' using
       message = 'permission denied for table attendance_records',
       hint = 'only the staff member who checked in may check themselves out';
   end if;
 
-  if new.staff_id is distinct from old.staff_id
-      or new.work_date is distinct from old.work_date
-      or new.check_in_at is distinct from old.check_in_at then
-    raise sqlstate '42501' using
-      message = 'only check_out_at may be changed',
-      hint = 'attendance records are never corrected after the fact';
-  end if;
-
-  if old.check_out_at is not null then
+  if v_record.check_out_at is not null then
     raise sqlstate '42501' using
       message = 'this record is already checked out',
       hint = 'a check-out cannot be changed once recorded';
   end if;
 
-  if new.check_out_at is null then
-    raise sqlstate '42501' using
-      message = 'check_out_at cannot be cleared',
-      hint = 'an update to this table must be a check-out';
-  end if;
+  update public.attendance_records
+    set check_out_at = clock_timestamp()
+    where id = p_id;
 
-  return new;
+  select * into v_record from public.attendance_records where id = p_id;
+  return v_record;
 end;
 $$;
 
-create trigger attendance_records_enforce_own_checkout_trigger
-  before update on public.attendance_records
-  for each row execute function public.attendance_records_enforce_own_checkout();
+grant execute on function public.check_out_attendance(uuid) to authenticated;
+revoke execute on function public.check_out_attendance(uuid) from public;
+revoke execute on function public.check_out_attendance(uuid) from anon;
 ```
 
 Admin never writes to this table at all (no admin update/delete policy
-exists) — the only mutation path is a staff member checking themselves
-out, and even that is a one-way, one-shot transition enforced by the
-trigger above.
+or grant exists) — the only mutation path is a staff member checking
+themselves out through `check_out_attendance`, and even that is a
+one-way, one-shot transition enforced by the function's own checks.
 
 ## 4. Repository & Model
 
@@ -210,8 +231,10 @@ repeating that exact class of bug).
 - `checkIn({required String staffId}) -> Future<void>` — inserts today's
   row (`work_date` = today, `check_in_at` = `now()` via the column
   default, no `check_out_at`).
-- `checkOut({required String id}) -> Future<void>` — sets `check_out_at`
-  to `now()` on the given row id.
+- `checkOut({required String id}) -> Future<void>` — calls the
+  `check_out_attendance` RPC for the given row id, which sets
+  `check_out_at` to `now()` server-side (not a direct table update — see
+  §3 for why).
 
 Providers, matching the established convention: a plain
 `Provider<AttendanceRepository>`, plus a `FutureProvider.family`
