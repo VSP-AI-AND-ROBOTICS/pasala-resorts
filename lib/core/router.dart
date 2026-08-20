@@ -9,6 +9,7 @@ import '../features/account/my_bookings_screen.dart';
 import '../features/admin/admin_bookings_screen.dart';
 import '../features/admin/admin_home_screen.dart';
 import '../features/admin/block_dates_screen.dart';
+import '../features/admin/leave_requests_screen.dart';
 import '../features/admin/property_form_screen.dart';
 import '../features/admin/rate_rules_screen.dart';
 import '../features/admin/staff_shifts_screen.dart';
@@ -234,6 +235,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/staff-shifts',
             builder: (_, _) => const StaffShiftsScreen(),
+          ),
+          GoRoute(
+            path: '/admin/leave-requests',
+            builder: (_, _) => const LeaveRequestsScreen(),
           ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
           GoRoute(

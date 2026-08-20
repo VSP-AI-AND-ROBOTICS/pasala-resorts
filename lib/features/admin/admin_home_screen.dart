@@ -58,6 +58,12 @@ class AdminHomeScreen extends StatelessWidget {
       subtitle: 'Assign and manage staff work shifts',
       path: '/admin/staff-shifts',
     ),
+    (
+      icon: Icons.event_available_outlined,
+      title: 'Leave requests',
+      subtitle: 'Review and decide staff leave requests',
+      path: '/admin/leave-requests',
+    ),
   ];
 
   @override
