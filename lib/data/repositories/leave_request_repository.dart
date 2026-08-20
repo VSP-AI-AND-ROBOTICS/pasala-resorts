@@ -25,8 +25,6 @@ class LeaveRequestRepository {
     }
   }
 
-  String _dateOnly(DateTime d) => d.toIso8601String().substring(0, 10);
-
   /// A direct table select with a `profiles` embed for `staff_name` --
   /// unlike Work Schedules' `list_staff_shifts()` RPC, no RPC is needed
   /// here: neither this method nor either screen ever lets a caller pick
@@ -39,7 +37,9 @@ class LeaveRequestRepository {
     LeaveStatus? status,
   }) =>
       _guard(() async {
-        dynamic query = _db.from('leave_requests').select('*, profiles(full_name)');
+        dynamic query = _db
+            .from('leave_requests')
+            .select('*, profiles!leave_requests_staff_id_fkey(full_name)');
         if (staffId != null) query = query.eq('staff_id', staffId);
         if (status != null) query = query.eq('status', leaveStatusToDb(status));
         final rows = await query.order('created_at', ascending: false) as List;
@@ -57,12 +57,16 @@ class LeaveRequestRepository {
     String? reason,
   }) =>
       _guard(() async {
-        await _db.from('leave_requests').insert({
-          'staff_id': staffId,
-          'start_date': _dateOnly(range.start),
-          'end_date': _dateOnly(range.end),
-          'reason': reason,
-        });
+        await _db.from('leave_requests').insert(
+              LeaveRequest(
+                id: '',
+                staffId: staffId,
+                startDate: range.start,
+                endDate: range.end,
+                reason: reason,
+                status: LeaveStatus.pending,
+              ).toInsert(),
+            );
       });
 
   /// Records an admin's decision. [decided_by] is the CALLING admin's own

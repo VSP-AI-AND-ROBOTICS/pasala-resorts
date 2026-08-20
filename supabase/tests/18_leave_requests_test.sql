@@ -5,7 +5,7 @@
 -- decisions.
 
 begin;
-select plan(24);
+select plan(25);
 
 select has_table('public', 'leave_requests', 'leave_requests table exists');
 select has_function('public', 'leave_requests_enforce_admin_decision',
@@ -46,6 +46,25 @@ select throws_ok(
     values ('10000000-0000-0000-0000-000000000003','2026-10-01','2026-10-02',
             now())$$,
   '42501', null, 'staff cannot insert with decided_at set on a pending request');
+
+-- === insert: a customer is not staff-or-above, and cannot insert at all ====
+
+reset role;
+insert into auth.users (id, email)
+values ('98333333-3333-3333-3333-333333333333','customer@example.com');
+
+set local role authenticated;
+set local request.jwt.claims to
+  '{"sub":"98333333-3333-3333-3333-333333333333","role":"authenticated"}';
+
+select throws_ok(
+  $$insert into public.leave_requests (staff_id, start_date, end_date)
+    values ('98333333-3333-3333-3333-333333333333','2026-09-10','2026-09-12')$$,
+  '42501', null,
+  'a customer cannot insert a leave request for themselves -- not staff-or-above');
+
+set local request.jwt.claims to
+  '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
 -- === the date-order check constraint =======================================
 

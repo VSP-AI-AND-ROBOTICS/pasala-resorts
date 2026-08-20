@@ -50,7 +50,8 @@ create policy leave_requests_own_read on public.leave_requests
 -- nonsensical "decided-looking" pending row.
 create policy leave_requests_own_insert on public.leave_requests
   for insert to authenticated
-  with check (staff_id = auth.uid() and status = 'pending' and decided_by is null and decided_at is null);
+  with check (staff_id = auth.uid() and status = 'pending' and decided_by is null
+    and decided_at is null and public.is_staff_or_above());
 
 -- `using (true)`, not `using (public.is_admin())`: a restrictive USING
 -- clause here would let RLS silently exclude a denied caller's target
