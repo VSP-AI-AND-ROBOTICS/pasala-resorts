@@ -578,16 +578,20 @@ class AttendanceRepository {
         });
       });
 
-  /// Checks the record at [id] out now. The enforcement trigger
-  /// (`attendance_records_enforce_own_checkout`) is what actually
-  /// verifies the caller owns this row and that it isn't already
-  /// checked out -- this method sends only the one column that's ever
-  /// allowed to change.
+  /// Checks the record at [id] out now, via the `check_out_attendance`
+  /// RPC -- NOT a direct table update. Postgres RLS requires a row to be
+  /// visible via an applicable SELECT-type policy before an UPDATE
+  /// policy's own `USING` clause is even consulted; a same-tier staff
+  /// peer attempting to check someone else out has no such visibility
+  /// (they aren't the row's owner and aren't admin), so a raw UPDATE
+  /// would silently affect zero rows instead of raising an error -- a
+  /// gap discovered and fixed at the database layer in Task 1 (see
+  /// `0023_attendance_records.sql`'s `check_out_attendance` function).
+  /// The RPC does its own explicit ownership check and raises
+  /// immediately, so this method only needs to surface whatever error
+  /// it returns.
   Future<void> checkOut({required String id}) => _guard(() async {
-        await _db
-            .from('attendance_records')
-            .update({'check_out_at': DateTime.now().toUtc().toIso8601String()})
-            .eq('id', id);
+        await _db.rpc('check_out_attendance', params: {'p_id': id});
       });
 }
 
