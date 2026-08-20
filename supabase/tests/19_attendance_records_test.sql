@@ -5,7 +5,7 @@
 -- design decision.
 
 begin;
-select plan(19);
+select plan(22);
 
 select has_table('public', 'attendance_records', 'attendance_records table exists');
 select has_function('public', 'attendance_records_enforce_own_checkout',
@@ -111,6 +111,41 @@ select throws_ok(
   $$update public.attendance_records set check_in_at = now()
     where id = '99111111-1111-1111-1111-111111111111'$$,
   '42501', null, 'check_in_at cannot be changed through an update');
+
+-- === insert: work_date is judged against the resort's own IST calendar =====
+-- === day, not the database server's own configured timezone ===============
+
+set local request.jwt.claims to
+  '{"sub":"10000000-0000-0000-0000-000000000005","role":"authenticated"}';
+
+select lives_ok(
+  $$insert into public.attendance_records (id, staff_id, work_date)
+    values ('99555555-5555-5555-5555-555555555555',
+            '10000000-0000-0000-0000-000000000005',
+            (now() at time zone 'Asia/Kolkata')::date)$$,
+  'staff can check in using the resort''s IST calendar date '
+  '(the same expression the RLS check itself uses), not raw current_date');
+
+-- === insert: check_in_at cannot be forged by the client ====================
+
+set local request.jwt.claims to
+  '{"sub":"10000000-0000-0000-0000-000000000006","role":"authenticated"}';
+
+select lives_ok(
+  $$insert into public.attendance_records (id, staff_id, work_date, check_in_at)
+    values ('99666666-6666-6666-6666-666666666666',
+            '10000000-0000-0000-0000-000000000006',
+            (now() at time zone 'Asia/Kolkata')::date,
+            now() - interval '3 hours')$$,
+  'a staff member can insert with an explicit check_in_at '
+  '(accepted syntactically -- the trigger silently overwrites it below)');
+
+reset role;
+select is(
+  (select check_in_at > now() - interval '1 minute' from public.attendance_records
+    where id = '99666666-6666-6666-6666-666666666666'),
+  true,
+  'check_in_at is forced to the server clock, ignoring the client-forged value');
 
 -- === anon: no access at all =================================================
 

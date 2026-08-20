@@ -42,11 +42,19 @@ create policy attendance_records_own_read on public.attendance_records
 -- A caller may only insert TODAY'S check-in for THEMSELVES, not yet
 -- checked out. Unlike UPDATE, a failed INSERT `with check` genuinely
 -- raises 42501, so no trigger is needed for this path.
+-- work_date is compared against the resort's own local calendar day
+-- (India Standard Time), not `current_date` (the database server's own
+-- configured timezone, UTC on this instance). The resort operates in
+-- IST, and a device physically at the resort naturally represents
+-- "today" in IST -- if this check instead used the server's UTC
+-- `current_date`, a check-in attempted between local midnight and
+-- 5:30 AM IST would send a `work_date` one day ahead of the server's
+-- UTC date and be silently rejected by this `with check`.
 create policy attendance_records_own_insert on public.attendance_records
   for insert to authenticated
   with check (
     staff_id = auth.uid()
-    and work_date = current_date
+    and work_date = (now() at time zone 'Asia/Kolkata')::date
     and check_out_at is null
   );
 
@@ -156,3 +164,24 @@ $$;
 grant execute on function public.check_out_attendance(uuid) to authenticated;
 revoke execute on function public.check_out_attendance(uuid) from public;
 revoke execute on function public.check_out_attendance(uuid) from anon;
+
+-- Forces check_in_at to the server's own clock on every insert,
+-- regardless of what the client sends -- this is the timestamp the
+-- table's entire design principle ("an honest, unedited record of what
+-- actually happened") depends on, and it must not be client-forgeable
+-- the way an unconstrained insert column otherwise would be.
+create function public.attendance_records_force_checkin_time()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  new.check_in_at := now();
+  return new;
+end;
+$$;
+
+create trigger attendance_records_force_checkin_time_trigger
+  before insert on public.attendance_records
+  for each row execute function public.attendance_records_force_checkin_time();

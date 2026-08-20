@@ -119,7 +119,7 @@ class _DailyStatusScreenState extends ConsumerState<DailyStatusScreen> {
                           child: const Text('Check In'),
                         ),
                       ] else if (today.isCheckedIn) ...[
-                        Text('Checked in at ${_timeFormat.format(today.checkInAt)}'),
+                        Text('Checked in at ${_timeFormat.format(today.checkInAt.toLocal())}'),
                         const SizedBox(height: Spacing.md),
                         FilledButton(
                           key: const Key('check-out-button'),
@@ -128,8 +128,8 @@ class _DailyStatusScreenState extends ConsumerState<DailyStatusScreen> {
                         ),
                       ] else ...[
                         Text(
-                          'Checked in at ${_timeFormat.format(today.checkInAt)} · '
-                          'Checked out at ${_timeFormat.format(today.checkOutAt!)}',
+                          'Checked in at ${_timeFormat.format(today.checkInAt.toLocal())} · '
+                          'Checked out at ${_timeFormat.format(today.checkOutAt!.toLocal())}',
                         ),
                       ],
                     ],
@@ -150,10 +150,10 @@ class _DailyStatusScreenState extends ConsumerState<DailyStatusScreen> {
                       title: Text(_dateFormat.format(record.workDate)),
                       subtitle: Text(
                         record.checkOutAt == null
-                            ? 'Checked in at ${_timeFormat.format(record.checkInAt)} · '
+                            ? 'Checked in at ${_timeFormat.format(record.checkInAt.toLocal())} · '
                                 'No check-out recorded'
-                            : 'Checked in at ${_timeFormat.format(record.checkInAt)} · '
-                                'Checked out at ${_timeFormat.format(record.checkOutAt!)}',
+                            : 'Checked in at ${_timeFormat.format(record.checkInAt.toLocal())} · '
+                                'Checked out at ${_timeFormat.format(record.checkOutAt!.toLocal())}',
                       ),
                     ),
                   ),

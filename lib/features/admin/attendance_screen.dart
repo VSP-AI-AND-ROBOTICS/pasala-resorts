@@ -107,10 +107,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                           title: Text(record.staffName ?? record.staffId),
                           subtitle: Text(
                             record.isCheckedIn
-                                ? 'Checked in at ${_timeFormat.format(record.checkInAt)} · '
+                                ? 'Checked in at ${_timeFormat.format(record.checkInAt.toLocal())} · '
                                     'Still checked in'
-                                : 'Checked in at ${_timeFormat.format(record.checkInAt)} · '
-                                    'Checked out at ${_timeFormat.format(record.checkOutAt!)}',
+                                : 'Checked in at ${_timeFormat.format(record.checkInAt.toLocal())} · '
+                                    'Checked out at ${_timeFormat.format(record.checkOutAt!.toLocal())}',
                           ),
                         ),
                       ),
