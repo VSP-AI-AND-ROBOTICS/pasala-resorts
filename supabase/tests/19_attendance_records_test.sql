@@ -22,7 +22,8 @@ set local request.jwt.claims to
 select lives_ok(
   $$insert into public.attendance_records (id, staff_id, work_date)
     values ('99111111-1111-1111-1111-111111111111',
-            '10000000-0000-0000-0000-000000000003', current_date)$$,
+            '10000000-0000-0000-0000-000000000003',
+            (now() at time zone 'Asia/Kolkata')::date)$$,
   'staff can check themselves in today');
 
 select throws_ok(
@@ -42,7 +43,8 @@ select throws_ok(
 
 select throws_ok(
   $$insert into public.attendance_records (staff_id, work_date)
-    values ('10000000-0000-0000-0000-000000000003', current_date)$$,
+    values ('10000000-0000-0000-0000-000000000003',
+            (now() at time zone 'Asia/Kolkata')::date)$$,
   '23505', null, 'a second check-in the same day is rejected by the unique constraint');
 
 -- === select: own rows only for staff, everything for admin =================
@@ -58,7 +60,8 @@ set local request.jwt.claims to
 select lives_ok(
   $$insert into public.attendance_records (id, staff_id, work_date)
     values ('99222222-2222-2222-2222-222222222222',
-            '10000000-0000-0000-0000-000000000004', current_date)$$,
+            '10000000-0000-0000-0000-000000000004',
+            (now() at time zone 'Asia/Kolkata')::date)$$,
   'an accountant can also check themselves in');
 
 set local request.jwt.claims to
