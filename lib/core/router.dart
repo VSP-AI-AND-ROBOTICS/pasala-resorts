@@ -28,6 +28,7 @@ import '../features/reports/reports_screen.dart';
 import '../features/shell/app_shell.dart';
 import '../features/shell/not_found_screen.dart';
 import '../features/splash/splash_screen.dart';
+import '../features/staff/leave_screen.dart';
 import '../features/staff/placeholder_section_screen.dart';
 import '../features/staff/staff_dashboard_hub_screen.dart';
 import '../features/staff/staff_profile_screen.dart';
@@ -258,10 +259,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/staff/leave',
-            builder: (_, _) => const PlaceholderSectionScreen(
-              title: 'Leave Management',
-              icon: Icons.event_busy_outlined,
-            ),
+            builder: (_, _) => const LeaveScreen(),
           ),
           GoRoute(
             path: '/staff/tasks',
