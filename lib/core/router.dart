@@ -29,6 +29,7 @@ import '../features/reports/reports_screen.dart';
 import '../features/shell/app_shell.dart';
 import '../features/shell/not_found_screen.dart';
 import '../features/splash/splash_screen.dart';
+import '../features/staff/daily_status_screen.dart';
 import '../features/staff/leave_screen.dart';
 import '../features/staff/placeholder_section_screen.dart';
 import '../features/staff/staff_dashboard_hub_screen.dart';
@@ -283,10 +284,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/staff/daily-status',
-            builder: (_, _) => const PlaceholderSectionScreen(
-              title: 'Daily Work Status',
-              icon: Icons.fact_check_outlined,
-            ),
+            builder: (_, _) => const DailyStatusScreen(),
           ),
         ],
       ),
