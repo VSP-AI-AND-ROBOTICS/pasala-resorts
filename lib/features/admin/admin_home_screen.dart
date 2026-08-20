@@ -64,6 +64,12 @@ class AdminHomeScreen extends StatelessWidget {
       subtitle: 'Review and decide staff leave requests',
       path: '/admin/leave-requests',
     ),
+    (
+      icon: Icons.how_to_reg_outlined,
+      title: 'Attendance',
+      subtitle: 'See who\'s checked in, today or any past day',
+      path: '/admin/attendance',
+    ),
   ];
 
   @override
