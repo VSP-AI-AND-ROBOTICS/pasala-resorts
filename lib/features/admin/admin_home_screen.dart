@@ -70,6 +70,12 @@ class AdminHomeScreen extends StatelessWidget {
       subtitle: 'See who\'s checked in, today or any past day',
       path: '/admin/attendance',
     ),
+    (
+      icon: Icons.checklist_outlined,
+      title: 'Tasks',
+      subtitle: 'Assign and track staff work',
+      path: '/admin/tasks',
+    ),
   ];
 
   @override

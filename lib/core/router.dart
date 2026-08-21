@@ -9,6 +9,7 @@ import '../features/account/my_bookings_screen.dart';
 import '../features/admin/admin_bookings_screen.dart';
 import '../features/admin/admin_home_screen.dart';
 import '../features/admin/attendance_screen.dart';
+import '../features/admin/tasks_screen.dart';
 import '../features/admin/block_dates_screen.dart';
 import '../features/admin/leave_requests_screen.dart';
 import '../features/admin/property_form_screen.dart';
@@ -246,6 +247,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/attendance',
             builder: (_, _) => const AttendanceScreen(),
+          ),
+          GoRoute(
+            path: '/admin/tasks',
+            builder: (_, _) => const TasksScreen(),
           ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
           GoRoute(
