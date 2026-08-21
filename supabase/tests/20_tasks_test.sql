@@ -4,7 +4,7 @@
 -- no-transition-ordering design decisions.
 
 begin;
-select plan(23);
+select plan(24);
 
 select has_table('public', 'tasks', 'tasks table exists');
 select has_function('public', 'tasks_enforce_write',
@@ -34,7 +34,7 @@ select throws_ok(
 -- === select: own rows only for staff, everything for admin ==================
 
 select is(
-  (select count(*)::int from public.tasks),
+  (select count(*)::int from public.tasks where created_by = '10000000-0000-0000-0000-000000000002'),
   1,
   'a staff member sees only their own task via direct select');
 
@@ -42,7 +42,7 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000004","role":"authenticated"}';
 
 select is(
-  (select count(*)::int from public.tasks),
+  (select count(*)::int from public.tasks where created_by = '10000000-0000-0000-0000-000000000002'),
   0,
   'a different staff member sees none of someone else''s tasks');
 
@@ -57,7 +57,7 @@ select lives_ok(
   'admin can create a second task for a different assignee');
 
 select is(
-  (select count(*)::int from public.tasks),
+  (select count(*)::int from public.tasks where created_by = '10000000-0000-0000-0000-000000000002'),
   2,
   'admin sees every task via direct select');
 
@@ -97,6 +97,11 @@ select throws_ok(
   $$update public.tasks set assignee_id = '10000000-0000-0000-0000-000000000004'
     where id = '97111111-1111-1111-1111-111111111111'$$,
   '42501', null, 'the assignee cannot reassign their own task to someone else');
+
+select throws_ok(
+  $$update public.tasks set id = '97999999-9999-9999-9999-999999999999'
+    where id = '97111111-1111-1111-1111-111111111111'$$,
+  '42501', null, 'the assignee cannot change their own task''s id');
 
 with attempted as (
   update public.tasks set status = 'done'
@@ -156,7 +161,7 @@ select lives_ok(
 
 reset role;
 select is(
-  (select count(*)::int from public.tasks),
+  (select count(*)::int from public.tasks where created_by = '10000000-0000-0000-0000-000000000002'),
   1,
   'the deleted task is actually gone');
 

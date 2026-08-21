@@ -90,7 +90,8 @@ begin
       hint = 'only an administrator can reassign a task';
   end if;
 
-  if new.title is distinct from old.title
+  if new.id is distinct from old.id
+      or new.title is distinct from old.title
       or new.description is distinct from old.description
       or new.created_by is distinct from old.created_by
       or new.created_at is distinct from old.created_at then
