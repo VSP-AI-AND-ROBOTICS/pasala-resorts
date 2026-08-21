@@ -30,6 +30,7 @@ import '../features/reports/reports_screen.dart';
 import '../features/shell/app_shell.dart';
 import '../features/shell/not_found_screen.dart';
 import '../features/splash/splash_screen.dart';
+import '../features/staff/assigned_tasks_screen.dart';
 import '../features/staff/daily_status_screen.dart';
 import '../features/staff/leave_screen.dart';
 import '../features/staff/placeholder_section_screen.dart';
@@ -274,10 +275,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/staff/tasks',
-            builder: (_, _) => const PlaceholderSectionScreen(
-              title: 'Assigned Work',
-              icon: Icons.checklist_outlined,
-            ),
+            builder: (_, _) => const AssignedTasksScreen(),
           ),
           GoRoute(
             path: '/staff/schedules',
