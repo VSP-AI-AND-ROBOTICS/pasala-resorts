@@ -98,12 +98,17 @@ select throws_ok(
     where id = '97111111-1111-1111-1111-111111111111'$$,
   '42501', null, 'the assignee cannot reassign their own task to someone else');
 
-select throws_ok(
-  $$update public.tasks set status = 'done'
-    where id = '97222222-2222-2222-2222-222222222222'$$,
-  '42501', null,
+with attempted as (
+  update public.tasks set status = 'done'
+  where id = '97222222-2222-2222-2222-222222222222'
+  returning 1
+)
+select is(
+  (select count(*)::int from attempted),
+  0,
   'a staff member cannot update the status of someone else''s task '
-  '(not visible to them, so RLS filters it out before the trigger ever runs)');
+  '-- not visible to them, so the update silently affects zero rows'
+);
 
 -- === update: admin may change anything, including reassignment ==============
 

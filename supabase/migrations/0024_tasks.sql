@@ -80,7 +80,7 @@ begin
   end if;
 
   if public.is_admin() then
-    new.updated_at := now();
+    new.updated_at := clock_timestamp();
     return new;
   end if;
 
@@ -105,7 +105,7 @@ begin
       hint = 'you can only update the status of your own tasks';
   end if;
 
-  new.updated_at := now();
+  new.updated_at := clock_timestamp();
   return new;
 end;
 $$;
