@@ -172,6 +172,16 @@ class _DetailState extends ConsumerState<_Detail> {
                       ?.copyWith(color: scheme.onSurfaceVariant),
                 ),
               ],
+              if (!isBlock &&
+                  reservation.occasion != null &&
+                  reservation.occasion!.trim().isNotEmpty) ...[
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  'Occasion: ${reservation.occasion}',
+                  style: textTheme.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ],
               if (isBlock && reservation.blockReason != null) ...[
                 const SizedBox(height: Spacing.xs),
                 Text(

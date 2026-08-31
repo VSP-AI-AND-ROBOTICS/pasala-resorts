@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
+import '../../core/theme/app_assets.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
-import '../../core/widgets/section_header.dart';
+import '../../data/models/property.dart';
 import '../../data/models/unit.dart';
-import 'browse_screen.dart' show AmenityWrap, PropertyMedia;
+import '../booking/booking_screen.dart';
+import 'browse_screen.dart' show AmenityWrap;
 import 'providers.dart';
 
 /// Label shown on a unit's booking-mode chip. Pure so it can be tested
@@ -17,6 +18,89 @@ String bookingModeLabel(BookingMode mode) => switch (mode) {
       BookingMode.slot => 'Slots',
       BookingMode.both => 'Nightly or slots',
     };
+
+/// Every bundled farmhouse photo, shown as a swipeable gallery on the
+/// property page. Deliberately separate from [Property.images] (the
+/// database-backed network photo `PropertyMedia` renders, used elsewhere by
+/// `PropertyCard`) -- these are bundled app assets, not per-property data,
+/// so the same 8 photos show on every property page regardless of what that
+/// property's own `images` column holds. The cinematic night aerial leads
+/// (it's the strongest shot), rather than following alphabetical/upload
+/// order.
+const _galleryPhotos = [
+  AppAssets.heroNightAerial,
+  AppAssets.heroDayAerial,
+  AppAssets.cottagesPoolRow,
+  AppAssets.cottagesDallasVegas,
+  AppAssets.cottagesBostonDetroit,
+  AppAssets.eventStringLights,
+  AppAssets.facadeDaytime,
+  AppAssets.patioFirepitNight,
+];
+
+/// A swipeable gallery of the bundled farmhouse photos, with dot indicators
+/// showing position. Does not render the property's own database-backed
+/// photo at all -- with no `images` set on the seeded property, that page
+/// only ever showed the tinted-placeholder fallback, not a real photo, so
+/// it added a dead first page rather than useful content.
+class PropertyGallery extends StatefulWidget {
+  const PropertyGallery({super.key, required this.property});
+
+  final Property property;
+
+  @override
+  State<PropertyGallery> createState() => _PropertyGalleryState();
+}
+
+class _PropertyGalleryState extends State<PropertyGallery> {
+  final _controller = PageController();
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pageCount = _galleryPhotos.length;
+    return SizedBox(
+      height: 280,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          PageView.builder(
+            controller: _controller,
+            itemCount: pageCount,
+            onPageChanged: (i) => setState(() => _page = i),
+            itemBuilder: (context, i) =>
+                Image.asset(_galleryPhotos[i], fit: BoxFit.cover),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: Spacing.sm),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < pageCount; i++)
+                  AnimatedContainer(
+                    duration: PasalaTokens.motionFast,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    width: i == _page ? 10 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: i == _page ? Colors.white : Colors.white54,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class PropertyScreen extends ConsumerWidget {
   const PropertyScreen({super.key, required this.propertyId});
@@ -33,108 +117,60 @@ class PropertyScreen extends ConsumerWidget {
     return AsyncView(
       value: property,
       onRetry: () => ref.invalidate(propertyProvider(propertyId)),
-      data: (p) => ListView(
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: PropertyMedia(property: p),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(Spacing.md),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(p.name, style: textTheme.headlineMedium),
-                if (p.address != null) ...[
-                  const SizedBox(height: Spacing.xs),
-                  Text(
-                    p.address!,
-                    style: textTheme.bodyMedium
-                        ?.copyWith(color: scheme.onSurfaceVariant),
-                  ),
-                ],
-                if (p.description != null) ...[
-                  const SizedBox(height: Spacing.md),
-                  Text(p.description!, style: textTheme.bodyLarge),
-                ],
-                const SizedBox(height: Spacing.md),
-                AmenityWrap(amenities: p.amenities, max: p.amenities.length),
-              ],
-            ),
-          ),
-          const SectionHeader(title: 'Units'),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                Spacing.md, 0, Spacing.md, Spacing.lg),
-            child: AsyncView(
-              value: units,
-              onRetry: () => ref.invalidate(unitsProvider(propertyId)),
-              empty: () => const EmptyState(
-                icon: Icons.bed_outlined,
-                title: 'No units yet',
-                message: 'Ask an admin to add one.',
-              ),
-              data: (list) => Column(
+      // A plain SingleChildScrollView, not a ListView: the embedded
+      // booking flow's availability calendar has its own shrink-wrapped
+      // GridView, which breaks when nested inside a ListView's sliver
+      // machinery (see `booking_screen.dart`'s own note on this). There
+      // must be exactly one scrollable ancestor between here and the
+      // calendar.
+      data: (p) => SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PropertyGallery(property: p),
+            Padding(
+              padding: const EdgeInsets.all(Spacing.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final unit in list)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: Spacing.sm),
-                      child: UnitCard(
-                        unit: unit,
-                        onTap: () => context.go('/book/${unit.id}'),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// One unit's card on the property page: name, capacity, and booking mode
-/// as metadata rather than a plain [ListTile] row.
-class UnitCard extends StatelessWidget {
-  const UnitCard({super.key, required this.unit, this.onTap});
-
-  final Unit unit;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
-
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.md),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(unit.name, style: textTheme.titleMedium),
+                  Text(p.name, style: textTheme.headlineMedium),
+                  if (p.address != null) ...[
                     const SizedBox(height: Spacing.xs),
                     Text(
-                      'Sleeps ${unit.capacityBase}–${unit.capacityMax}',
+                      p.address!,
                       style: textTheme.bodyMedium
                           ?.copyWith(color: scheme.onSurfaceVariant),
                     ),
                   ],
+                  if (p.description != null) ...[
+                    const SizedBox(height: Spacing.md),
+                    Text(p.description!, style: textTheme.bodyLarge),
+                  ],
+                  const SizedBox(height: Spacing.md),
+                  AmenityWrap(amenities: p.amenities, max: p.amenities.length),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  Spacing.md, 0, Spacing.md, Spacing.lg),
+              child: AsyncView(
+                value: units,
+                onRetry: () => ref.invalidate(unitsProvider(propertyId)),
+                empty: () => const EmptyState(
+                  icon: Icons.bed_outlined,
+                  title: 'No units yet',
+                  message: 'Ask an admin to add one.',
                 ),
+                // Exactly one bookable unit is assumed here -- `.single`
+                // throws if a second unit is ever added, deliberately (see
+                // spec section 7): this screen shows the booking flow
+                // inline for one unit, and does not attempt to fall back
+                // to a unit-picker if that assumption stops holding.
+                data: (list) => BookingScreen(unitId: list.single.id),
               ),
-              Chip(
-                label: Text(bookingModeLabel(unit.bookingMode)),
-                backgroundColor: scheme.surfaceContainerHigh,
-                side: BorderSide.none,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

@@ -80,6 +80,7 @@ class HoldParams {
     required this.guests,
     required this.slotTypeId,
     required this.couponCode,
+    required this.occasion,
   });
 
   final String unitId;
@@ -99,6 +100,13 @@ class HoldParams {
   /// payment gateway had already been charged the discounted amount.
   final String? couponCode;
 
+  /// Unlike `couponCode`, an occasion change never affects the quote --
+  /// `get_quote` never reads it -- but it's still part of a hold's
+  /// identity so editing it while a hold is live flows through the same
+  /// `_changeSelection`/`resolveSelectionChange` machinery every other
+  /// selection field already uses, instead of a bespoke code path.
+  final String? occasion;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -108,11 +116,19 @@ class HoldParams {
           other.to == to &&
           other.guests == guests &&
           other.slotTypeId == slotTypeId &&
-          other.couponCode == couponCode);
+          other.couponCode == couponCode &&
+          other.occasion == occasion);
 
   @override
-  int get hashCode =>
-      Object.hash(unitId, from, to, guests, slotTypeId, couponCode);
+  int get hashCode => Object.hash(
+        unitId,
+        from,
+        to,
+        guests,
+        slotTypeId,
+        couponCode,
+        occasion,
+      );
 }
 
 /// What should happen to a live hold when the selection is about to become
@@ -242,17 +258,51 @@ Future<Reservation> resolveHoldForPayment({
     slotTypeId: params.slotTypeId,
     expectedTotal: expectedTotal,
     couponCode: params.couponCode,
+    occasion: params.occasion,
   );
 }
 
-/// Formats a hold's remaining time for the "Holding your dates — mm:ss
-/// left" banner. Pure so the countdown text is testable without a running
-/// [Timer].
+/// Formats a hold's remaining time for the "Your dates are reserved —
+/// mm:ss left to complete payment" banner. Pure so the countdown text is
+/// testable without a running [Timer].
 String formatHoldRemaining(Duration remaining) {
   final clamped = remaining.isNegative ? Duration.zero : remaining;
   final minutes = clamped.inMinutes.remainder(60).toString().padLeft(2, '0');
   final seconds = clamped.inSeconds.remainder(60).toString().padLeft(2, '0');
   return '$minutes:$seconds left';
+}
+
+/// Whether any night between [from] (inclusive) and [to] (the checkout day,
+/// exclusive) is not [DayStatus.available] -- i.e. already booked, blocked,
+/// or reserved by someone else's hold. Reuses [statusFor], the same rule the
+/// calendar grid colours itself by, so a range that looks fully green never
+/// disagrees with this check. [to] itself is excluded because it is the
+/// departure day, not a night of this stay -- `statusFor` already treats a
+/// checkout day as available for the next arrival.
+///
+/// This is a client-side courtesy check only: it can only see whatever
+/// [reservations] were fetched as of the last calendar refresh, so a
+/// same-second collision with another customer still surfaces later as a
+/// `23P01`/[UnitUnavailable] from `createHold`, which the flow already
+/// handles. Its job is to catch the far more common case -- a stale grid
+/// that shows a multi-day drag as selectable before the customer commits to
+/// paying for it -- before that costs a round trip.
+bool rangeHasUnavailableDay({
+  required DateTime from,
+  required DateTime to,
+  required List<Reservation> reservations,
+  DateTime? today,
+}) {
+  for (
+    var day = DateUtils.dateOnly(from);
+    day.isBefore(to);
+    day = day.add(const Duration(days: 1))
+  ) {
+    if (statusFor(day, reservations, today: today) != DayStatus.available) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /// The dead-end fix: whether the hold banner should show a "Resume
@@ -320,6 +370,8 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   String? _couponError;
   bool _couponBusy = false;
 
+  String? _occasion;
+
   bool _sheetShown = false;
   StateSetter? _sheetSetState;
 
@@ -347,6 +399,33 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     } else {
       newTo = day;
     }
+
+    // A completed range can still cross a night that was booked, blocked,
+    // or put on hold by someone else after this calendar last refreshed --
+    // the grid only disables the exact day tapped, not every day a drag
+    // between two available days might pass through. Catching that here,
+    // before a hold is ever created for it, turns a `23P01`/UnitUnavailable
+    // failure deep in the payment flow into an immediate, in-place message.
+    if (newFrom != null && newTo != null) {
+      final reservations =
+          ref.read(unitReservationsProvider(widget.unitId)).value ??
+              const <Reservation>[];
+      if (rangeHasUnavailableDay(
+        from: newFrom,
+        to: newTo,
+        reservations: reservations,
+      )) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Some of those dates aren't available. Pick a different range.",
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     unawaited(
       _changeSelection(
         from: newFrom,
@@ -389,6 +468,19 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     );
   }
 
+  void _onOccasionChanged(String occasion) {
+    final trimmed = occasion.trim();
+    unawaited(
+      _changeSelection(
+        from: _from,
+        to: _to,
+        guests: _guests,
+        slotTypeId: _slotTypeId,
+        applyLocalChange: () => _occasion = trimmed.isEmpty ? null : trimmed,
+      ),
+    );
+  }
+
   /// The Finding-1 fix: applies a dates/guests/slot-type change, first
   /// releasing a live hold that no longer matches (or reusing it if it still
   /// does) via [resolveSelectionChange] BEFORE the local selection state
@@ -415,6 +507,10 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
             // against the fresh quote `_maybeFetchQuote` is about to fetch,
             // never silently carried over.
             couponCode: null,
+            // Unlike couponCode, occasion carries over unchanged -- it has
+            // nothing to do with pricing, so a dates/guests change has no
+            // reason to clear it.
+            occasion: _occasion,
           )
         : null;
     final result = await resolveSelectionChange(
@@ -537,6 +633,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         guests: _guests,
         slotTypeId: _slotTypeId,
         couponCode: code,
+        occasion: _occasion,
       );
       final result = await resolveSelectionChange(
         actions: actions,
@@ -668,6 +765,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         guests: _guests,
         slotTypeId: _slotTypeId,
         couponCode: _couponCode,
+        occasion: _occasion,
       );
       // Finding 1: reuses a still-live hold that matches `params` exactly
       // (the retry-after-decline path) instead of creating a duplicate,
@@ -794,16 +892,13 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   @override
   Widget build(BuildContext context) {
     final unitAsync = ref.watch(unitByIdProvider(widget.unitId));
-    return Scaffold(
-      appBar: AppBar(title: Text(unitAsync.value?.name ?? 'Book')),
-      body: unitAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => FailureView(
-          error: e,
-          onRetry: () => ref.invalidate(unitByIdProvider(widget.unitId)),
-        ),
-        data: (unit) => _buildBody(context, unit),
+    return unitAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => FailureView(
+        error: e,
+        onRetry: () => ref.invalidate(unitByIdProvider(widget.unitId)),
       ),
+      data: (unit) => _buildBody(context, unit),
     );
   }
 
@@ -833,139 +928,134 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
-    // A plain Column inside a SingleChildScrollView, not a ListView: a
-    // ListView's Sliver machinery builds children lazily by cache extent,
-    // and the calendar's own shrink-wrapped GridView (nested sliver inside
-    // a sliver list item) throws that lazy accounting off -- items further
-    // down silently never get built, no matter how large `cacheExtent` is
-    // set. A Column always builds every child eagerly.
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(Spacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(unit.name, style: textTheme.headlineSmall),
-          const SizedBox(height: Spacing.xs),
-          Text(
-            'Sleeps ${unit.capacityBase}–${unit.capacityMax}',
+    // A plain Column, not a ListView: a ListView's Sliver machinery builds
+    // children lazily by cache extent, and the calendar's own
+    // shrink-wrapped GridView (nested sliver inside a sliver list item)
+    // throws that lazy accounting off -- items further down silently never
+    // get built, no matter how large `cacheExtent` is set. This widget is
+    // embedded inside `PropertyScreen`'s own single `SingleChildScrollView`
+    // (see `property_screen.dart`) rather than owning one itself, for the
+    // same reason -- there must be exactly one scrollable ancestor between
+    // here and the calendar.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Sleeps ${unit.capacityBase}–${unit.capacityMax}',
+          style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+
+        // The hold countdown: a prominent, persistent surface pinned
+        // above the numbered flow -- not nested inside it -- so it stays
+        // in reach (and, in particular, its Resume/Cancel buttons stay
+        // reachable) no matter how far a customer scrolls into the
+        // sections below. Section 4 (`Pay`) still narrates its status as
+        // part of the numbered flow, but this is the one live control
+        // surface for it.
+        if (remaining != null) ...[
+          const SizedBox(height: Spacing.md),
+          _HoldBanner(
+            remaining: remaining,
+            showResume: shouldShowResumeHold(hold: _hold, remaining: remaining),
+            busy: _busy,
+            onResume: _showQuoteSheet,
+            onCancel: _cancelHold,
+          ),
+        ],
+        const SizedBox(height: Spacing.lg),
+
+        // 1 · Dates -- always actionable: picking dates is where the flow
+        // starts, so this section is never muted.
+        _NumberedSection(
+          number: 1,
+          title: 'Dates',
+          subtitle: _datesSubtitle,
+          active: true,
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left),
+                    onPressed: () => setState(
+                      () => _month = DateTime(_month.year, _month.month - 1),
+                    ),
+                  ),
+                  Text(
+                    DateFormat.yMMMM().format(_month),
+                    style: textTheme.titleSmall,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right),
+                    onPressed: () => setState(
+                      () => _month = DateTime(_month.year, _month.month + 1),
+                    ),
+                  ),
+                ],
+              ),
+              AvailabilityCalendar(
+                unitId: widget.unitId,
+                month: _month,
+                selectedStart: _from,
+                selectedEnd: _to,
+                onDayTap: _pickDay,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: Spacing.lg),
+
+        // 2 · Guests -- also always actionable; guest count and slot type
+        // can be set before or after dates.
+        _NumberedSection(
+          number: 2,
+          title: 'Guests',
+          subtitle: '$_guests guest${_guests == 1 ? '' : 's'}',
+          active: true,
+          child: Column(
+            children: [slotSelector, _guestStepper(unit), _occasionField()],
+          ),
+        ),
+        const SizedBox(height: Spacing.lg),
+
+        // 3 · Price -- genuinely not actionable until a quote exists (or is
+        // in flight), so it is the first section that can render muted.
+        _NumberedSection(
+          number: 3,
+          title: 'Price',
+          subtitle: _quoteLoading
+              ? 'Calculating…'
+              : (_quote != null
+                    ? formatInr(_quote!.total)
+                    : 'Select your dates to see pricing'),
+          active: _quoteLoading || _quote != null,
+          child: _priceSectionContent(context),
+        ),
+        const SizedBox(height: Spacing.lg),
+
+        // 4 · Pay -- narrates whatever the hold banner above is doing;
+        // muted once there is nothing to pay yet. The live Resume/Cancel
+        // controls live in that pinned banner, not here, so they never
+        // depend on how far this section has scrolled.
+        _NumberedSection(
+          number: 4,
+          title: 'Pay',
+          subtitle: remaining != null
+              ? formatHoldRemaining(remaining)
+              : 'Nothing to pay yet',
+          active: remaining != null,
+          child: Text(
+            remaining != null
+                ? 'Your dates are held above while you complete payment.'
+                : 'Once your dates are quoted, paying holds them for 15 '
+                      'minutes while you complete checkout.',
             style: textTheme.bodyMedium?.copyWith(
               color: scheme.onSurfaceVariant,
             ),
           ),
-
-          // The hold countdown: a prominent, persistent surface pinned
-          // above the numbered flow -- not nested inside it -- so it stays
-          // in reach (and, in particular, its Resume/Cancel buttons stay
-          // reachable) no matter how far a customer scrolls into the
-          // sections below. Section 4 (`Pay`) still narrates its status as
-          // part of the numbered flow, but this is the one live control
-          // surface for it.
-          if (remaining != null) ...[
-            const SizedBox(height: Spacing.md),
-            _HoldBanner(
-              remaining: remaining,
-              showResume: shouldShowResumeHold(
-                hold: _hold,
-                remaining: remaining,
-              ),
-              busy: _busy,
-              onResume: _showQuoteSheet,
-              onCancel: _cancelHold,
-            ),
-          ],
-          const SizedBox(height: Spacing.lg),
-
-          // 1 · Dates -- always actionable: picking dates is where the flow
-          // starts, so this section is never muted.
-          _NumberedSection(
-            number: 1,
-            title: 'Dates',
-            subtitle: _datesSubtitle,
-            active: true,
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      onPressed: () => setState(
-                        () => _month = DateTime(_month.year, _month.month - 1),
-                      ),
-                    ),
-                    Text(
-                      DateFormat.yMMMM().format(_month),
-                      style: textTheme.titleSmall,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      onPressed: () => setState(
-                        () => _month = DateTime(_month.year, _month.month + 1),
-                      ),
-                    ),
-                  ],
-                ),
-                AvailabilityCalendar(
-                  unitId: widget.unitId,
-                  month: _month,
-                  selectedStart: _from,
-                  selectedEnd: _to,
-                  onDayTap: _pickDay,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: Spacing.lg),
-
-          // 2 · Guests -- also always actionable; guest count and slot type
-          // can be set before or after dates.
-          _NumberedSection(
-            number: 2,
-            title: 'Guests',
-            subtitle: '$_guests guest${_guests == 1 ? '' : 's'}',
-            active: true,
-            child: Column(children: [slotSelector, _guestStepper(unit)]),
-          ),
-          const SizedBox(height: Spacing.lg),
-
-          // 3 · Price -- genuinely not actionable until a quote exists (or is
-          // in flight), so it is the first section that can render muted.
-          _NumberedSection(
-            number: 3,
-            title: 'Price',
-            subtitle: _quoteLoading
-                ? 'Calculating…'
-                : (_quote != null
-                      ? formatInr(_quote!.total)
-                      : 'Select your dates to see pricing'),
-            active: _quoteLoading || _quote != null,
-            child: _priceSectionContent(context),
-          ),
-          const SizedBox(height: Spacing.lg),
-
-          // 4 · Pay -- narrates whatever the hold banner above is doing;
-          // muted once there is nothing to pay yet. The live Resume/Cancel
-          // controls live in that pinned banner, not here, so they never
-          // depend on how far this section has scrolled.
-          _NumberedSection(
-            number: 4,
-            title: 'Pay',
-            subtitle: remaining != null
-                ? formatHoldRemaining(remaining)
-                : 'Nothing to pay yet',
-            active: remaining != null,
-            child: Text(
-              remaining != null
-                  ? 'Your dates are held above while you complete payment.'
-                  : 'Once your dates are quoted, paying holds them for 15 '
-                        'minutes while you complete checkout.',
-              style: textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -1020,6 +1110,19 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
             : null,
       ),
     ],
+  );
+
+  Widget _occasionField() => Padding(
+    padding: const EdgeInsets.only(top: Spacing.sm),
+    child: TextFormField(
+      key: const Key('occasion-field'),
+      initialValue: _occasion,
+      decoration: const InputDecoration(
+        labelText: 'Occasion (optional)',
+        helperText: 'Tell us what you\'re celebrating',
+      ),
+      onChanged: _onOccasionChanged,
+    ),
   );
 
   Widget _slotSelector(Unit unit, List<SlotType> slotTypes) {
@@ -1161,7 +1264,8 @@ class _HoldBanner extends StatelessWidget {
               const SizedBox(width: Spacing.sm),
               Expanded(
                 child: Text(
-                  'Holding your dates — ${formatHoldRemaining(remaining)}',
+                  'Your dates are reserved — '
+                  '${formatHoldRemaining(remaining)} to complete payment',
                   style: textTheme.titleMedium?.copyWith(
                     color: scheme.onTertiaryContainer,
                   ),

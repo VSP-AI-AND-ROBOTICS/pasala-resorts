@@ -218,7 +218,7 @@ String _legendLabel(DayStatus status) => switch (status) {
   DayStatus.available => 'Available',
   DayStatus.booked => 'Booked',
   DayStatus.blocked => 'Blocked',
-  DayStatus.pending => 'On hold',
+  DayStatus.pending => 'Reserved',
   DayStatus.past => 'Past',
 };
 
@@ -249,9 +249,9 @@ class _DayCell extends StatelessWidget {
     Widget cell = switch (status) {
       DayStatus.available => DecoratedBox(
         decoration: BoxDecoration(
-          color: scheme.surface,
+          color: Colors.green.shade50,
           borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
-          border: Border.all(color: scheme.outlineVariant),
+          border: Border.all(color: Colors.green.shade700),
         ),
         child: Center(child: label),
       ),
@@ -313,6 +313,7 @@ class _DayCell extends StatelessWidget {
     if (selected) {
       cell = DecoratedBox(
         decoration: BoxDecoration(
+          color: scheme.primary.withValues(alpha: 0.25),
           borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
           border: Border.all(color: scheme.primary, width: 2),
         ),

@@ -37,7 +37,7 @@ void main() {
   // one as the other (or as blank) is a real correctness bug, not cosmetic.
   group('status label covers all four ReservationStatus values', () {
     for (final (status, label) in [
-      (ReservationStatus.hold, 'On hold'),
+      (ReservationStatus.hold, 'Reserved'),
       (ReservationStatus.pendingPayment, 'Payment due'),
       (ReservationStatus.confirmed, 'Confirmed'),
       (ReservationStatus.cancelled, 'Cancelled'),
