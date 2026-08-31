@@ -52,6 +52,30 @@ class AdminHomeScreen extends StatelessWidget {
       subtitle: 'See every account and promote staff to the right role',
       path: '/admin/users',
     ),
+    (
+      icon: Icons.event_busy_outlined,
+      title: 'Staff shifts',
+      subtitle: 'Assign and manage staff work shifts',
+      path: '/admin/staff-shifts',
+    ),
+    (
+      icon: Icons.event_available_outlined,
+      title: 'Leave requests',
+      subtitle: 'Review and decide staff leave requests',
+      path: '/admin/leave-requests',
+    ),
+    (
+      icon: Icons.how_to_reg_outlined,
+      title: 'Attendance',
+      subtitle: 'See who\'s checked in, today or any past day',
+      path: '/admin/attendance',
+    ),
+    (
+      icon: Icons.checklist_outlined,
+      title: 'Tasks',
+      subtitle: 'Assign and track staff work',
+      path: '/admin/tasks',
+    ),
   ];
 
   @override

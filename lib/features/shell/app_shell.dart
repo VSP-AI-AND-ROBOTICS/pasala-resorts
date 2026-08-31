@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/brand_mark.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/app_user.dart';
 import '../../data/repositories/auth_repository.dart';
@@ -26,17 +27,20 @@ class AppShell extends ConsumerWidget {
     (path: '/admin', icon: Icons.settings_outlined, label: 'Admin'),
   ];
 
-  // Staff and accountant cannot reach `/admin` (that stays admin-only), but
-  // `report_revenue`/`report_occupancy`/`dashboard_summary` explicitly
-  // permit them -- and the router now allows `/admin/dashboard` and
-  // `/admin/reports` for staff-or-above (see `router.dart`) -- so both
-  // destinations must be reachable from here, or a staff/accountant user
-  // who lands on Today has no way to the numbers they're allowed to see.
+  // Staff and accountant work entirely within their own tools -- Browse is
+  // the customer holiday-shopping flow, which is none of their job, so it
+  // is not one of these destinations. Staff/accountant cannot reach
+  // `/admin` (that stays admin-only), but `report_revenue`/
+  // `report_occupancy` explicitly permit them -- and the router allows
+  // `/admin/reports` for staff-or-above (see `router.dart`) -- so Reports
+  // must stay reachable from here. Dashboard now points at `/staff/dashboard`
+  // (the staff-operations hub), not `/admin/dashboard` (the financial
+  // summary) -- that route stays admin-only-reachable via `AdminHomeScreen`,
+  // untouched by this change.
   static const _staffDestinations = [
-    (path: '/', icon: Icons.home_outlined, label: 'Browse'),
     (path: '/staff', icon: Icons.task_alt_outlined, label: 'Today'),
     (
-      path: '/admin/dashboard',
+      path: '/staff/dashboard',
       icon: Icons.dashboard_outlined,
       label: 'Dashboard',
     ),
@@ -62,11 +66,11 @@ class AppShell extends ConsumerWidget {
 
     void go(int i) => context.go(destinations[i].path);
 
-    final wide = MediaQuery.sizeOf(context).width >= 840;
+    final wide = MediaQuery.sizeOf(context).width >= PasalaTokens.wideBreakpoint;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pasala Resorts'),
+        title: const BrandMark(),
         actionsPadding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
         actions: [
           if (user != null)

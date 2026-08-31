@@ -51,6 +51,7 @@ abstract class BookingActions {
     String? slotTypeId,
     num? expectedTotal,
     String? couponCode,
+    String? occasion,
   });
 
   Future<Reservation> confirm({
@@ -165,6 +166,7 @@ class BookingRepository
     String? slotTypeId,
     num? expectedTotal,
     String? couponCode,
+    String? occasion,
   }) =>
       _guard(() async {
         final row = await _db.rpc('create_hold', params: {
@@ -180,6 +182,7 @@ class BookingRepository
           // the client computed WITH the discount applied), so every
           // couponed booking would fail with P0007 -- exactly backwards.
           'p_coupon_code': couponCode,
+          'p_occasion': occasion,
         });
         return Reservation.fromJson(row as Map<String, dynamic>);
       });

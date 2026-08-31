@@ -33,18 +33,29 @@ values ('cccc0000-0000-0000-0000-000000000001','repcust@example.com'),
 update public.profiles set role = 'staff'
   where id = 'cccc0000-0000-0000-0000-000000000002';
 
--- Fixture units under the real seeded properties (Riverside/Hilltop), so
--- the property-filter assertion below exercises the actual filter path.
+-- This test no longer depends on the app's real seeded properties (see
+-- docs/superpowers/specs/2026-08-13-single-property-onboarding-design.md
+-- section 3.3) -- it proves report_revenue/report_occupancy don't leak
+-- one property's figures into another's using two properties it owns
+-- entirely, so it stays correct regardless of what the real seed data
+-- looks like.
+insert into public.properties (id, name, slug)
+values
+  ('e0000000-0000-0000-0000-000000000001','Report Test Property A','report-test-a'),
+  ('e0000000-0000-0000-0000-000000000002','Report Test Property B','report-test-b');
+
+-- Fixture units under this file's own properties (A/B), so the
+-- property-filter assertion below exercises the actual filter path.
 insert into public.units (id, property_id, name, capacity_base, capacity_max, booking_mode)
 values
-  ('d0000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000001',
-   'Report Test Riverside A', 2, 4, 'nightly'),
-  ('d0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000002',
-   'Report Test Hilltop B', 2, 4, 'nightly'),
-  ('d0000000-0000-0000-0000-000000000003','a0000000-0000-0000-0000-000000000001',
-   'Report Test Riverside C', 2, 4, 'nightly');
+  ('d0000000-0000-0000-0000-000000000001','e0000000-0000-0000-0000-000000000001',
+   'Report Test Property A Unit A', 2, 4, 'nightly'),
+  ('d0000000-0000-0000-0000-000000000002','e0000000-0000-0000-0000-000000000002',
+   'Report Test Property B Unit B', 2, 4, 'nightly'),
+  ('d0000000-0000-0000-0000-000000000003','e0000000-0000-0000-0000-000000000001',
+   'Report Test Property A Unit C', 2, 4, 'nightly');
 
--- R1: a confirmed Riverside booking on 2027-03-01 with a total this file
+-- R1: a confirmed Property A booking on 2027-03-01 with a total this file
 -- controls directly -- report_revenue must echo this number back exactly.
 insert into public.reservations
   (unit_id, period, kind, status, customer_id, guests, quote, source)
@@ -55,8 +66,8 @@ values
    'booking','confirmed','cccc0000-0000-0000-0000-000000000001',2,
    jsonb_build_object('total', 20000.00), 'app');
 
--- R4: a confirmed Hilltop booking on the SAME day, with a different total.
--- If the property filter leaked, the Riverside-scoped query below would
+-- R4: a confirmed Property B booking on the SAME day, with a different total.
+-- If the property filter leaked, the Property A-scoped query below would
 -- either pick up a second row or a contaminated sum.
 insert into public.reservations
   (unit_id, period, kind, status, customer_id, guests, quote, source)
@@ -67,7 +78,7 @@ values
    'booking','confirmed','cccc0000-0000-0000-0000-000000000001',2,
    jsonb_build_object('total', 9999.00), 'app');
 
--- R3: a cancelled Riverside booking on a different day, own known total --
+-- R3: a cancelled Property A booking on a different day, own known total --
 -- and, deliberately, a `refund_amount` (2000.00) that DIFFERS from that
 -- quoted total (8000.00). C2: `report_revenue`'s `refunded` used to sum
 -- the whole cancelled booking's quoted total, ignoring `refund_amount`
@@ -141,14 +152,14 @@ select is(
 select is(
   (select count(*)::int from public.report_revenue(
      date '2027-03-01', date '2027-03-01',
-     'a0000000-0000-0000-0000-000000000001')),
+     'e0000000-0000-0000-0000-000000000001')),
   1,
-  'report_revenue scoped to Riverside returns one row, not the Hilltop one too');
+  'report_revenue scoped to Property A returns one row, not the Property B one too');
 
 select is(
   (select gross from public.report_revenue(
      date '2027-03-01', date '2027-03-01',
-     'a0000000-0000-0000-0000-000000000001')),
+     'e0000000-0000-0000-0000-000000000001')),
   20000.00::numeric,
   'report_revenue gross matches the exact total planted in the fixture, not 20000+9999');
 
@@ -158,7 +169,7 @@ select is(
 select is(
   (select refunded from public.report_revenue(
      date '2027-03-05', date '2027-03-05',
-     'a0000000-0000-0000-0000-000000000001')),
+     'e0000000-0000-0000-0000-000000000001')),
   2000.00::numeric,
   'C2: refunded is R3''s actual refund_amount (2000), not its quoted '
   'total (8000) -- the two are deliberately different in this fixture so '
@@ -168,7 +179,7 @@ select is(
 select isnt(
   (select refunded from public.report_revenue(
      date '2027-03-05', date '2027-03-05',
-     'a0000000-0000-0000-0000-000000000001')),
+     'e0000000-0000-0000-0000-000000000001')),
   8000.00::numeric,
   'C2: refunded is explicitly NOT the cancelled booking''s full quoted '
   'total -- this is the exact fabrication the fix removes');
@@ -176,7 +187,7 @@ select isnt(
 select is(
   (select net from public.report_revenue(
      date '2027-03-05', date '2027-03-05',
-     'a0000000-0000-0000-0000-000000000001')),
+     'e0000000-0000-0000-0000-000000000001')),
   -2000.00::numeric,
   'C2: net is gross (0, no confirmed booking that day) minus the actual '
   'refund (2000) -- net can go negative on a refund-only day, proving it '
@@ -187,7 +198,7 @@ select is(
 select is(
   (select nights_booked from public.report_occupancy(
      date '2027-04-01', date '2027-04-11',
-     'a0000000-0000-0000-0000-000000000001')
+     'e0000000-0000-0000-0000-000000000001')
    where unit_id = 'd0000000-0000-0000-0000-000000000003'),
   2,
   'a 2-night stay whose checkout crosses the UTC/IST date boundary is still counted as 2 nights');
@@ -195,7 +206,7 @@ select is(
 select is(
   (select occupancy_pct from public.report_occupancy(
      date '2027-04-01', date '2027-04-11',
-     'a0000000-0000-0000-0000-000000000001')
+     'e0000000-0000-0000-0000-000000000001')
    where unit_id = 'd0000000-0000-0000-0000-000000000003'),
   20.0::numeric,
   '2 nights in a 10-day window is 20.0 percent occupancy');

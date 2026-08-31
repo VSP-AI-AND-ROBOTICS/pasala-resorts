@@ -38,6 +38,7 @@ class Reservation {
     this.quote,
     this.holdExpiresAt,
     this.blockReason,
+    this.occasion,
   });
 
   final String id;
@@ -51,6 +52,11 @@ class Reservation {
   final Quote? quote;
   final DateTime? holdExpiresAt;
   final String? blockReason;
+
+  /// A free-text note captured at hold time (e.g. "Anniversary weekend").
+  /// Never read by pricing -- purely informational, shown on the
+  /// confirmation and booking-detail screens when non-empty.
+  final String? occasion;
 
   bool get isHold => status == ReservationStatus.hold;
 
@@ -79,6 +85,7 @@ class Reservation {
           ? null
           : DateTime.parse(json['hold_expires_at'] as String).toUtc(),
       blockReason: json['block_reason'] as String?,
+      occasion: json['occasion'] as String?,
     );
   }
 

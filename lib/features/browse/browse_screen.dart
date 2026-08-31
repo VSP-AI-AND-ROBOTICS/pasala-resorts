@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/theme/app_assets.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/hero_backdrop.dart';
+import '../../core/widgets/loading_state.dart';
+import '../../core/widgets/staggered_fade_in.dart';
 import '../../data/models/property.dart';
 import 'providers.dart';
 
@@ -14,6 +18,8 @@ class BrowseScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final properties = ref.watch(propertiesProvider);
+    final wide =
+        MediaQuery.sizeOf(context).width >= PasalaTokens.wideBreakpoint;
 
     return AsyncView(
       value: properties,
@@ -23,16 +29,102 @@ class BrowseScreen extends ConsumerWidget {
         title: 'No properties yet',
         message: 'Ask an admin to add one.',
       ),
-      data: (list) => RefreshIndicator(
-        onRefresh: () async => ref.invalidate(propertiesProvider),
-        child: ListView.builder(
-          padding: const EdgeInsets.all(Spacing.md),
-          itemCount: list.length,
-          itemBuilder: (context, i) => Padding(
-            padding: const EdgeInsets.only(bottom: Spacing.md),
-            child: PropertyCard(
-              property: list[i],
-              onTap: () => context.go('/property/${list[i].id}'),
+      data: (list) {
+        // With exactly one active property, skip the list entirely and
+        // land the customer straight on it -- self-correcting if a second
+        // property is ever seeded (see
+        // docs/superpowers/specs/2026-08-13-single-property-onboarding-design.md
+        // section 4.4). Scheduled post-frame so this never navigates
+        // mid-build.
+        if (list.length == 1) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) context.go('/property/${list.single.id}');
+          });
+          return const LoadingState();
+        }
+        return RefreshIndicator(
+          onRefresh: () async => ref.invalidate(propertiesProvider),
+          child: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(child: _BrowseHero(wide: wide)),
+              if (wide)
+                SliverPadding(
+                  padding: const EdgeInsets.all(Spacing.md),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: Spacing.md,
+                          crossAxisSpacing: Spacing.md,
+                          childAspectRatio: 0.82,
+                        ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => StaggeredFadeIn(
+                        key: ValueKey(list[i].id),
+                        index: i,
+                        child: PropertyCard(
+                          property: list[i],
+                          onTap: () => context.go('/property/${list[i].id}'),
+                        ),
+                      ),
+                      childCount: list.length,
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.all(Spacing.md),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => Padding(
+                        padding: const EdgeInsets.only(bottom: Spacing.md),
+                        child: StaggeredFadeIn(
+                          key: ValueKey(list[i].id),
+                          index: i,
+                          child: PropertyCard(
+                            property: list[i],
+                            onTap: () => context.go('/property/${list[i].id}'),
+                          ),
+                        ),
+                      ),
+                      childCount: list.length,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _BrowseHero extends StatelessWidget {
+  const _BrowseHero({required this.wide});
+
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      // Taller on wide/web layouts so the hero doesn't look like a thin
+      // strip on a desktop-width browser window (spec section 7).
+      height: wide ? 280 : 200,
+      child: HeroBackdrop(
+        imageAsset: AppAssets.heroDayAerial,
+        scrimOpacity: 0.35,
+        child: const Padding(
+          padding: EdgeInsets.all(Spacing.lg),
+          child: Align(
+            alignment: Alignment.bottomLeft,
+            child: Text(
+              'Discover your stay',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: PasalaTokens.displayWeight,
+                letterSpacing: PasalaTokens.displayLetterSpacing,
+              ),
             ),
           ),
         ),
@@ -51,8 +143,9 @@ class PropertyMedia extends StatelessWidget {
 
   final Property property;
 
-  String get _initial =>
-      property.name.trim().isEmpty ? '?' : property.name.trim()[0].toUpperCase();
+  String get _initial => property.name.trim().isEmpty
+      ? '?'
+      : property.name.trim()[0].toUpperCase();
 
   @override
   Widget build(BuildContext context) {
@@ -119,9 +212,9 @@ class _PropertyPlaceholder extends StatelessWidget {
       child: Text(
         initial,
         style: Theme.of(context).textTheme.displayMedium?.copyWith(
-              color: scheme.onPrimaryContainer,
-              fontWeight: FontWeight.w700,
-            ),
+          color: scheme.onPrimaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -131,10 +224,23 @@ class _PropertyLoadingBox extends StatelessWidget {
   const _PropertyLoadingBox();
 
   @override
-  Widget build(BuildContext context) => Container(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      );
+  Widget build(BuildContext context) =>
+      Container(color: Theme.of(context).colorScheme.surfaceContainerHighest);
 }
+
+/// The icon shown alongside an amenity's label. Pure so it's testable
+/// without a widget, and falls back to a generic icon for anything an
+/// admin adds that isn't in this list -- an unrecognised amenity must
+/// never crash or render blank.
+IconData amenityIcon(String label) => switch (label.toLowerCase()) {
+  'pool' => Icons.pool,
+  'wi-fi' || 'wifi' => Icons.wifi,
+  'barbecue' => Icons.outdoor_grill,
+  'parking' => Icons.local_parking,
+  'garden' || 'lawn' => Icons.grass,
+  'bonfire' => Icons.local_fire_department,
+  _ => Icons.check_circle_outline,
+};
 
 /// Up to four amenity chips styled as metadata rather than actions, with a
 /// `+N` chip absorbing the rest. Amenities never appear elsewhere on the
@@ -149,27 +255,29 @@ class AmenityWrap extends StatelessWidget {
   Widget build(BuildContext context) {
     if (amenities.isEmpty) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    final labelStyle = Theme.of(context)
-        .textTheme
-        .bodySmall
-        ?.copyWith(color: scheme.onSurfaceVariant);
+    final labelStyle = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     final shown = amenities.take(max).toList();
     final overflow = amenities.length - shown.length;
 
-    Widget metaChip(String label) => Chip(
-          label: Text(label),
-          labelStyle: labelStyle,
-          backgroundColor: scheme.surfaceContainerHigh,
-          side: BorderSide.none,
-          visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-        );
+    Widget metaChip(String label, {IconData? icon}) => Chip(
+      avatar: icon != null
+          ? Icon(icon, size: 16, color: scheme.onSurfaceVariant)
+          : null,
+      label: Text(label),
+      labelStyle: labelStyle,
+      backgroundColor: scheme.surfaceContainerHigh,
+      side: BorderSide.none,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+    );
 
     return Wrap(
       spacing: Spacing.sm,
       runSpacing: Spacing.xs,
       children: [
-        for (final a in shown) metaChip(a),
+        for (final a in shown) metaChip(a, icon: amenityIcon(a)),
         if (overflow > 0) metaChip('+$overflow'),
       ],
     );
@@ -183,69 +291,91 @@ class AmenityWrap extends StatelessWidget {
 /// narrower) on anything phone-sized.
 const double _cardMediaMaxHeight = 220;
 
-class PropertyCard extends StatelessWidget {
+class PropertyCard extends StatefulWidget {
   const PropertyCard({super.key, required this.property, this.onTap});
 
   final Property property;
   final VoidCallback? onTap;
 
   @override
+  State<PropertyCard> createState() => _PropertyCardState();
+}
+
+class _PropertyCardState extends State<PropertyCard> {
+  bool _hovering = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final property = widget.property;
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final height = (constraints.maxWidth * 9 / 16)
-                    .clamp(0, _cardMediaMaxHeight)
-                    .toDouble();
-                return SizedBox(
-                  width: double.infinity,
-                  height: height,
-                  child: PropertyMedia(property: property),
-                );
-              },
-            ),
-            Padding(
-              padding: const EdgeInsets.all(Spacing.md),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(property.name, style: textTheme.titleLarge),
-                  if (property.address != null) ...[
-                    const SizedBox(height: Spacing.xs),
-                    Text(
-                      property.address!,
-                      style: textTheme.bodyMedium
-                          ?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                  ],
-                  const SizedBox(height: Spacing.sm),
-                  AmenityWrap(amenities: property.amenities),
-                  const SizedBox(height: Spacing.sm),
-                  // Belt-and-suspenders: Property.fromJson already normalises
-                  // Postgres's `HH:mm:ss` down to `HH:mm`, but this display
-                  // line calls normalizeTime again so a directly-constructed
-                  // Property (as in tests, or a future caller) can never leak
-                  // ":ss" onto the card.
-                  Text(
-                    'Check-in ${Property.normalizeTime(property.checkInTime)} · '
-                    'Check-out ${Property.normalizeTime(property.checkOutTime)}',
-                    style:
-                        textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: AnimatedScale(
+        scale: _hovering ? 1.02 : 1.0,
+        duration: PasalaTokens.motionFast,
+        curve: Curves.easeOut,
+        child: Card(
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: widget.onTap,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final height = (constraints.maxWidth * 9 / 16)
+                        .clamp(0, _cardMediaMaxHeight)
+                        .toDouble();
+                    return SizedBox(
+                      width: double.infinity,
+                      height: height,
+                      child: Hero(
+                        tag: 'property-media-${property.id}',
+                        child: PropertyMedia(property: property),
+                      ),
+                    );
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(Spacing.md),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(property.name, style: textTheme.titleLarge),
+                      if (property.address != null) ...[
+                        const SizedBox(height: Spacing.xs),
+                        Text(
+                          property.address!,
+                          style: textTheme.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: Spacing.sm),
+                      AmenityWrap(amenities: property.amenities),
+                      const SizedBox(height: Spacing.sm),
+                      // Belt-and-suspenders: Property.fromJson already normalises
+                      // Postgres's `HH:mm:ss` down to `HH:mm`, but this display
+                      // line calls normalizeTime again so a directly-constructed
+                      // Property (as in tests, or a future caller) can never leak
+                      // ":ss" onto the card.
+                      Text(
+                        'Check-in ${Property.normalizeTime(property.checkInTime)} · '
+                        'Check-out ${Property.normalizeTime(property.checkOutTime)}',
+                        style: textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
