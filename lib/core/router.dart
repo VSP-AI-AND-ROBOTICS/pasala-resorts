@@ -4,11 +4,16 @@ import 'package:go_router/go_router.dart';
 
 import '../data/models/app_user.dart';
 import '../data/repositories/auth_repository.dart';
+import '../data/models/activity.dart';
 import '../features/account/booking_detail_screen.dart';
 import '../features/account/my_bookings_screen.dart';
 import '../features/admin/admin_bookings_screen.dart';
 import '../features/admin/admin_home_screen.dart';
 import '../features/admin/attendance_screen.dart';
+import '../features/admin/kitchen_orders_screen.dart';
+import '../features/admin/maintenance_issues_screen.dart';
+import '../features/admin/reception_checkin_screen.dart';
+import '../features/admin/service_requests_screen.dart';
 import '../features/admin/tasks_screen.dart';
 import '../features/admin/block_dates_screen.dart';
 import '../features/admin/leave_requests_screen.dart';
@@ -25,6 +30,13 @@ import '../features/browse/browse_screen.dart';
 import '../features/browse/property_screen.dart';
 import '../features/ota/ical_screen.dart';
 import '../features/outbox/outbox_screen.dart';
+import '../features/owner/business_dashboard_screen.dart';
+import '../features/owner/expenses_screen.dart';
+import '../features/owner/food_sales_screen.dart';
+import '../features/owner/owner_home_screen.dart';
+import '../features/owner/owner_reports_screen.dart';
+import '../features/owner/owner_settings_screen.dart';
+import '../features/owner/staff_performance_screen.dart';
 import '../features/reports/dashboard_screen.dart';
 import '../features/reports/reports_screen.dart';
 import '../features/shell/app_shell.dart';
@@ -33,12 +45,29 @@ import '../features/splash/splash_screen.dart';
 import '../features/staff/assigned_tasks_screen.dart';
 import '../features/staff/daily_status_screen.dart';
 import '../features/staff/leave_screen.dart';
+import '../features/staff/my_food_orders_screen.dart';
+import '../features/staff/my_maintenance_issues_screen.dart';
+import '../features/staff/my_service_requests_screen.dart';
 import '../features/staff/placeholder_section_screen.dart';
 import '../features/staff/staff_dashboard_hub_screen.dart';
 import '../features/staff/staff_profile_screen.dart';
 import '../features/staff/time_slots_screen.dart';
 import '../features/staff/today_screen.dart';
 import '../features/staff/work_schedules_screen.dart';
+import '../features/stay/activity_booking_form_screen.dart';
+import '../features/stay/activity_catalog_screen.dart';
+import '../features/stay/checkout_screen.dart';
+import '../features/stay/current_charges_screen.dart';
+import '../features/stay/final_invoice_screen.dart';
+import '../features/stay/food_menu_screen.dart';
+import '../features/stay/food_order_status_screen.dart';
+import '../features/stay/maintenance_report_screen.dart';
+import '../features/stay/my_activity_bookings_screen.dart';
+import '../features/stay/my_maintenance_issues_screen.dart';
+import '../features/stay/my_service_requests_screen.dart';
+import '../features/stay/my_stay_screen.dart';
+import '../features/stay/review_screen.dart';
+import '../features/stay/service_request_screen.dart';
 import 'theme/tokens.dart';
 
 /// Decides where `path` should redirect to, given the signed-in [user]
@@ -81,6 +110,17 @@ String? redirectFor({
     if (!user.isAdmin && !staffOrAboveOk) return '/404';
   }
   if (path.startsWith('/staff') && !user.isStaffOrAbove) return '/404';
+  // The Owner flow (Business Dashboard -> ... -> Settings) is a distinct,
+  // more powerful surface than `/admin` -- Cancellation Policy and Booking
+  // Rules write data (`refund_rules`, `properties.min_nights`/`max_nights`)
+  // that today's `/admin` screens have never exposed to any role. Kept
+  // `super_admin`-only rather than `isAdmin` so a plain `admin` account
+  // cannot reach it just by knowing the URL -- same "route guarding is UX
+  // only" caveat as above: every RPC/table this leads to still carries its
+  // own real Postgres-level gate independent of this check.
+  if (path.startsWith('/owner') && user.role != UserRole.superAdmin) {
+    return '/404';
+  }
   return null;
 }
 
@@ -95,6 +135,7 @@ String? redirectFor({
 /// matrices cannot drift apart: a role that `redirectFor` refuses on a path
 /// can never be the path [landingPathFor] sends that same role to.
 String landingPathFor(AppUser user) {
+  if (user.role == UserRole.superAdmin) return '/owner';
   if (user.isAdmin) return '/admin';
   // Both land on the staff-operations hub, not `/admin/dashboard` (the
   // financial summary `AdminHomeScreen` still links to for admin) -- that
@@ -253,6 +294,31 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/admin/tasks',
             builder: (_, _) => const TasksScreen(),
           ),
+          GoRoute(path: '/owner', builder: (_, _) => const OwnerHomeScreen()),
+          GoRoute(
+            path: '/owner/dashboard',
+            builder: (_, _) => const BusinessDashboardScreen(),
+          ),
+          GoRoute(
+            path: '/owner/food-sales',
+            builder: (_, _) => const FoodSalesScreen(),
+          ),
+          GoRoute(
+            path: '/owner/expenses',
+            builder: (_, _) => const ExpensesScreen(),
+          ),
+          GoRoute(
+            path: '/owner/staff-performance',
+            builder: (_, _) => const StaffPerformanceScreen(),
+          ),
+          GoRoute(
+            path: '/owner/reports',
+            builder: (_, _) => const OwnerReportsScreen(),
+          ),
+          GoRoute(
+            path: '/owner/settings',
+            builder: (_, _) => const OwnerSettingsScreen(),
+          ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
           GoRoute(
             path: '/staff/dashboard',
@@ -288,6 +354,136 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/staff/daily-status',
             builder: (_, _) => const DailyStatusScreen(),
+          ),
+          GoRoute(
+            path: '/staff/food-orders',
+            builder: (_, _) => const MyFoodOrdersScreen(),
+          ),
+          GoRoute(
+            path: '/staff/service-requests',
+            builder: (_, _) => const StaffServiceRequestsScreen(),
+          ),
+          GoRoute(
+            path: '/staff/maintenance',
+            builder: (_, _) => const StaffMaintenanceIssuesScreen(),
+          ),
+          GoRoute(
+            path: '/admin/check-in',
+            builder: (_, _) => const ReceptionCheckinScreen(),
+          ),
+          GoRoute(
+            path: '/admin/kitchen-orders',
+            builder: (_, _) => const KitchenOrdersScreen(),
+          ),
+          GoRoute(
+            path: '/admin/service-requests',
+            builder: (_, _) => const ServiceRequestsScreen(),
+          ),
+          GoRoute(
+            path: '/admin/maintenance',
+            builder: (_, _) => const MaintenanceIssuesScreen(),
+          ),
+          GoRoute(
+            path: '/my-stay',
+            pageBuilder: (_, state) => fadeSlidePage(const MyStayScreen(), state),
+          ),
+          GoRoute(
+            path: '/my-stay/food',
+            pageBuilder: (_, state) => fadeSlidePage(
+              FoodMenuScreen(reservationId: state.extra! as String),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/food/orders',
+            pageBuilder: (_, state) => fadeSlidePage(
+              FoodOrderStatusScreen(reservationId: state.extra! as String),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/activities',
+            pageBuilder: (_, state) => fadeSlidePage(
+              ActivityCatalogScreen(reservationId: state.extra! as String),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/activities/bookings',
+            pageBuilder: (_, state) => fadeSlidePage(
+              MyActivityBookingsScreen(reservationId: state.extra! as String),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/activities/book/:activityId',
+            pageBuilder: (_, state) {
+              final args = state.extra!
+                  as ({String reservationId, Activity activity});
+              return fadeSlidePage(
+                ActivityBookingFormScreen(
+                  reservationId: args.reservationId,
+                  activity: args.activity,
+                ),
+                state,
+              );
+            },
+          ),
+          GoRoute(
+            path: '/my-stay/service-requests',
+            pageBuilder: (_, state) => fadeSlidePage(
+              ServiceRequestScreen(reservationId: state.extra! as String),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/service-requests/mine',
+            pageBuilder: (_, state) => fadeSlidePage(
+              MyServiceRequestsScreen(reservationId: state.extra! as String),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/maintenance',
+            pageBuilder: (_, state) => fadeSlidePage(
+              MaintenanceReportScreen(reservationId: state.extra! as String),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/maintenance/mine',
+            pageBuilder: (_, state) => fadeSlidePage(
+              MyMaintenanceIssuesScreen(reservationId: state.extra! as String),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/charges',
+            pageBuilder: (_, state) => fadeSlidePage(
+              CurrentChargesScreen(reservationId: state.extra! as String),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/checkout',
+            pageBuilder: (_, state) => fadeSlidePage(
+              CheckoutScreen(reservationId: state.extra! as String),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/invoice/:id',
+            pageBuilder: (_, state) => fadeSlidePage(
+              FinalInvoiceScreen(reservationId: state.pathParameters['id']!),
+              state,
+            ),
+          ),
+          GoRoute(
+            path: '/my-stay/review/:id',
+            pageBuilder: (_, state) => fadeSlidePage(
+              ReviewScreen(reservationId: state.pathParameters['id']!),
+              state,
+            ),
           ),
         ],
       ),

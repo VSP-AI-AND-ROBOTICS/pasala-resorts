@@ -10,6 +10,13 @@ class Property {
     required this.checkInTime,
     required this.checkOutTime,
     required this.isActive,
+    this.advancePct = 100,
+    this.taxPct = 0,
+    this.gstin,
+    this.minNights,
+    this.maxNights,
+    this.paymentDisplayMethods = const [],
+    this.gatewayDisplayName,
   });
 
   final String id;
@@ -22,6 +29,21 @@ class Property {
   final String checkInTime;
   final String checkOutTime;
   final bool isActive;
+
+  /// Everything below is read-only via [Property] itself -- the Owner
+  /// Settings screens write these through
+  /// `CatalogRepository.updateSettings`, a narrow targeted update, NOT
+  /// through [toInsert]/`upsertProperty` (which `PropertyFormScreen` uses
+  /// for name/slug/description/address/amenities/check-in-out/active only).
+  /// Keeping them out of [toInsert] means the Farmhouse Information screen
+  /// needs no change at all to keep working.
+  final num advancePct;
+  final num taxPct;
+  final String? gstin;
+  final int? minNights;
+  final int? maxNights;
+  final List<String> paymentDisplayMethods;
+  final String? gatewayDisplayName;
 
   /// Postgres `time` columns round-trip as `HH:mm:ss` (e.g. `14:00:00`), but
   /// every writer in this app -- `showTimePicker` via [PropertyFormScreen],
@@ -46,6 +68,15 @@ class Property {
         checkOutTime:
             normalizeTime(json['check_out_time'] as String? ?? '11:00'),
         isActive: json['is_active'] as bool? ?? true,
+        advancePct: (json['advance_pct'] as num?) ?? 100,
+        taxPct: (json['tax_pct'] as num?) ?? 0,
+        gstin: json['gstin'] as String?,
+        minNights: (json['min_nights'] as num?)?.toInt(),
+        maxNights: (json['max_nights'] as num?)?.toInt(),
+        paymentDisplayMethods:
+            (json['payment_display_methods'] as List<dynamic>? ?? [])
+                .cast<String>(),
+        gatewayDisplayName: json['gateway_display_name'] as String?,
       );
 
   Map<String, dynamic> toInsert() => {

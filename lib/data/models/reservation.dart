@@ -2,12 +2,14 @@ import 'quote.dart';
 
 enum ReservationKind { booking, block, ota }
 
-enum ReservationStatus { hold, pendingPayment, confirmed, cancelled }
+enum ReservationStatus { hold, pendingPayment, confirmed, checkedIn, checkedOut, cancelled }
 
 ReservationStatus _status(String raw) => switch (raw) {
       'hold' => ReservationStatus.hold,
       'pending_payment' => ReservationStatus.pendingPayment,
       'confirmed' => ReservationStatus.confirmed,
+      'checked_in' => ReservationStatus.checkedIn,
+      'checked_out' => ReservationStatus.checkedOut,
       'cancelled' => ReservationStatus.cancelled,
       _ => throw ArgumentError('unknown status $raw'),
     };
@@ -39,6 +41,8 @@ class Reservation {
     this.holdExpiresAt,
     this.blockReason,
     this.occasion,
+    this.checkedInAt,
+    this.checkedOutAt,
   });
 
   final String id;
@@ -52,6 +56,8 @@ class Reservation {
   final Quote? quote;
   final DateTime? holdExpiresAt;
   final String? blockReason;
+  final DateTime? checkedInAt;
+  final DateTime? checkedOutAt;
 
   /// A free-text note captured at hold time (e.g. "Anniversary weekend").
   /// Never read by pricing -- purely informational, shown on the
@@ -86,6 +92,12 @@ class Reservation {
           : DateTime.parse(json['hold_expires_at'] as String).toUtc(),
       blockReason: json['block_reason'] as String?,
       occasion: json['occasion'] as String?,
+      checkedInAt: json['checked_in_at'] == null
+          ? null
+          : DateTime.parse(json['checked_in_at'] as String).toUtc(),
+      checkedOutAt: json['checked_out_at'] == null
+          ? null
+          : DateTime.parse(json['checked_out_at'] as String).toUtc(),
     );
   }
 

@@ -19,12 +19,23 @@ class AppShell extends ConsumerWidget {
   static const _customerDestinations = [
     (path: '/', icon: Icons.home_outlined, label: 'Browse'),
     (path: '/bookings', icon: Icons.event_outlined, label: 'Bookings'),
+    (path: '/my-stay', icon: Icons.holiday_village_outlined, label: 'My Stay'),
   ];
 
   static const _adminDestinations = [
     (path: '/', icon: Icons.home_outlined, label: 'Browse'),
     (path: '/bookings', icon: Icons.event_outlined, label: 'Bookings'),
     (path: '/admin', icon: Icons.settings_outlined, label: 'Admin'),
+  ];
+
+  // super_admin gets an "Owner" tab instead of "Admin" -- the Owner hub
+  // itself links out to `/admin/*` for anything not rebuilt in the Owner
+  // flow (properties/units, outbox, block dates, ...), so no admin
+  // capability becomes unreachable by swapping this destination out.
+  static const _ownerDestinations = [
+    (path: '/', icon: Icons.home_outlined, label: 'Browse'),
+    (path: '/bookings', icon: Icons.event_outlined, label: 'Bookings'),
+    (path: '/owner', icon: Icons.apartment_outlined, label: 'Owner'),
   ];
 
   // Staff and accountant work entirely within their own tools -- Browse is
@@ -55,7 +66,8 @@ class AppShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider).value;
     final destinations = switch (user?.role) {
-      UserRole.admin || UserRole.superAdmin => _adminDestinations,
+      UserRole.superAdmin => _ownerDestinations,
+      UserRole.admin => _adminDestinations,
       UserRole.staff || UserRole.accountant => _staffDestinations,
       _ => _customerDestinations,
     };

@@ -67,6 +67,17 @@ class CatalogRepository {
         return Property.fromJson(row);
       });
 
+  /// A narrow, targeted update for the Owner Settings screens (tax,
+  /// booking rules, payment display) -- deliberately separate from
+  /// [upsertProperty]/[Property.toInsert], which `PropertyFormScreen`
+  /// (Farmhouse Information) uses and which never touches these columns.
+  /// Each Settings screen passes only the column(s) it owns, e.g.
+  /// `{'tax_pct': 18, 'gstin': '29ABCDE1234F1Z5'}`.
+  Future<void> updateSettings(String propertyId, Map<String, dynamic> fields) =>
+      _guard(() async {
+        await _db.from('properties').update(fields).eq('id', propertyId);
+      });
+
   Future<Unit> upsertUnit(Unit unit, {String? id}) => _guard(() async {
         final payload = unit.toInsert();
         final row = id == null

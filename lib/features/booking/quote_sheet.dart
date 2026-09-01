@@ -140,6 +140,21 @@ class _QuoteSheetState extends State<QuoteSheet> {
               Text(formatInr(quote.cleaningFee)),
             ],
           ),
+          if (quote.taxAmount > 0) ...[
+            const SizedBox(height: Spacing.xs),
+            Row(
+              key: const Key('tax-row'),
+              children: [
+                Expanded(
+                  child: Text(
+                    'Tax (${formatPct(quote.taxPct)}%)',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+                Text(formatInr(quote.taxAmount)),
+              ],
+            ),
+          ],
           if (quote.coupon != null) ...[
             const SizedBox(height: Spacing.xs),
             Row(

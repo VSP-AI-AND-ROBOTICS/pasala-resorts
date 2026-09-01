@@ -62,8 +62,8 @@ void main() {
       expect(landingPathFor(_admin), '/admin');
     });
 
-    test('super_admin lands on /admin', () {
-      expect(landingPathFor(_superAdmin), '/admin');
+    test('super_admin lands on /owner', () {
+      expect(landingPathFor(_superAdmin), '/owner');
     });
   });
 
@@ -87,8 +87,8 @@ void main() {
       expect(loginRedirect(_admin), '/admin');
     });
 
-    test('super_admin -> /admin', () {
-      expect(loginRedirect(_superAdmin), '/admin');
+    test('super_admin -> /owner', () {
+      expect(loginRedirect(_superAdmin), '/owner');
     });
   });
 
@@ -182,6 +182,34 @@ void main() {
       ]) {
         expect(_to(_accountant, path), null, reason: path);
       }
+    });
+  });
+
+  group('owner', () {
+    test('super_admin reaches every /owner/* route', () {
+      for (final path in [
+        '/owner',
+        '/owner/dashboard',
+        '/owner/food-sales',
+        '/owner/expenses',
+        '/owner/staff-performance',
+        '/owner/reports',
+        '/owner/settings',
+      ]) {
+        expect(_to(_superAdmin, path), null, reason: path);
+      }
+    });
+
+    test('a plain admin is redirected away from every /owner/* route', () {
+      expect(_to(_admin, '/owner'), '/404');
+      expect(_to(_admin, '/owner/dashboard'), '/404');
+      expect(_to(_admin, '/owner/settings'), '/404');
+    });
+
+    test('staff, accountant, and customer are all redirected away too', () {
+      expect(_to(_staff, '/owner'), '/404');
+      expect(_to(_accountant, '/owner'), '/404');
+      expect(_to(_customer, '/owner'), '/404');
     });
   });
 

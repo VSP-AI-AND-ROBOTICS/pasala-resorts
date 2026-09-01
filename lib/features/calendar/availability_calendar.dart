@@ -311,11 +311,20 @@ class _DayCell extends StatelessWidget {
     }
 
     if (selected) {
-      cell = DecoratedBox(
+      // A gap between this ring and the cell it wraps is what makes the
+      // selection actually visible: every status branch above already
+      // paints its own opaque fill, so nesting the ring flush against it
+      // (no padding) would have the ring's own fill painted over entirely
+      // and its border sit pixel-on-pixel against the "available" cell's
+      // own similarly green border -- selecting a date looked like nothing
+      // happened at all. The 3px inset leaves a visible halo regardless of
+      // the wrapped cell's own colours.
+      cell = Container(
+        padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
-          color: scheme.primary.withValues(alpha: 0.25),
-          borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
-          border: Border.all(color: scheme.primary, width: 2),
+          color: scheme.primary.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(PasalaTokens.radiusSm + 3),
+          border: Border.all(color: scheme.primary, width: 2.5),
         ),
         child: cell,
       );

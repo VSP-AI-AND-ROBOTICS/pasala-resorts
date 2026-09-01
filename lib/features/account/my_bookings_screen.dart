@@ -82,6 +82,8 @@ class BookingTile extends StatelessWidget {
         ReservationStatus.hold => 'Reserved',
         ReservationStatus.pendingPayment => 'Payment due',
         ReservationStatus.confirmed => 'Confirmed',
+        ReservationStatus.checkedIn => 'Checked in',
+        ReservationStatus.checkedOut => 'Checked out',
         ReservationStatus.cancelled => 'Cancelled',
       };
 
@@ -105,14 +107,12 @@ class BookingTile extends StatelessWidget {
   /// without reading the label.
   (Color background, Color foreground) _statusColors(ColorScheme scheme) =>
       switch (reservation.status) {
-        ReservationStatus.confirmed => (
-            scheme.primaryContainer,
-            scheme.onPrimaryContainer
-          ),
-        ReservationStatus.cancelled => (
-            scheme.surfaceContainerHigh,
-            scheme.onSurfaceVariant
-          ),
+        ReservationStatus.confirmed ||
+        ReservationStatus.checkedIn =>
+          (scheme.primaryContainer, scheme.onPrimaryContainer),
+        ReservationStatus.checkedOut ||
+        ReservationStatus.cancelled =>
+          (scheme.surfaceContainerHigh, scheme.onSurfaceVariant),
         ReservationStatus.hold ||
         ReservationStatus.pendingPayment =>
           (scheme.tertiaryContainer, scheme.onTertiaryContainer),

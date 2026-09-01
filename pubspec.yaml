@@ -48,6 +48,12 @@ dependencies:
   freezed_annotation: ^3.1.0
   json_annotation: ">=4.9.0 <4.10.0"
   intl: ^0.20.3
+  # Photo attachment on maintenance reports (works on web via a file
+  # picker, no native camera dependency required).
+  image_picker: ^1.2.0
+  # Decorative QR code on the confirmation/booking-detail screens --
+  # nothing in this app ever scans one back.
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

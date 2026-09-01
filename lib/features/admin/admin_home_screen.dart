@@ -76,6 +76,30 @@ class AdminHomeScreen extends StatelessWidget {
       subtitle: 'Assign and track staff work',
       path: '/admin/tasks',
     ),
+    (
+      icon: Icons.how_to_reg_outlined,
+      title: 'Check-In',
+      subtitle: 'Check today\'s confirmed arrivals in',
+      path: '/admin/check-in',
+    ),
+    (
+      icon: Icons.restaurant_outlined,
+      title: 'Kitchen orders',
+      subtitle: 'Every in-stay food order, by status',
+      path: '/admin/kitchen-orders',
+    ),
+    (
+      icon: Icons.room_service_outlined,
+      title: 'Service requests',
+      subtitle: 'Assign and track in-stay service requests',
+      path: '/admin/service-requests',
+    ),
+    (
+      icon: Icons.build_outlined,
+      title: 'Maintenance',
+      subtitle: 'Assign and track reported maintenance issues',
+      path: '/admin/maintenance',
+    ),
   ];
 
   @override

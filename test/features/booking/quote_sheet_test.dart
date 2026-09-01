@@ -16,6 +16,20 @@ void main() {
     'total': 16500,
   });
 
+  final taxedQuote = Quote.fromJson(const {
+    'currency': 'INR',
+    'guests': 6,
+    'lines': [
+      {'date': '2026-08-03', 'label': 'Weekend rate', 'amount': 12000,
+       'extra_guests': 2, 'extra_guest_amount': 3000},
+    ],
+    'subtotal': 15000,
+    'cleaning_fee': 1500,
+    'tax_pct': 18,
+    'tax_amount': 2970,
+    'total': 19470,
+  });
+
   final couponedQuote = Quote.fromJson(const {
     'currency': 'INR',
     'guests': 6,
@@ -71,6 +85,23 @@ void main() {
     await tester.pumpWidget(sheet(quote: quote));
 
     expect(find.byKey(const Key('coupon-discount-row')), findsNothing);
+  });
+
+  testWidgets('a zero-tax property (the default) shows no tax row',
+      (tester) async {
+    await tester.pumpWidget(sheet(quote: quote));
+
+    expect(find.byKey(const Key('tax-row')), findsNothing);
+  });
+
+  testWidgets('a nonzero tax_pct renders a tax row with the percentage, '
+      'the tax amount, and the tax-inclusive total', (tester) async {
+    await tester.pumpWidget(sheet(quote: taxedQuote));
+
+    expect(find.byKey(const Key('tax-row')), findsOneWidget);
+    expect(find.textContaining('Tax (18%)'), findsOneWidget);
+    expect(find.text('₹2,970'), findsOneWidget);
+    expect(find.text('₹19,470'), findsOneWidget);
   });
 
   testWidgets(

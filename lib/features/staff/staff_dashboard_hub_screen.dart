@@ -41,6 +41,21 @@ const staffHubSections = <StaffHubSection>[
     icon: Icons.fact_check_outlined,
     title: 'Daily Work Status',
   ),
+  (
+    path: '/staff/food-orders',
+    icon: Icons.restaurant_outlined,
+    title: 'Food Orders',
+  ),
+  (
+    path: '/staff/service-requests',
+    icon: Icons.room_service_outlined,
+    title: 'Service Requests',
+  ),
+  (
+    path: '/staff/maintenance',
+    icon: Icons.build_outlined,
+    title: 'Maintenance',
+  ),
 ];
 
 /// `/staff/dashboard` -- the staff-operations home. Every card here is a

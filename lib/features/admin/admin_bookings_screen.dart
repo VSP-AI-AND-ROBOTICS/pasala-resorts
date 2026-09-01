@@ -14,7 +14,7 @@ import '../staff/providers.dart';
 /// (those rows still show up under `all`) because a not-yet-paid hold that
 /// is past its 15-minute window is an edge case, not something an admin
 /// scans for day to day.
-enum BookingStatusFilter { all, onHold, confirmed, cancelled, blocks }
+enum BookingStatusFilter { all, onHold, confirmed, checkedIn, checkedOut, cancelled, blocks }
 
 /// Reservations narrowed to [filter]. `all`/`onHold`/`confirmed`/`cancelled`
 /// only ever look at kind `booking` -- i.e. actual guest bookings, whether
@@ -39,6 +39,10 @@ List<Reservation> filterBookings(
       bookings.where((r) => r.status == ReservationStatus.hold).toList(),
     BookingStatusFilter.confirmed =>
       bookings.where((r) => r.status == ReservationStatus.confirmed).toList(),
+    BookingStatusFilter.checkedIn =>
+      bookings.where((r) => r.status == ReservationStatus.checkedIn).toList(),
+    BookingStatusFilter.checkedOut =>
+      bookings.where((r) => r.status == ReservationStatus.checkedOut).toList(),
     BookingStatusFilter.cancelled =>
       bookings.where((r) => r.status == ReservationStatus.cancelled).toList(),
     BookingStatusFilter.blocks => const [], // unreachable, handled above
@@ -49,6 +53,8 @@ String _filterLabel(BookingStatusFilter filter) => switch (filter) {
   BookingStatusFilter.all => 'All',
   BookingStatusFilter.onHold => 'On hold',
   BookingStatusFilter.confirmed => 'Confirmed',
+  BookingStatusFilter.checkedIn => 'Checked in',
+  BookingStatusFilter.checkedOut => 'Checked out',
   BookingStatusFilter.cancelled => 'Cancelled',
   BookingStatusFilter.blocks => 'Blocks',
 };

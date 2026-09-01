@@ -16,6 +16,9 @@ void main() {
           'Work Schedules',
           'Time Slots',
           'Daily Work Status',
+          'Food Orders',
+          'Service Requests',
+          'Maintenance',
         },
       );
     });
@@ -55,6 +58,15 @@ void main() {
   testWidgets('lists a tappable card for every staff section', (
     tester,
   ) async {
+    // Three more sections were added for the Guest Stay Experience feature,
+    // pushing the list past what the default test viewport's cache extent
+    // builds -- same fix as `owner_home_screen_test.dart`'s own
+    // GridView virtualization issue.
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(appFor());
     await tester.pumpAndSettle();
 

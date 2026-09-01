@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/errors.dart';
+import 'package:pasala/data/models/expense.dart';
+import 'package:pasala/data/models/food_sale.dart';
 import 'package:pasala/data/models/report.dart';
 import 'package:pasala/data/repositories/report_repository.dart';
 import 'package:pasala/features/reports/dashboard_screen.dart';
@@ -28,6 +30,16 @@ class FakeReportRepository implements ReportRepository {
 
   @override
   Future<List<OccupancyRow>> occupancy(DateTime from, DateTime to,
+          [String? propertyId]) async =>
+      [];
+
+  @override
+  Future<List<FoodSalesReportRow>> foodSales(DateTime from, DateTime to,
+          [String? propertyId]) async =>
+      [];
+
+  @override
+  Future<List<ExpensesReportRow>> expenses(DateTime from, DateTime to,
           [String? propertyId]) async =>
       [];
 }
