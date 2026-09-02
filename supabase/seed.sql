@@ -53,8 +53,8 @@ insert into public.properties
 values
   ('a0000000-0000-0000-0000-000000000001','Pasala Farm House','pasala-farm-house',
    'A boutique farmhouse resort with a private pool and themed cottages.',
-   'Shamirpet, Hyderabad',
-   '14:00','11:00', array['Pool','Wi-Fi','Barbecue','Parking','Garden']);
+   '- Bommalaramaram Rd, Rangapuram, Telangana',
+   '14:00','11:00', array['Pool','Wi-Fi','Barbecue','Parking','Spacious','Garden']);
 
 insert into public.slot_types (id, property_id, code, start_time, end_time)
 values

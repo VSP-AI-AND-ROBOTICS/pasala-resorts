@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -22,10 +24,19 @@ class AppShell extends ConsumerWidget {
     (path: '/my-stay', icon: Icons.holiday_village_outlined, label: 'My Stay'),
   ];
 
+  // Dashboard / Bookings / More -- Browse (the customer holiday-shopping
+  // flow) drops off entirely here, matching staff/accountant below: it was
+  // never admin work to begin with. `/admin/more` holds every management
+  // screen (Properties, Users, Staff shifts, ...) that isn't one of the
+  // dashboard's own Quick Actions -- see `AdminMoreScreen`'s own doc for
+  // why that split exists.
   static const _adminDestinations = [
-    (path: '/', icon: Icons.home_outlined, label: 'Browse'),
-    (path: '/bookings', icon: Icons.event_outlined, label: 'Bookings'),
-    (path: '/admin', icon: Icons.settings_outlined, label: 'Admin'),
+    (path: '/admin', icon: Icons.dashboard_outlined, label: 'Dashboard'),
+    // `/admin/bookings` (every reservation across every property), not the
+    // customer-facing `/bookings` (that admin account's own, always-empty
+    // booking history) -- an admin tapping "Bookings" wants the former.
+    (path: '/admin/bookings', icon: Icons.event_outlined, label: 'Bookings'),
+    (path: '/admin/more', icon: Icons.more_horiz, label: 'More'),
   ];
 
   // super_admin gets an "Owner" tab instead of "Admin" -- the Owner hub
@@ -34,7 +45,12 @@ class AppShell extends ConsumerWidget {
   // capability becomes unreachable by swapping this destination out.
   static const _ownerDestinations = [
     (path: '/', icon: Icons.home_outlined, label: 'Browse'),
-    (path: '/bookings', icon: Icons.event_outlined, label: 'Bookings'),
+    // Same reasoning as `_adminDestinations` above -- a super_admin's own
+    // `/bookings` history is always empty; `/admin/bookings` (every
+    // reservation across every property) is what "Bookings" here means.
+    // `redirectFor` already permits `/admin/*` for `user.isAdmin`, which is
+    // true for super_admin too, so this needs no router change.
+    (path: '/admin/bookings', icon: Icons.event_outlined, label: 'Bookings'),
     (path: '/owner', icon: Icons.apartment_outlined, label: 'Owner'),
   ];
 
@@ -46,7 +62,7 @@ class AppShell extends ConsumerWidget {
   // `/admin/reports` for staff-or-above (see `router.dart`) -- so Reports
   // must stay reachable from here. Dashboard now points at `/staff/dashboard`
   // (the staff-operations hub), not `/admin/dashboard` (the financial
-  // summary) -- that route stays admin-only-reachable via `AdminHomeScreen`,
+  // summary) -- that route stays admin-only-reachable via `AdminMoreScreen`,
   // untouched by this change.
   static const _staffDestinations = [
     (path: '/staff', icon: Icons.task_alt_outlined, label: 'Today'),
@@ -86,21 +102,26 @@ class AppShell extends ConsumerWidget {
         actionsPadding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
         actions: [
           if (user != null)
-            IconButton(
-              tooltip: 'Sign out',
-              icon: const Icon(Icons.logout),
-              onPressed: () async {
-                try {
-                  await ref.read(authRepositoryProvider).signOut();
-                  if (context.mounted) context.go('/login');
-                } on BookingFailure catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(FailureView.messageFor(e))));
-                  }
-                }
-              },
-            ),
+            if (user.role == UserRole.customer)
+              // Customers get a bell + profile avatar instead of a bare
+              // sign-out icon -- there is no notifications feature or
+              // dedicated profile screen behind these yet, so the bell stays
+              // decorative and the avatar opens a sheet with just the one
+              // thing that already existed here (sign out), rather than
+              // implying pages that don't exist.
+              ..._customerActions(context, ref)
+            else if (user.role == UserRole.admin)
+              // Same treatment as the customer bar -- a decorative bell, a
+              // role label, and a profile avatar opening the shared account
+              // sheet (name/email/role + sign out) -- rather than a bare
+              // logout icon with no identity shown at all.
+              ..._adminActions(context, ref)
+            else
+              IconButton(
+                tooltip: 'Sign out',
+                icon: const Icon(Icons.logout),
+                onPressed: () => _signOut(context, ref),
+              ),
         ],
       ),
       body: wide
@@ -132,4 +153,124 @@ class AppShell extends ConsumerWidget {
             ),
     );
   }
+
+  Future<void> _signOut(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(authRepositoryProvider).signOut();
+      if (context.mounted) context.go('/login');
+    } on BookingFailure catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
+      }
+    }
+  }
+
+  List<Widget> _customerActions(BuildContext context, WidgetRef ref) => [
+        IconButton(
+          tooltip: 'Notifications',
+          icon: const Icon(Icons.notifications_outlined),
+          onPressed: null,
+        ),
+        IconButton(
+          tooltip: 'Account',
+          padding: EdgeInsets.zero,
+          icon: const CircleAvatar(
+            radius: 16,
+            backgroundColor: PasalaTokens.seed,
+            child: Icon(Icons.person, color: Colors.white, size: 18),
+          ),
+          onPressed: () => _showAccountSheet(context, ref),
+        ),
+      ];
+
+  List<Widget> _adminActions(BuildContext context, WidgetRef ref) => [
+        IconButton(
+          tooltip: 'Notifications',
+          icon: const Icon(Icons.notifications_outlined),
+          onPressed: null,
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+          child: Text(
+            'Admin',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+        ),
+        IconButton(
+          tooltip: 'Account',
+          padding: EdgeInsets.zero,
+          icon: const CircleAvatar(
+            radius: 16,
+            backgroundColor: PasalaTokens.seed,
+            child: Icon(Icons.person, color: Colors.white, size: 18),
+          ),
+          onPressed: () => _showAccountSheet(context, ref),
+        ),
+      ];
+
+  void _showAccountSheet(BuildContext context, WidgetRef ref) {
+    final user = ref.read(currentUserProvider).value;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                user?.fullName ?? user?.email ?? 'Account',
+                style: Theme.of(sheetContext).textTheme.titleMedium,
+              ),
+              if (user?.fullName != null) ...[
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  user!.email,
+                  style: Theme.of(sheetContext)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(
+                        color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+              if (user != null && user.role != UserRole.customer) ...[
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  _roleLabel(user.role),
+                  style: Theme.of(sheetContext).textTheme.labelMedium?.copyWith(
+                        color: Theme.of(sheetContext).colorScheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+              const SizedBox(height: Spacing.lg),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  key: const Key('account-sheet-sign-out'),
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Sign out'),
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    unawaited(_signOut(context, ref));
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _roleLabel(UserRole role) => switch (role) {
+        UserRole.admin => 'Admin',
+        UserRole.superAdmin => 'Owner',
+        UserRole.staff => 'Staff',
+        UserRole.accountant => 'Accountant',
+        UserRole.customer => 'Customer',
+      };
 }

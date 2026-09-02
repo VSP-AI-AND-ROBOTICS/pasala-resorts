@@ -36,6 +36,8 @@ class Reservation {
     required this.kind,
     required this.status,
     this.customerId,
+    this.customerName,
+    this.customerPhone,
     this.guests,
     this.quote,
     this.holdExpiresAt,
@@ -43,6 +45,7 @@ class Reservation {
     this.occasion,
     this.checkedInAt,
     this.checkedOutAt,
+    this.createdAt,
   });
 
   final String id;
@@ -52,12 +55,23 @@ class Reservation {
   final ReservationKind kind;
   final ReservationStatus status;
   final String? customerId;
+
+  /// From the `profiles` row embedded by [BookingRepository.allBookings]'s
+  /// join -- null wherever that join isn't requested (e.g. the customer's
+  /// own `myBookings`/calendar queries, which have no need to know their
+  /// own name back).
+  final String? customerName;
+  final String? customerPhone;
   final int? guests;
   final Quote? quote;
   final DateTime? holdExpiresAt;
   final String? blockReason;
   final DateTime? checkedInAt;
   final DateTime? checkedOutAt;
+
+  /// Null only for rows built by [Reservation.fromCalendarEvent], which
+  /// never selects it.
+  final DateTime? createdAt;
 
   /// A free-text note captured at hold time (e.g. "Anniversary weekend").
   /// Never read by pricing -- purely informational, shown on the
@@ -75,6 +89,10 @@ class Reservation {
 
   factory Reservation.fromJson(Map<String, dynamic> json) {
     final period = parsePeriod(json['period'] as String);
+    // The embedded `profiles` resource from `allBookings`' join arrives as
+    // a nested map (PostgREST's to-one embed shape); absent entirely from
+    // every other query that builds a Reservation.
+    final profile = json['profiles'] as Map<String, dynamic>?;
     return Reservation(
       id: json['id'] as String,
       unitId: json['unit_id'] as String,
@@ -83,6 +101,8 @@ class Reservation {
       kind: ReservationKind.values.byName(json['kind'] as String),
       status: _status(json['status'] as String),
       customerId: json['customer_id'] as String?,
+      customerName: profile?['full_name'] as String?,
+      customerPhone: profile?['phone'] as String?,
       guests: (json['guests'] as num?)?.toInt(),
       quote: json['quote'] == null
           ? null
@@ -98,6 +118,9 @@ class Reservation {
       checkedOutAt: json['checked_out_at'] == null
           ? null
           : DateTime.parse(json['checked_out_at'] as String).toUtc(),
+      createdAt: json['created_at'] == null
+          ? null
+          : DateTime.parse(json['created_at'] as String).toUtc(),
     );
   }
 

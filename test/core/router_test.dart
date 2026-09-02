@@ -200,10 +200,23 @@ void main() {
       }
     });
 
-    test('a plain admin is redirected away from every /owner/* route', () {
+    test('a plain admin is redirected away from every /owner/* route '
+        'except /owner/expenses', () {
       expect(_to(_admin, '/owner'), '/404');
       expect(_to(_admin, '/owner/dashboard'), '/404');
       expect(_to(_admin, '/owner/settings'), '/404');
+    });
+
+    // expenses_read (0027_expenses.sql) already grants admin/accountant/
+    // super_admin at the RLS level, and the admin dashboard's own "Add
+    // Expense" tile needs a real destination -- so this one leaf is the
+    // sole exception to the otherwise-blanket super_admin-only rule.
+    test('a plain admin (but not staff/accountant/customer) reaches '
+        '/owner/expenses', () {
+      expect(_to(_admin, '/owner/expenses'), null);
+      expect(_to(_staff, '/owner/expenses'), '/404');
+      expect(_to(_accountant, '/owner/expenses'), '/404');
+      expect(_to(_customer, '/owner/expenses'), '/404');
     });
 
     test('staff, accountant, and customer are all redirected away too', () {

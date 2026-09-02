@@ -104,15 +104,15 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Dates'), findsOneWidget);
-      // 'Guests' legitimately renders twice in BookingScreen: once as this
-      // numbered section's title, and once as the guest stepper's own row
-      // label inside it (see `_guestStepper` in booking_screen.dart) --
-      // findsWidgets (rather than findsOneWidget) asserts the section is
-      // present without over-specifying BookingScreen's internal layout.
+      // findsWidgets (rather than findsOneWidget) asserts the "Guests" step
+      // is present without over-specifying exactly how many places its
+      // label appears inside `_PlanYourStayCard`.
       expect(find.text('Guests'), findsWidgets);
       expect(find.byKey(const Key('occasion-field')), findsOneWidget);
+      // Pay is no longer its own numbered section -- once a quote exists,
+      // the Price section's own button is the payment action, so there is
+      // no separate fourth step to assert on.
       expect(find.text('Price'), findsOneWidget);
-      expect(find.text('Pay'), findsOneWidget);
     },
   );
 }

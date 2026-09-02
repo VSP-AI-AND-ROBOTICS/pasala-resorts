@@ -8,6 +8,8 @@ import '../data/models/activity.dart';
 import '../features/account/booking_detail_screen.dart';
 import '../features/account/my_bookings_screen.dart';
 import '../features/admin/admin_bookings_screen.dart';
+import '../features/admin/admin_more_screen.dart';
+import '../features/admin/admin_reviews_screen.dart';
 import '../features/admin/admin_home_screen.dart';
 import '../features/admin/attendance_screen.dart';
 import '../features/admin/kitchen_orders_screen.dart';
@@ -118,9 +120,17 @@ String? redirectFor({
   // cannot reach it just by knowing the URL -- same "route guarding is UX
   // only" caveat as above: every RPC/table this leads to still carries its
   // own real Postgres-level gate independent of this check.
-  if (path.startsWith('/owner') && user.role != UserRole.superAdmin) {
+  // `/owner/expenses` is the one exception: `expenses_read` (0027_expenses.sql)
+  // already grants admin/accountant/super_admin, and the admin dashboard's
+  // own "Add Expense" tile needs somewhere real to go -- so a plain admin is
+  // let through to this one leaf despite the blanket super_admin-only rule
+  // below.
+  if (path.startsWith('/owner') &&
+      path != '/owner/expenses' &&
+      user.role != UserRole.superAdmin) {
     return '/404';
   }
+  if (path == '/owner/expenses' && !user.isAdmin) return '/404';
   return null;
 }
 
@@ -261,6 +271,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/bookings',
             builder: (_, _) => const AdminBookingsScreen(),
+          ),
+          GoRoute(
+            path: '/admin/reviews',
+            builder: (_, _) => const AdminReviewsScreen(),
+          ),
+          GoRoute(
+            path: '/admin/more',
+            builder: (_, _) => const AdminMoreScreen(),
           ),
           GoRoute(
             path: '/admin/dashboard',

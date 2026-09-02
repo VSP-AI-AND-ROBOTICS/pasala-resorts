@@ -239,6 +239,7 @@ IconData amenityIcon(String label) => switch (label.toLowerCase()) {
   'parking' => Icons.local_parking,
   'garden' || 'lawn' => Icons.grass,
   'bonfire' => Icons.local_fire_department,
+  'spacious' => Icons.aspect_ratio,
   _ => Icons.check_circle_outline,
 };
 

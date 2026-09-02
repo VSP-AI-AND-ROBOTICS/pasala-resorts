@@ -54,6 +54,18 @@ class ReviewRepository {
             .maybeSingle();
         return row == null ? null : Review.fromJson(row);
       });
+
+  /// Every review, newest first -- `reviews_read`'s `is_staff_or_above()`
+  /// branch already grants this to admin/staff, so no new RLS is needed.
+  /// Backs the admin dashboard's Guest Experience card (average rating,
+  /// latest review) and the standalone Reviews screen.
+  Future<List<Review>> all() => _guard(() async {
+        final rows = await _db
+            .from('reviews')
+            .select()
+            .order('created_at', ascending: false);
+        return rows.map(Review.fromJson).toList();
+      });
 }
 
 final reviewRepositoryProvider = Provider<ReviewRepository>(
@@ -63,4 +75,8 @@ final reviewRepositoryProvider = Provider<ReviewRepository>(
 final reviewForReservationProvider = FutureProvider.family<Review?, String>(
   (ref, reservationId) =>
       ref.watch(reviewRepositoryProvider).forReservation(reservationId),
+);
+
+final allReviewsProvider = FutureProvider<List<Review>>(
+  (ref) => ref.watch(reviewRepositoryProvider).all(),
 );

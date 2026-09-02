@@ -603,6 +603,12 @@ void main() {
         await tester.pumpAndSettle();
       }
 
+      // The calendar now opens in a bottom sheet from the "Check-in" field
+      // instead of sitting inline -- it stays open across both taps and
+      // auto-closes once the range is complete (see
+      // `_BookingScreenState._openDatePickerSheet`).
+      await tester.tap(find.byKey(const Key('check-in-field')));
+      await tester.pumpAndSettle();
       await tapDay(from);
       await tapDay(to);
     }
