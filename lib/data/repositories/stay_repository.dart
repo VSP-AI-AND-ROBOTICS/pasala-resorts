@@ -26,13 +26,17 @@ class StayRepository {
         final uid = _db.auth.currentUser?.id;
         if (uid == null) throw const NotPermitted();
 
+        // `.order()` defaults to descending (a postgrest-dart gotcha, not a
+        // Postgres one) -- `ascending: true` is required here, not
+        // decorative, or this resolves to the LATEST matching reservation
+        // instead of the soonest one this method's own doc comment promises.
         final checkedIn = await _db
             .from('reservations')
             .select()
             .eq('customer_id', uid)
             .eq('kind', 'booking')
             .eq('status', 'checked_in')
-            .order('period')
+            .order('period', ascending: true)
             .limit(1)
             .maybeSingle();
         if (checkedIn != null) return Reservation.fromJson(checkedIn);
@@ -43,10 +47,30 @@ class StayRepository {
             .eq('customer_id', uid)
             .eq('kind', 'booking')
             .eq('status', 'confirmed')
-            .order('period')
+            .order('period', ascending: true)
             .limit(1)
             .maybeSingle();
         return confirmed == null ? null : Reservation.fromJson(confirmed);
+      });
+
+  /// The customer's own most recently checked-out stay, if any -- backs
+  /// "My Stay"'s post-checkout review prompt. `currentStay()` never
+  /// surfaces a `checked_out` reservation (there's nothing left to manage
+  /// in-stay once it's over), so this is a separate, deliberately narrow
+  /// query rather than widening that one's meaning.
+  Future<Reservation?> mostRecentCheckedOut() => _guard(() async {
+        final uid = _db.auth.currentUser?.id;
+        if (uid == null) throw const NotPermitted();
+        final row = await _db
+            .from('reservations')
+            .select()
+            .eq('customer_id', uid)
+            .eq('kind', 'booking')
+            .eq('status', 'checked_out')
+            .order('period', ascending: false)
+            .limit(1)
+            .maybeSingle();
+        return row == null ? null : Reservation.fromJson(row);
       });
 
   Future<Reservation> checkIn(String reservationId) => _guard(() async {
@@ -77,14 +101,27 @@ class StayRepository {
         return Reservation.fromJson(row as Map<String, dynamic>);
       });
 
-  /// Today's confirmed arrivals -- reception's Check-In queue.
+  /// Today's confirmed arrivals -- reception's Check-In queue, soonest
+  /// arrival first (`ascending: true` -- see the comment on `currentStay`).
   Future<List<Reservation>> todaysArrivals() => _guard(() async {
         final rows = await _db
             .from('reservations')
             .select()
             .eq('kind', 'booking')
             .eq('status', 'confirmed')
-            .order('period');
+            .order('period', ascending: true);
+        return rows.map(Reservation.fromJson).toList();
+      });
+
+  /// Every guest currently on-site -- reception's Check-Out queue, soonest
+  /// -arrived guest first.
+  Future<List<Reservation>> checkedIn() => _guard(() async {
+        final rows = await _db
+            .from('reservations')
+            .select()
+            .eq('kind', 'booking')
+            .eq('status', 'checked_in')
+            .order('period', ascending: true);
         return rows.map(Reservation.fromJson).toList();
       });
 }
@@ -97,6 +134,10 @@ final currentStayProvider = FutureProvider<Reservation?>(
   (ref) => ref.watch(stayRepositoryProvider).currentStay(),
 );
 
+final mostRecentCheckedOutProvider = FutureProvider<Reservation?>(
+  (ref) => ref.watch(stayRepositoryProvider).mostRecentCheckedOut(),
+);
+
 final currentChargesProvider = FutureProvider.family<CurrentCharges, String>(
   (ref, reservationId) =>
       ref.watch(stayRepositoryProvider).currentCharges(reservationId),
@@ -104,4 +145,18 @@ final currentChargesProvider = FutureProvider.family<CurrentCharges, String>(
 
 final todaysArrivalsProvider = FutureProvider<List<Reservation>>(
   (ref) => ref.watch(stayRepositoryProvider).todaysArrivals(),
+);
+
+/// `autoDispose` -- unlike this file's other providers, the mutation that
+/// invalidates this one (`checkout_booking`) happens on a *different*,
+/// separately-pushed screen (`CheckoutScreen`). A plain `FutureProvider`
+/// would keep serving its last cached list to whichever admin next opens
+/// `/admin/check-out`, however they got there, if that push's route was
+/// ever left via anything other than popping straight back to this list
+/// (e.g. jumping to Dashboard from the nav rail mid-flow, which never lets
+/// `ReceptionCheckoutScreen`'s own post-push invalidate run). `autoDispose`
+/// means a fresh instance -- and therefore a fresh query -- is created the
+/// next time anything watches it, regardless of navigation path.
+final checkedInProvider = FutureProvider.autoDispose<List<Reservation>>(
+  (ref) => ref.watch(stayRepositoryProvider).checkedIn(),
 );

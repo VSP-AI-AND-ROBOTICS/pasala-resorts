@@ -273,11 +273,14 @@ class BookingRepository
         // `reservations` has two FKs into `profiles` (customer_id and
         // created_by), so the embed must name which one via its
         // constraint -- otherwise PostgREST returns 300 Multiple Choices.
+        // `.order()` defaults to descending in postgrest-dart --
+        // `ascending: true` so the soonest booking (what an admin most
+        // likely needs to act on) sorts to the top, not the furthest-out one.
         final rows = await _db
             .from('reservations')
             .select(
                 '*, profiles!reservations_customer_id_fkey(full_name, phone)')
-            .order('period');
+            .order('period', ascending: true);
         return rows
             .map(Reservation.fromJson)
             .where((r) =>

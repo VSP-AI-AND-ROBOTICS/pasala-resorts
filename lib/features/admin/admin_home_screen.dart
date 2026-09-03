@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
+import '../../core/greeting.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/models/reservation.dart';
@@ -87,37 +88,6 @@ String relativeTime(DateTime from, DateTime now) {
   return 'Just now';
 }
 
-String _greeting(DateTime now) {
-  if (now.hour < 12) return 'Good Morning';
-  if (now.hour < 17) return 'Good Afternoon';
-  return 'Good Evening';
-}
-
-const _weekdays = [
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-  'Sunday',
-];
-
-const _months = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-];
-
 /// This app has exactly one property -- every screen that needs "the"
 /// property/unit (booking, browse, this dashboard) already assumes as much.
 /// Resolves to `null` while loading or if the catalog is ever empty, so
@@ -155,11 +125,11 @@ class AdminHomeScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(Spacing.md),
         children: [
-          Text('${_greeting(now)}, $firstName 👋',
+          Text('${greetingFor(now)}, $firstName 👋',
               style: textTheme.headlineSmall),
           const SizedBox(height: Spacing.xs),
           Text(
-            '${_weekdays[now.weekday - 1]}, ${now.day} ${_months[now.month - 1]} ${now.year}',
+            fullDateFor(now),
             style:
                 textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
           ),
@@ -465,11 +435,14 @@ class _QuickActions extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final unitId = ref.watch(_primaryUnitIdProvider).value;
+    final propertyId = ref.watch(propertiesProvider).value?.firstOrNull?.id;
 
     final actions = <(_QuickAction, VoidCallback)>[
       (
         (icon: Icons.add_circle_outline, label: 'New Booking', color: scheme.primary),
-        () => _comingSoon(context, 'New Booking'),
+        propertyId == null
+            ? () => _comingSoon(context, 'New Booking')
+            : () => context.push('/property/$propertyId'),
       ),
       (
         (icon: Icons.event_busy_outlined, label: 'Block Date', color: Colors.indigo),
@@ -483,7 +456,7 @@ class _QuickActions extends ConsumerWidget {
       ),
       (
         (icon: Icons.logout_outlined, label: 'Check-out', color: scheme.tertiary),
-        () => _comingSoon(context, 'Check-out'),
+        () => context.push('/admin/check-out'),
       ),
       (
         (icon: Icons.restaurant_outlined, label: 'Food Order', color: Colors.deepOrange),
@@ -495,7 +468,7 @@ class _QuickActions extends ConsumerWidget {
       ),
       (
         (icon: Icons.campaign_outlined, label: 'Send Message', color: Colors.blue),
-        () => _comingSoon(context, 'Send Message'),
+        () => context.push('/admin/outbox'),
       ),
       (
         (icon: Icons.receipt_long_outlined, label: 'Add Expense', color: scheme.primary),

@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
-import '../../data/models/report.dart';
 import '../reports/providers.dart';
 
 /// `/owner/dashboard` -- the owner's business-at-a-glance view. Reads the
@@ -14,12 +13,20 @@ import '../reports/providers.dart';
 /// expenses this month, and net profit this month. Every figure is
 /// computed server-side -- this screen only formats what the server
 /// already computed, same discipline as `DashboardScreen`.
+///
+/// Grouped into three eyebrow-labeled sections (Today / This Month /
+/// Operations) rather than one flat 9-tile grid -- the groupings mirror how
+/// an owner actually thinks about the business (cash today vs. the month's
+/// trend vs. what's operationally in flight), and Net Profit is colored red
+/// when the month is running at a loss, a real signal rather than
+/// decoration.
 class BusinessDashboardScreen extends ConsumerWidget {
   const BusinessDashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final summary = ref.watch(dashboardSummaryProvider);
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Business dashboard')),
@@ -28,87 +35,143 @@ class BusinessDashboardScreen extends ConsumerWidget {
         onRetry: () => ref.invalidate(dashboardSummaryProvider),
         data: (s) => RefreshIndicator(
           onRefresh: () async => ref.invalidate(dashboardSummaryProvider),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final cards = _statCards(s);
-              final columns = (constraints.maxWidth / 220).floor().clamp(1, 4);
-              return GridView.builder(
-                padding: const EdgeInsets.all(Spacing.md),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  mainAxisSpacing: Spacing.md,
-                  crossAxisSpacing: Spacing.md,
-                  mainAxisExtent: 180,
+          child: ListView(
+            padding: const EdgeInsets.all(Spacing.md),
+            children: [
+              _eyebrow(context, 'TODAY'),
+              const SizedBox(height: Spacing.sm),
+              _MetricRow(metrics: [
+                (
+                  icon: Icons.currency_rupee,
+                  label: 'Revenue today',
+                  value: formatInr(s.todayRevenue),
+                  caption: 'Confirmed bookings, net of refunds',
+                  color: scheme.primary,
                 ),
-                itemCount: cards.length,
-                itemBuilder: (context, i) => cards[i],
-              );
-            },
+                (
+                  icon: Icons.restaurant_outlined,
+                  label: 'Food & activity sales',
+                  value: formatInr(s.foodSalesToday),
+                  caption: 'Across every property',
+                  color: scheme.primary,
+                ),
+              ]),
+              const SizedBox(height: Spacing.lg),
+              _eyebrow(context, 'THIS MONTH'),
+              const SizedBox(height: Spacing.sm),
+              _MetricRow(metrics: [
+                (
+                  icon: Icons.trending_up,
+                  label: 'Revenue',
+                  value: formatInr(s.monthRevenue),
+                  caption: 'Month to date',
+                  color: scheme.primary,
+                ),
+                (
+                  icon: Icons.receipt_long_outlined,
+                  label: 'Expenses',
+                  value: formatInr(s.expensesMonthTotal),
+                  caption: 'Month to date',
+                  color: scheme.onSurfaceVariant,
+                ),
+                (
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: 'Net profit',
+                  value: formatInr(s.netProfitMonth),
+                  caption: 'Revenue minus expenses',
+                  color: s.netProfitMonth < 0 ? scheme.error : scheme.primary,
+                ),
+              ]),
+              const SizedBox(height: Spacing.lg),
+              _eyebrow(context, 'OPERATIONS'),
+              const SizedBox(height: Spacing.sm),
+              _MetricRow(metrics: [
+                (
+                  icon: Icons.pie_chart_outline,
+                  label: 'Occupancy',
+                  value: '${s.occupancyPct}%',
+                  caption: 'Average across active units',
+                  color: scheme.tertiary,
+                ),
+                (
+                  icon: Icons.flight_land_outlined,
+                  label: 'Upcoming arrivals',
+                  value: '${s.upcomingArrivals}',
+                  caption: 'Confirmed, next 7 days',
+                  color: scheme.tertiary,
+                ),
+                (
+                  icon: Icons.cancel_outlined,
+                  label: 'Cancellations',
+                  value: '${s.cancellationsThisMonth}',
+                  caption: 'This month',
+                  color: scheme.onSurfaceVariant,
+                ),
+                (
+                  icon: Icons.hourglass_empty,
+                  label: 'Active holds',
+                  value: '${s.activeHolds}',
+                  caption: 'Not yet expired',
+                  color: scheme.onSurfaceVariant,
+                ),
+              ]),
+            ],
           ),
         ),
       ),
     );
   }
-
-  List<_StatCard> _statCards(DashboardSummary s) => [
-        _StatCard(
-          label: 'Revenue today',
-          figure: formatInr(s.todayRevenue),
-          caption: 'Confirmed bookings, net of refunds',
-        ),
-        _StatCard(
-          label: 'Revenue this month',
-          figure: formatInr(s.monthRevenue),
-          caption: 'Month to date',
-        ),
-        _StatCard(
-          label: 'Occupancy',
-          figure: '${s.occupancyPct}%',
-          caption: 'Average across active units, this month',
-        ),
-        _StatCard(
-          label: 'Food & activity sales today',
-          figure: formatInr(s.foodSalesToday),
-          caption: 'Across every property',
-        ),
-        _StatCard(
-          label: 'Expenses this month',
-          figure: formatInr(s.expensesMonthTotal),
-          caption: 'Month to date',
-        ),
-        _StatCard(
-          label: 'Net profit this month',
-          figure: formatInr(s.netProfitMonth),
-          caption: 'Revenue minus expenses, month to date',
-        ),
-        _StatCard(
-          label: 'Upcoming arrivals',
-          figure: '${s.upcomingArrivals}',
-          caption: 'Confirmed, next 7 days',
-        ),
-        _StatCard(
-          label: 'Cancellations',
-          figure: '${s.cancellationsThisMonth}',
-          caption: 'This month',
-        ),
-        _StatCard(
-          label: 'Active holds',
-          figure: '${s.activeHolds}',
-          caption: 'Not yet expired',
-        ),
-      ];
 }
 
-class _StatCard extends StatelessWidget {
-  const _StatCard({
-    required this.label,
-    required this.figure,
-    required this.caption,
-  });
+Widget _eyebrow(BuildContext context, String text) => Text(
+      text,
+      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+          ),
+    );
 
-  final String label;
-  final String figure;
-  final String caption;
+typedef _Metric = ({
+  IconData icon,
+  String label,
+  String value,
+  String caption,
+  Color color,
+});
+
+/// A responsive row of [_MetricCard]s -- wraps onto a new line on narrow
+/// widths rather than squeezing, since these cards carry a caption line
+/// each and don't compress well.
+class _MetricRow extends StatelessWidget {
+  const _MetricRow({required this.metrics});
+
+  final List<_Metric> metrics;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = (constraints.maxWidth / 200).floor().clamp(1, 4);
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: Spacing.sm,
+              crossAxisSpacing: Spacing.sm,
+              mainAxisExtent: 130,
+            ),
+            itemCount: metrics.length,
+            itemBuilder: (context, i) => _MetricCard(metric: metrics[i]),
+          );
+        },
+      );
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({required this.metric});
+
+  final _Metric metric;
 
   @override
   Widget build(BuildContext context) {
@@ -120,22 +183,20 @@ class _StatCard extends StatelessWidget {
         padding: const EdgeInsets.all(Spacing.md),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              label,
-              style: textTheme.labelLarge?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
+            Icon(metric.icon, color: metric.color, size: 20),
             const SizedBox(height: Spacing.sm),
-            Text(figure, style: textTheme.headlineMedium),
-            const SizedBox(height: Spacing.xs),
+            Text(metric.value,
+                style: textTheme.titleLarge
+                    ?.copyWith(color: metric.color, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 2),
+            Text(metric.label, style: textTheme.bodySmall),
             Text(
-              caption,
-              style: textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              metric.caption,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: textTheme.bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant, fontSize: 11),
             ),
           ],
         ),

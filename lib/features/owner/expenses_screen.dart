@@ -53,7 +53,8 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(Spacing.md),
+            padding: const EdgeInsets.fromLTRB(
+                Spacing.md, Spacing.md, Spacing.md, Spacing.sm),
             child: OutlinedButton.icon(
               onPressed: _pickRange,
               icon: const Icon(Icons.date_range_outlined),
@@ -82,6 +83,14 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                       ),
                       child: Card(
                         child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: Theme.of(context)
+                                .colorScheme
+                                .errorContainer
+                                .withValues(alpha: 0.5),
+                            child: Icon(Icons.receipt_long_outlined,
+                                color: Theme.of(context).colorScheme.onErrorContainer),
+                          ),
                           title: Text(expense.description.isEmpty
                               ? expense.category
                               : expense.description),
@@ -92,7 +101,10 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(formatInr(expense.amount)),
+                              Text(
+                                formatInr(expense.amount),
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
                               PopupMenuButton<String>(
                                 onSelected: (value) =>
                                     _onMenuSelected(context, filter, expense, value),
@@ -278,42 +290,53 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
               shrinkWrap: true,
               padding: const EdgeInsets.all(Spacing.lg),
               children: [
-                TextField(
-                  key: const Key('expense-form-category'),
-                  controller: _category,
-                  decoration: const InputDecoration(
-                    labelText: 'Category',
-                    helperText: 'e.g. Utilities, Maintenance, Supplies, Salaries',
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(Spacing.md),
+                    child: Column(
+                      children: [
+                        TextField(
+                          key: const Key('expense-form-category'),
+                          controller: _category,
+                          decoration: const InputDecoration(
+                            labelText: 'Category',
+                            helperText: 'e.g. Utilities, Maintenance, Supplies, Salaries',
+                          ),
+                        ),
+                        const SizedBox(height: Spacing.sm),
+                        TextField(
+                          key: const Key('expense-form-description'),
+                          controller: _description,
+                          decoration: const InputDecoration(labelText: 'Description'),
+                        ),
+                        const SizedBox(height: Spacing.sm),
+                        TextField(
+                          key: const Key('expense-form-amount'),
+                          controller: _amount,
+                          keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(labelText: 'Amount'),
+                        ),
+                        const SizedBox(height: Spacing.sm),
+                        TextField(
+                          key: const Key('expense-form-paid-to'),
+                          controller: _paidTo,
+                          decoration: const InputDecoration(
+                            labelText: 'Paid to',
+                            helperText: 'Optional',
+                          ),
+                        ),
+                        const SizedBox(height: Spacing.sm),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.event_outlined),
+                          title: const Text('Date'),
+                          trailing: Text(formatDate(_expenseDate)),
+                          onTap: _pickDate,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: Spacing.sm),
-                TextField(
-                  key: const Key('expense-form-description'),
-                  controller: _description,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                const SizedBox(height: Spacing.sm),
-                TextField(
-                  key: const Key('expense-form-amount'),
-                  controller: _amount,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Amount'),
-                ),
-                const SizedBox(height: Spacing.sm),
-                TextField(
-                  key: const Key('expense-form-paid-to'),
-                  controller: _paidTo,
-                  decoration: const InputDecoration(
-                    labelText: 'Paid to',
-                    helperText: 'Optional',
-                  ),
-                ),
-                const SizedBox(height: Spacing.sm),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Date'),
-                  trailing: Text(formatDate(_expenseDate)),
-                  onTap: _pickDate,
                 ),
                 if (_error != null)
                   Padding(

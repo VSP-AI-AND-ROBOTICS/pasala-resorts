@@ -23,7 +23,9 @@ class ActivityRepository {
             .select()
             .eq('property_id', propertyId)
             .eq('is_available', true)
-            .order('name');
+            // `.order()` defaults to descending in postgrest-dart --
+            // `ascending: true` for A-Z, not Z-A.
+            .order('name', ascending: true);
         return rows.map((e) => Activity.fromJson(e)).toList();
       });
 
@@ -56,7 +58,7 @@ class ActivityRepository {
             .from('activity_bookings')
             .select('*, activities(name)')
             .eq('reservation_id', reservationId)
-            .order('booking_date');
+            .order('booking_date', ascending: true);
         return rows.map((e) => ActivityBooking.fromJson(e)).toList();
       });
 

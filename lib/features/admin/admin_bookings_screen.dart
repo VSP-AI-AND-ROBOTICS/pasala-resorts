@@ -8,6 +8,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../data/models/reservation.dart';
+import '../browse/providers.dart' show propertiesProvider;
 import '../staff/providers.dart';
 
 /// The mockup's four guest-facing states, plus [blocks] -- the pre-existing
@@ -124,6 +125,8 @@ class _AdminBookingsScreenState extends ConsumerState<AdminBookingsScreen> {
   Widget build(BuildContext context) {
     final bookingsAsync = ref.watch(allBookingsProvider);
     final scheme = Theme.of(context).colorScheme;
+    final properties = ref.watch(propertiesProvider).value ?? const [];
+    final propertyId = properties.isEmpty ? null : properties.first.id;
 
     return Scaffold(
       appBar: AppBar(
@@ -132,7 +135,9 @@ class _AdminBookingsScreenState extends ConsumerState<AdminBookingsScreen> {
           Padding(
             padding: const EdgeInsets.only(right: Spacing.md),
             child: FilledButton.icon(
-              onPressed: _newBookingComingSoon,
+              onPressed: propertyId == null
+                  ? _newBookingComingSoon
+                  : () => context.push('/property/$propertyId'),
               icon: const Icon(Icons.add, size: 18),
               label: const Text('New Booking'),
             ),

@@ -23,7 +23,9 @@ class FoodOrderRepository {
             .from('food_categories')
             .select()
             .eq('property_id', propertyId)
-            .order('sort_order');
+            // `.order()` defaults to descending in postgrest-dart --
+            // `ascending: true` for the menu's own configured order.
+            .order('sort_order', ascending: true);
         return rows.map((e) => FoodCategory.fromJson(e)).toList();
       });
 
@@ -32,7 +34,7 @@ class FoodOrderRepository {
             .from('food_items')
             .select()
             .eq('category_id', categoryId)
-            .order('name');
+            .order('name', ascending: true);
         return rows.map((e) => FoodItem.fromJson(e)).toList();
       });
 

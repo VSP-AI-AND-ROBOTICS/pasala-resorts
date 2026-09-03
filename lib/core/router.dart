@@ -15,6 +15,7 @@ import '../features/admin/attendance_screen.dart';
 import '../features/admin/kitchen_orders_screen.dart';
 import '../features/admin/maintenance_issues_screen.dart';
 import '../features/admin/reception_checkin_screen.dart';
+import '../features/admin/reception_checkout_screen.dart';
 import '../features/admin/service_requests_screen.dart';
 import '../features/admin/tasks_screen.dart';
 import '../features/admin/block_dates_screen.dart';
@@ -29,6 +30,7 @@ import '../features/auth/signup_screen.dart';
 import '../features/auth/welcome_screen.dart';
 import '../features/booking/confirmation_screen.dart';
 import '../features/browse/browse_screen.dart';
+import '../features/browse/customer_reviews_screen.dart';
 import '../features/browse/property_screen.dart';
 import '../features/ota/ical_screen.dart';
 import '../features/outbox/outbox_screen.dart';
@@ -50,12 +52,12 @@ import '../features/staff/leave_screen.dart';
 import '../features/staff/my_food_orders_screen.dart';
 import '../features/staff/my_maintenance_issues_screen.dart';
 import '../features/staff/my_service_requests_screen.dart';
-import '../features/staff/placeholder_section_screen.dart';
 import '../features/staff/staff_dashboard_hub_screen.dart';
 import '../features/staff/staff_profile_screen.dart';
 import '../features/staff/time_slots_screen.dart';
 import '../features/staff/today_screen.dart';
 import '../features/staff/work_schedules_screen.dart';
+import '../features/staff/working_hours_screen.dart';
 import '../features/stay/activity_booking_form_screen.dart';
 import '../features/stay/activity_catalog_screen.dart';
 import '../features/stay/checkout_screen.dart';
@@ -237,6 +239,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                 fadeSlidePage(const MyBookingsScreen(), state),
           ),
           GoRoute(
+            path: '/reviews',
+            pageBuilder: (_, state) =>
+                fadeSlidePage(const CustomerReviewsScreen(), state),
+          ),
+          GoRoute(
             path: '/booking-detail/:id',
             pageBuilder: (_, state) => fadeSlidePage(
               BookingDetailScreen(reservationId: state.pathParameters['id']!),
@@ -348,10 +355,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/staff/working-hours',
-            builder: (_, _) => const PlaceholderSectionScreen(
-              title: 'Working Hours',
-              icon: Icons.schedule_outlined,
-            ),
+            builder: (_, _) => const WorkingHoursScreen(),
           ),
           GoRoute(
             path: '/staff/leave',
@@ -388,6 +392,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/check-in',
             builder: (_, _) => const ReceptionCheckinScreen(),
+          ),
+          GoRoute(
+            path: '/admin/check-out',
+            builder: (_, _) => const ReceptionCheckoutScreen(),
           ),
           GoRoute(
             path: '/admin/kitchen-orders',

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/quote.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/features/admin/admin_bookings_screen.dart';
+import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/staff/providers.dart';
 
 Reservation _res(
@@ -137,12 +140,39 @@ void main() {
   });
 
   group('AdminBookingsScreen', () {
-    Widget app(List<Reservation> bookings) => ProviderScope(
-          overrides: [
-            allBookingsProvider.overrideWith((ref) async => bookings),
-          ],
-          child: const MaterialApp(home: AdminBookingsScreen()),
-        );
+    const property = Property(
+      id: 'p1',
+      name: 'Pasala Farm House',
+      slug: 'pasala-farm-house',
+      description: null,
+      address: null,
+      images: [],
+      amenities: [],
+      checkInTime: '14:00',
+      checkOutTime: '11:00',
+      isActive: true,
+    );
+
+    Widget app(List<Reservation> bookings) {
+      final router = GoRouter(
+        initialLocation: '/admin/bookings',
+        routes: [
+          GoRoute(
+              path: '/admin/bookings',
+              builder: (_, _) => const AdminBookingsScreen()),
+          GoRoute(
+              path: '/property/:id',
+              builder: (_, _) => const Text('PROPERTY SCREEN')),
+        ],
+      );
+      return ProviderScope(
+        overrides: [
+          allBookingsProvider.overrideWith((ref) async => bookings),
+          propertiesProvider.overrideWith((ref) async => [property]),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      );
+    }
 
     testWidgets('an empty result shows a clear message, not a blank screen',
         (tester) async {
@@ -235,7 +265,7 @@ void main() {
       expect(find.textContaining('35,000'), findsOneWidget);
     });
 
-    testWidgets('tapping "New Booking" shows a coming-soon message',
+    testWidgets('tapping "New Booking" navigates to the property booking flow',
         (tester) async {
       await tester.pumpWidget(app(const []));
       await tester.pumpAndSettle();
@@ -243,10 +273,7 @@ void main() {
       await tester.tap(find.text('New Booking'));
       await tester.pumpAndSettle();
 
-      expect(
-        find.text('Creating a booking from here is coming soon.'),
-        findsOneWidget,
-      );
+      expect(find.text('PROPERTY SCREEN'), findsOneWidget);
     });
   });
 }

@@ -234,11 +234,20 @@ void main() {
               path: '/admin/check-in',
               builder: (_, _) => const Text('CHECK-IN SCREEN')),
           GoRoute(
+              path: '/admin/check-out',
+              builder: (_, _) => const Text('CHECK-OUT SCREEN')),
+          GoRoute(
               path: '/admin/kitchen-orders', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/admin/maintenance', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/owner/expenses', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/admin/reviews', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/admin/reports', builder: (_, _) => const SizedBox()),
+          GoRoute(
+              path: '/admin/outbox',
+              builder: (_, _) => const Text('OUTBOX SCREEN')),
+          GoRoute(
+              path: '/property/:id',
+              builder: (_, _) => const Text('PROPERTY SCREEN')),
         ],
       );
 
@@ -316,7 +325,7 @@ void main() {
       expect(find.text('CHECK-IN SCREEN'), findsOneWidget);
     });
 
-    testWidgets('tapping New Booking shows a coming-soon message',
+    testWidgets('tapping New Booking navigates to the property booking flow',
         (tester) async {
       await useTallSurface(tester);
       await tester.pumpWidget(app());
@@ -325,7 +334,31 @@ void main() {
       await tester.tap(find.byKey(const Key('quick-action-New Booking')));
       await tester.pumpAndSettle();
 
-      expect(find.text('New Booking is coming soon.'), findsOneWidget);
+      expect(find.text('PROPERTY SCREEN'), findsOneWidget);
+    });
+
+    testWidgets('tapping Check-out navigates to /admin/check-out',
+        (tester) async {
+      await useTallSurface(tester);
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('quick-action-Check-out')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHECK-OUT SCREEN'), findsOneWidget);
+    });
+
+    testWidgets('tapping Send Message navigates to /admin/outbox',
+        (tester) async {
+      await useTallSurface(tester);
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('quick-action-Send Message')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('OUTBOX SCREEN'), findsOneWidget);
     });
 
     testWidgets('shows the real average rating from reviews', (tester) async {

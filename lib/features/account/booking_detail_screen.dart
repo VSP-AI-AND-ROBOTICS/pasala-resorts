@@ -12,6 +12,7 @@ import '../../data/models/quote.dart';
 import '../../data/models/refund_quote.dart';
 import '../../data/models/reservation.dart';
 import '../../data/repositories/booking_repository.dart';
+import '../../data/repositories/stay_repository.dart' show currentStayProvider;
 import '../booking/providers.dart' show reservationProvider;
 import '../staff/providers.dart' show allBookingsProvider;
 import 'providers.dart';
@@ -117,6 +118,10 @@ class _DetailState extends ConsumerState<_Detail> {
       // cancel here must invalidate it too or those screens keep showing a
       // now-stale status until something else happens to refresh them.
       ref.invalidate(allBookingsProvider);
+      // currentStayProvider picks the soonest-upcoming confirmed
+      // reservation -- cancelling that exact one must let My Stay move on
+      // to whatever's next (or nothing), not keep showing the cancelled one.
+      ref.invalidate(currentStayProvider);
       context.pop();
     } on BookingFailure catch (e) {
       if (!mounted) return;

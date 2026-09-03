@@ -15,6 +15,8 @@ import '../../data/models/reservation.dart';
 import '../../data/models/slot_type.dart';
 import '../../data/models/unit.dart';
 import '../../data/repositories/booking_repository.dart';
+import '../../data/repositories/stay_repository.dart' show currentStayProvider;
+import '../account/providers.dart' show myBookingsProvider;
 import '../browse/providers.dart' show slotTypesProvider;
 import '../calendar/availability_calendar.dart';
 import '../calendar/providers.dart' show unitReservationsProvider;
@@ -575,11 +577,16 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
             slotTypeId: _slotTypeId,
           );
       if (!mounted) return;
+      // Updating `_quote` is enough on its own -- the "3 Price" section
+      // already renders the breakdown inline (see `_priceSectionContent`)
+      // as soon as this rebuilds. The payment sheet (coupon field + Pay
+      // button) must stay an explicit action from that section's own
+      // button, not something that pops up uninvited the moment a date or
+      // guest-count change produces a fresh quote.
       setState(() {
         _quote = quote;
         _quoteLoading = false;
       });
-      _showQuoteSheet();
     } on BookingFailure catch (e) {
       if (!mounted) return;
       setState(() => _quoteLoading = false);
@@ -800,6 +807,13 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         amount: quote.total,
       );
       _ticker?.cancel();
+      // Both are plain (non-autoDispose) providers that may already have a
+      // cached value from earlier in this session -- without invalidating
+      // them here, My Bookings and the My Stay hub (which picks the
+      // soonest-upcoming confirmed reservation) can keep showing pre
+      // -booking state until something else happens to refetch them.
+      ref.invalidate(myBookingsProvider);
+      ref.invalidate(currentStayProvider);
       if (mounted) context.go('/booking/${confirmed.id}');
     } on BookingFailure catch (e) {
       _handleFailure(e);

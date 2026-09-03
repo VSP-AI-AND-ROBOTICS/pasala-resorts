@@ -8,6 +8,7 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/repositories/stay_repository.dart';
+import '../staff/providers.dart' show allBookingsProvider;
 
 /// `/admin/check-in` -- every `confirmed` booking, one-tap Check In. The
 /// doc's own accepted method: reception looks up the booking (by name or
@@ -19,6 +20,12 @@ class ReceptionCheckinScreen extends ConsumerWidget {
     try {
       await ref.read(stayRepositoryProvider).checkIn(id);
       ref.invalidate(todaysArrivalsProvider);
+      ref.invalidate(checkedInProvider);
+      // The admin dashboard's Farmhouse Status / Today's Focus cards read
+      // from this same list -- without invalidating it here, a fresh
+      // check-in never shows as OCCUPIED until something else happens to
+      // refetch it.
+      ref.invalidate(allBookingsProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Checked in')));

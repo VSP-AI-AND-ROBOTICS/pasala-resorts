@@ -122,65 +122,79 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
   Widget build(BuildContext context) {
     final properties = ref.watch(propertiesProvider).value ?? const <Property>[];
     final propertyName = {for (final p in properties) p.id: p.name};
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Reports')),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: ListView(
+        padding: const EdgeInsets.all(Spacing.md),
         children: [
-          Padding(
-            padding: const EdgeInsets.all(Spacing.md),
-            child: Wrap(
-              spacing: Spacing.md,
-              runSpacing: Spacing.sm,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: _pickRange,
-                  icon: const Icon(Icons.date_range_outlined),
-                  label: Text(
-                    '${formatDate(_range.start)} – ${formatDate(_range.end)}',
+          Text('DATE RANGE & PROPERTY',
+              style: textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurfaceVariant, letterSpacing: 0.5)),
+          const SizedBox(height: Spacing.sm),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(Spacing.md),
+              child: Wrap(
+                spacing: Spacing.md,
+                runSpacing: Spacing.sm,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _pickRange,
+                    icon: const Icon(Icons.date_range_outlined),
+                    label: Text(
+                      '${formatDate(_range.start)} – ${formatDate(_range.end)}',
+                    ),
                   ),
-                ),
-                DropdownButton<String?>(
-                  value: _propertyId,
-                  hint: const Text('All properties'),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('All properties')),
-                    for (final p in properties)
-                      DropdownMenuItem(value: p.id, child: Text(p.name)),
-                  ],
-                  onChanged: (value) => setState(() => _propertyId = value),
-                ),
-              ],
+                  DropdownButton<String?>(
+                    value: _propertyId,
+                    hint: const Text('All properties'),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('All properties')),
+                      for (final p in properties)
+                        DropdownMenuItem(value: p.id, child: Text(p.name)),
+                    ],
+                    onChanged: (value) => setState(() => _propertyId = value),
+                  ),
+                ],
+              ),
             ),
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-              children: [
-                _ReportTile(
-                  icon: Icons.trending_up_outlined,
-                  title: 'Revenue',
-                  onExport: () => _export(_OwnerReportKind.revenue, propertyName),
-                ),
-                _ReportTile(
-                  icon: Icons.pie_chart_outline,
-                  title: 'Occupancy',
-                  onExport: () => _export(_OwnerReportKind.occupancy, propertyName),
-                ),
-                _ReportTile(
-                  icon: Icons.restaurant_outlined,
-                  title: 'Food & activity sales',
-                  onExport: () => _export(_OwnerReportKind.foodSales, propertyName),
-                ),
-                _ReportTile(
-                  icon: Icons.receipt_long_outlined,
-                  title: 'Expenses',
-                  onExport: () => _export(_OwnerReportKind.expenses, propertyName),
-                ),
-              ],
-            ),
+          const SizedBox(height: Spacing.lg),
+          Text('EXPORT AS CSV',
+              style: textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurfaceVariant, letterSpacing: 0.5)),
+          const SizedBox(height: Spacing.sm),
+          _ReportTile(
+            icon: Icons.trending_up_outlined,
+            title: 'Revenue',
+            subtitle: 'Bookings, gross and net revenue by day and property',
+            color: scheme.primary,
+            onExport: () => _export(_OwnerReportKind.revenue, propertyName),
+          ),
+          _ReportTile(
+            icon: Icons.pie_chart_outline,
+            title: 'Occupancy',
+            subtitle: 'Nights booked vs. available, by unit',
+            color: scheme.tertiary,
+            onExport: () => _export(_OwnerReportKind.occupancy, propertyName),
+          ),
+          _ReportTile(
+            icon: Icons.restaurant_outlined,
+            title: 'Food & activity sales',
+            subtitle: 'Items sold and gross, by day and category',
+            color: scheme.primary,
+            onExport: () => _export(_OwnerReportKind.foodSales, propertyName),
+          ),
+          _ReportTile(
+            icon: Icons.receipt_long_outlined,
+            title: 'Expenses',
+            subtitle: 'Totals by day and category',
+            color: scheme.onSurfaceVariant,
+            onExport: () => _export(_OwnerReportKind.expenses, propertyName),
           ),
         ],
       ),
@@ -189,23 +203,38 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
 }
 
 class _ReportTile extends StatelessWidget {
-  const _ReportTile({required this.icon, required this.title, required this.onExport});
+  const _ReportTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onExport,
+  });
 
   final IconData icon;
   final String title;
+  final String subtitle;
+  final Color color;
   final VoidCallback onExport;
 
   @override
-  Widget build(BuildContext context) => Card(
-        margin: const EdgeInsets.only(bottom: Spacing.sm),
-        child: ListTile(
-          leading: Icon(icon),
-          title: Text(title),
-          trailing: IconButton(
-            tooltip: 'Export CSV',
-            icon: const Icon(Icons.download_outlined),
-            onPressed: onExport,
-          ),
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: const EdgeInsets.only(bottom: Spacing.sm),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: color.withValues(alpha: 0.12),
+          child: Icon(icon, color: color),
         ),
-      );
+        title: Text(title),
+        subtitle: Text(subtitle, style: TextStyle(color: scheme.onSurfaceVariant)),
+        trailing: IconButton(
+          tooltip: 'Export CSV',
+          icon: const Icon(Icons.download_outlined),
+          onPressed: onExport,
+        ),
+      ),
+    );
+  }
 }

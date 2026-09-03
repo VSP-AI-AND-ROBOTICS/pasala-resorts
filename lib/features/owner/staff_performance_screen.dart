@@ -54,39 +54,44 @@ class _StaffPerformanceScreenState extends ConsumerState<StaffPerformanceScreen>
         children: [
           Padding(
             padding: const EdgeInsets.all(Spacing.md),
-            child: Row(
-              children: [
-                Expanded(
-                  child: profiles.when(
-                    loading: () => const SizedBox.shrink(),
-                    error: (_, _) => const SizedBox.shrink(),
-                    data: (list) {
-                      final staffOrAbove =
-                          list.where((p) => p.role != UserRole.customer).toList();
-                      return DropdownButtonFormField<String?>(
-                        key: const Key('performance-staff-picker'),
-                        initialValue: _staffId,
-                        decoration: const InputDecoration(labelText: 'Staff member'),
-                        items: [
-                          const DropdownMenuItem(value: null, child: Text('All staff')),
-                          for (final p in staffOrAbove)
-                            DropdownMenuItem(
-                              value: p.id,
-                              child: Text(p.fullName ?? p.email),
-                            ),
-                        ],
-                        onChanged: (value) => setState(() => _staffId = value),
-                      );
-                    },
-                  ),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(Spacing.md),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: profiles.when(
+                        loading: () => const SizedBox.shrink(),
+                        error: (_, _) => const SizedBox.shrink(),
+                        data: (list) {
+                          final staffOrAbove =
+                              list.where((p) => p.role != UserRole.customer).toList();
+                          return DropdownButtonFormField<String?>(
+                            key: const Key('performance-staff-picker'),
+                            initialValue: _staffId,
+                            decoration: const InputDecoration(labelText: 'Staff member'),
+                            items: [
+                              const DropdownMenuItem(value: null, child: Text('All staff')),
+                              for (final p in staffOrAbove)
+                                DropdownMenuItem(
+                                  value: p.id,
+                                  child: Text(p.fullName ?? p.email),
+                                ),
+                            ],
+                            onChanged: (value) => setState(() => _staffId = value),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    OutlinedButton.icon(
+                      onPressed: _pickRange,
+                      icon: const Icon(Icons.date_range_outlined),
+                      label: const Text('Range'),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: Spacing.sm),
-                OutlinedButton.icon(
-                  onPressed: _pickRange,
-                  icon: const Icon(Icons.date_range_outlined),
-                  label: const Text('Range'),
-                ),
-              ],
+              ),
             ),
           ),
           Expanded(
@@ -99,7 +104,7 @@ class _StaffPerformanceScreenState extends ConsumerState<StaffPerformanceScreen>
                 message: 'Promote an account to staff or above from Users.',
               ),
               data: (list) => ListView(
-                padding: const EdgeInsets.all(Spacing.md),
+                padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
                 children: [
                   for (final p in list) _PerformanceCard(performance: p),
                 ],
@@ -127,11 +132,22 @@ class _PerformanceCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              performance.staffName.isEmpty ? performance.staffId : performance.staffName,
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: scheme.primary.withValues(alpha: 0.12),
+                  child: Icon(Icons.person_outline, color: scheme.primary),
+                ),
+                const SizedBox(width: Spacing.sm),
+                Text(
+                  performance.staffName.isEmpty
+                      ? performance.staffId
+                      : performance.staffName,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ],
             ),
-            const SizedBox(height: Spacing.sm),
+            const SizedBox(height: Spacing.md),
             Wrap(
               spacing: Spacing.lg,
               runSpacing: Spacing.xs,

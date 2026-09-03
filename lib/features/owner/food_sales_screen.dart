@@ -106,6 +106,18 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
                       ),
                       child: Card(
                         child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: Theme.of(context)
+                                .colorScheme
+                                .primaryContainer
+                                .withValues(alpha: 0.6),
+                            child: Icon(
+                              sale.category == SaleCategory.food
+                                  ? Icons.restaurant_outlined
+                                  : Icons.local_activity_outlined,
+                              color: Theme.of(context).colorScheme.onPrimaryContainer,
+                            ),
+                          ),
                           title: Text(sale.itemName),
                           subtitle: Text(
                             '${_categoryLabel(sale.category)} · '
@@ -115,7 +127,10 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(formatInr(sale.amount)),
+                              Text(
+                                formatInr(sale.amount),
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
                               PopupMenuButton<String>(
                                 onSelected: (value) =>
                                     _onMenuSelected(context, filter, sale, value),
@@ -306,50 +321,61 @@ class _FoodSaleFormScreenState extends ConsumerState<FoodSaleFormScreen> {
               shrinkWrap: true,
               padding: const EdgeInsets.all(Spacing.lg),
               children: [
-                DropdownButtonFormField<SaleCategory>(
-                  key: const Key('sale-form-category'),
-                  initialValue: _category,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: [
-                    for (final c in SaleCategory.values)
-                      DropdownMenuItem(value: c, child: Text(_categoryLabel(c))),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => _category = value ?? SaleCategory.food),
-                ),
-                const SizedBox(height: Spacing.sm),
-                TextField(
-                  key: const Key('sale-form-item-name'),
-                  controller: _itemName,
-                  decoration: const InputDecoration(labelText: 'Item'),
-                ),
-                const SizedBox(height: Spacing.sm),
-                TextField(
-                  key: const Key('sale-form-quantity'),
-                  controller: _quantity,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Quantity'),
-                ),
-                const SizedBox(height: Spacing.sm),
-                TextField(
-                  key: const Key('sale-form-unit-price'),
-                  controller: _unitPrice,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Unit price'),
-                ),
-                const SizedBox(height: Spacing.sm),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Date'),
-                  trailing: Text(formatDate(_saleDate)),
-                  onTap: _pickDate,
-                ),
-                TextField(
-                  key: const Key('sale-form-notes'),
-                  controller: _notes,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes',
-                    helperText: 'Optional',
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(Spacing.md),
+                    child: Column(
+                      children: [
+                        DropdownButtonFormField<SaleCategory>(
+                          key: const Key('sale-form-category'),
+                          initialValue: _category,
+                          decoration: const InputDecoration(labelText: 'Category'),
+                          items: [
+                            for (final c in SaleCategory.values)
+                              DropdownMenuItem(value: c, child: Text(_categoryLabel(c))),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _category = value ?? SaleCategory.food),
+                        ),
+                        const SizedBox(height: Spacing.sm),
+                        TextField(
+                          key: const Key('sale-form-item-name'),
+                          controller: _itemName,
+                          decoration: const InputDecoration(labelText: 'Item'),
+                        ),
+                        const SizedBox(height: Spacing.sm),
+                        TextField(
+                          key: const Key('sale-form-quantity'),
+                          controller: _quantity,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(labelText: 'Quantity'),
+                        ),
+                        const SizedBox(height: Spacing.sm),
+                        TextField(
+                          key: const Key('sale-form-unit-price'),
+                          controller: _unitPrice,
+                          keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(labelText: 'Unit price'),
+                        ),
+                        const SizedBox(height: Spacing.sm),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.event_outlined),
+                          title: const Text('Date'),
+                          trailing: Text(formatDate(_saleDate)),
+                          onTap: _pickDate,
+                        ),
+                        TextField(
+                          key: const Key('sale-form-notes'),
+                          controller: _notes,
+                          decoration: const InputDecoration(
+                            labelText: 'Notes',
+                            helperText: 'Optional',
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 if (_error != null)

@@ -20,7 +20,12 @@ class CatalogRepository {
   }
 
   Future<List<Property>> properties() => _guard(() async {
-        final rows = await _db.from('properties').select().order('name');
+        // `.order()` defaults to descending in postgrest-dart --
+        // `ascending: true` for A-Z, not Z-A.
+        final rows = await _db
+            .from('properties')
+            .select()
+            .order('name', ascending: true);
         return rows.map(Property.fromJson).toList();
       });
 
@@ -43,7 +48,7 @@ class CatalogRepository {
             .from('units')
             .select()
             .eq('property_id', propertyId)
-            .order('name');
+            .order('name', ascending: true);
         return rows.map(Unit.fromJson).toList();
       });
 

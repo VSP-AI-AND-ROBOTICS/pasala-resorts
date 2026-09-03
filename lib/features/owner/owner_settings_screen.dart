@@ -33,13 +33,25 @@ class OwnerSettingsScreen extends ConsumerWidget {
         onRetry: () => ref.invalidate(propertiesProvider),
         data: (list) {
           final property = list.isEmpty ? null : list.first;
+          final scheme = Theme.of(context).colorScheme;
+          final textTheme = Theme.of(context).textTheme;
+
+          Widget eyebrow(String text) => Padding(
+                padding: const EdgeInsets.only(bottom: Spacing.sm),
+                child: Text(text,
+                    style: textTheme.labelMedium?.copyWith(
+                        color: scheme.onSurfaceVariant, letterSpacing: 0.5)),
+              );
+
           return ListView(
             padding: const EdgeInsets.all(Spacing.md),
             children: [
+              eyebrow('PROPERTY'),
               _SettingsTile(
                 icon: Icons.home_work_outlined,
                 title: 'Farmhouse information',
                 subtitle: 'Name, description, address, amenities, check-in/out',
+                color: scheme.primary,
                 onTap: property == null
                     ? null
                     : () => Navigator.of(context).push(MaterialPageRoute(
@@ -50,6 +62,7 @@ class OwnerSettingsScreen extends ConsumerWidget {
                 icon: Icons.sell_outlined,
                 title: 'Pricing',
                 subtitle: 'Rate rules per unit',
+                color: scheme.primary,
                 onTap: property == null
                     ? null
                     : () => Navigator.of(context).push(MaterialPageRoute(
@@ -60,6 +73,7 @@ class OwnerSettingsScreen extends ConsumerWidget {
                 icon: Icons.percent_outlined,
                 title: 'Taxes',
                 subtitle: 'Tax rate and GSTIN',
+                color: scheme.primary,
                 onTap: property == null
                     ? null
                     : () => Navigator.of(context).push(MaterialPageRoute(
@@ -70,16 +84,20 @@ class OwnerSettingsScreen extends ConsumerWidget {
                 icon: Icons.payments_outlined,
                 title: 'Payment configuration',
                 subtitle: 'Advance %, accepted methods shown to customers',
+                color: scheme.primary,
                 onTap: property == null
                     ? null
                     : () => Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => PaymentSettingsScreen(property: property),
                         )),
               ),
+              const SizedBox(height: Spacing.md),
+              eyebrow('POLICIES'),
               _SettingsTile(
                 icon: Icons.policy_outlined,
                 title: 'Cancellation policy',
                 subtitle: 'Refund percentage by days before check-in',
+                color: scheme.tertiary,
                 onTap: property == null
                     ? null
                     : () => Navigator.of(context).push(MaterialPageRoute(
@@ -90,22 +108,27 @@ class OwnerSettingsScreen extends ConsumerWidget {
                 icon: Icons.rule_outlined,
                 title: 'Booking rules',
                 subtitle: 'Minimum and maximum stay length',
+                color: scheme.tertiary,
                 onTap: property == null
                     ? null
                     : () => Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => BookingRulesScreen(property: property),
                         )),
               ),
+              const SizedBox(height: Spacing.md),
+              eyebrow('TEAM & NOTIFICATIONS'),
               _SettingsTile(
                 icon: Icons.people_outline,
                 title: 'Staff permissions',
                 subtitle: 'Roster and role assignment',
+                color: scheme.onSurfaceVariant,
                 onTap: () => context.push('/admin/users'),
               ),
               _SettingsTile(
                 icon: Icons.notifications_outlined,
                 title: 'Notification settings',
                 subtitle: 'Enable or disable email, SMS, and WhatsApp',
+                color: scheme.onSurfaceVariant,
                 onTap: property == null
                     ? null
                     : () => Navigator.of(context).push(MaterialPageRoute(
@@ -126,19 +149,24 @@ class _SettingsTile extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
+    required this.color,
     required this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
+  final Color color;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => Card(
         margin: const EdgeInsets.only(bottom: Spacing.sm),
         child: ListTile(
-          leading: Icon(icon),
+          leading: CircleAvatar(
+            backgroundColor: color.withValues(alpha: 0.12),
+            child: Icon(icon, color: color),
+          ),
           title: Text(title),
           subtitle: Text(subtitle),
           trailing: const Icon(Icons.chevron_right),

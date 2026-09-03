@@ -25,7 +25,9 @@ class RefundRuleRepository {
             .from('refund_rules')
             .select()
             .eq('property_id', propertyId)
-            .order('min_days_before');
+            // `.order()` defaults to descending in postgrest-dart --
+            // `ascending: true` shows the ladder shortest-notice first.
+            .order('min_days_before', ascending: true);
         return rows.map(RefundRule.fromJson).toList();
       });
 
