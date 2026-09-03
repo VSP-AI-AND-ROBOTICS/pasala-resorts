@@ -8,14 +8,17 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../data/models/reservation.dart';
+import '../../data/repositories/review_repository.dart';
 import '../../data/repositories/stay_repository.dart';
 
 /// The hub every "in-stay" screen hangs off of -- resolves
 /// [currentStayProvider] (a `checked_in` stay if there is one, otherwise the
 /// soonest-upcoming `confirmed` one) and shows a tile per capability. A
-/// customer with neither sees a plain empty state rather than a dead end,
-/// matching this app's preference for data-driven empty states over hiding
-/// the nav tab entirely.
+/// customer with neither active/upcoming stay falls through to
+/// [_PostCheckout], which checks for a completed stay still awaiting a
+/// review before finally showing the plain empty state -- matching this
+/// app's preference for data-driven empty states over hiding the nav tab
+/// entirely.
 class MyStayScreen extends ConsumerWidget {
   const MyStayScreen({super.key});
 
@@ -29,17 +32,90 @@ class MyStayScreen extends ConsumerWidget {
         value: stayAsync,
         onRetry: () => ref.invalidate(currentStayProvider),
         data: (stay) {
-          if (stay == null) {
-            return const EmptyState(
-              icon: Icons.holiday_village_outlined,
-              title: 'No active or upcoming stay',
-              message: 'Once you have a confirmed booking, everything for '
-                  'your stay will show up here.',
-            );
-          }
+          if (stay == null) return const _PostCheckout();
           return _Hub(reservation: stay);
         },
       ),
+    );
+  }
+}
+
+const _noStayEmptyState = EmptyState(
+  icon: Icons.holiday_village_outlined,
+  title: 'No active or upcoming stay',
+  message:
+      'Once you have a confirmed booking, everything for your stay will '
+      'show up here.',
+);
+
+/// Checks for a `checked_out` stay that still has no review, and shows a
+/// "how was your stay?" prompt for it instead of the plain empty state --
+/// once that review is submitted, [reviewForReservationProvider] resolves
+/// non-null and this falls back to the ordinary no-active-stay message.
+class _PostCheckout extends ConsumerWidget {
+  const _PostCheckout();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final checkedOutAsync = ref.watch(mostRecentCheckedOutProvider);
+
+    return AsyncView(
+      value: checkedOutAsync,
+      onRetry: () => ref.invalidate(mostRecentCheckedOutProvider),
+      data: (reservation) {
+        if (reservation == null) return _noStayEmptyState;
+        return _ReviewPrompt(reservation: reservation);
+      },
+    );
+  }
+}
+
+class _ReviewPrompt extends ConsumerWidget {
+  const _ReviewPrompt({required this.reservation});
+
+  final Reservation reservation;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reviewAsync = ref.watch(reviewForReservationProvider(reservation.id));
+
+    return AsyncView(
+      value: reviewAsync,
+      onRetry: () =>
+          ref.invalidate(reviewForReservationProvider(reservation.id)),
+      data: (review) {
+        if (review != null) return _noStayEmptyState;
+
+        final textTheme = Theme.of(context).textTheme;
+        final scheme = Theme.of(context).colorScheme;
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(Spacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.star_rate_rounded, size: 48, color: Colors.amber),
+                const SizedBox(height: Spacing.md),
+                Text('Stay Completed', style: textTheme.titleLarge),
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  'How was your stay?',
+                  style: textTheme.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: Spacing.lg),
+                FilledButton.icon(
+                  key: const Key('write-review-button'),
+                  onPressed: () =>
+                      context.push('/my-stay/review/${reservation.id}'),
+                  icon: const Icon(Icons.star_outline),
+                  label: const Text('Write a Review'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

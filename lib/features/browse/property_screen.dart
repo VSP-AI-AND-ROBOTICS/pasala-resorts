@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/format.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../data/models/property.dart';
+import '../../data/models/review.dart';
 import '../../data/models/unit.dart';
+import '../../data/repositories/review_repository.dart';
 import '../booking/booking_screen.dart';
 import 'browse_screen.dart' show AmenityWrap;
 import 'gallery_viewer_screen.dart';
@@ -241,6 +245,8 @@ class PropertyScreen extends ConsumerWidget {
                       _AboutSection(property: p),
                       const SizedBox(height: Spacing.lg),
                       _LocationSection(property: p),
+                      const SizedBox(height: Spacing.lg),
+                      const _ReviewsSection(),
                     ],
                   );
                 },
@@ -461,6 +467,136 @@ class _LocationSection extends StatelessWidget {
             label: const Text('View on Map'),
           ),
       ],
+    );
+  }
+}
+
+/// The average overall rating plus the 2 most recent reviews -- social
+/// proof shown near the bottom of the page, right where a customer who has
+/// already read About/Location and is deciding whether to book would look
+/// for it. "View All Reviews" opens the full list at `/reviews`.
+/// `allReviewsProvider` is shared with the admin dashboard's Guest
+/// Experience card; `reviews_read_all` (0040_reviews_public_read.sql) is
+/// what makes every guest's review visible here, not just the customer's
+/// own.
+class _ReviewsSection extends ConsumerWidget {
+  const _ReviewsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reviewsAsync = ref.watch(allReviewsProvider);
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.star, size: 20, color: scheme.primary),
+            const SizedBox(width: Spacing.xs),
+            Expanded(
+              child: Text('Customer Reviews', style: textTheme.titleMedium),
+            ),
+          ],
+        ),
+        const SizedBox(height: Spacing.sm),
+        AsyncView(
+          value: reviewsAsync,
+          data: (reviews) {
+            if (reviews.isEmpty) {
+              return Text(
+                'No reviews yet -- be the first to share your stay.',
+                style: textTheme.bodyMedium
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              );
+            }
+            final average =
+                reviews.map((r) => r.overallRating).reduce((a, b) => a + b) /
+                    reviews.length;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.star, color: Colors.amber, size: 22),
+                    const SizedBox(width: Spacing.xs),
+                    Text(average.toStringAsFixed(1),
+                        style: textTheme.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(width: Spacing.xs),
+                    Text(
+                      '(${reviews.length} review${reviews.length == 1 ? '' : 's'})',
+                      style: textTheme.bodyMedium
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: Spacing.md),
+                for (final review in reviews.take(3)) ...[
+                  _ReviewPreview(review: review),
+                  const SizedBox(height: Spacing.sm),
+                ],
+                OutlinedButton(
+                  key: const Key('view-all-reviews-button'),
+                  onPressed: () => context.push('/reviews'),
+                  child: const Text('View All Reviews'),
+                ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _ReviewPreview extends StatelessWidget {
+  const _ReviewPreview({required this.review});
+
+  final Review review;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                for (var i = 1; i <= 5; i++)
+                  Icon(
+                    i <= review.overallRating ? Icons.star : Icons.star_border,
+                    size: 16,
+                    color: Colors.amber,
+                  ),
+                const SizedBox(width: Spacing.xs),
+                Text(review.customerFirstName ?? 'Guest',
+                    style: textTheme.labelLarge),
+                const Spacer(),
+                if (review.createdAt != null)
+                  Text(formatDate(review.createdAt!.toLocal()),
+                      style: textTheme.bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant)),
+              ],
+            ),
+            if (review.feedback.isNotEmpty) ...[
+              const SizedBox(height: Spacing.xs),
+              Text(
+                review.feedback,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodyMedium,
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

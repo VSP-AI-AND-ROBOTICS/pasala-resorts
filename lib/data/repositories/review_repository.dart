@@ -55,14 +55,18 @@ class ReviewRepository {
         return row == null ? null : Review.fromJson(row);
       });
 
-  /// Every review, newest first -- `reviews_read`'s `is_staff_or_above()`
-  /// branch already grants this to admin/staff, so no new RLS is needed.
-  /// Backs the admin dashboard's Guest Experience card (average rating,
-  /// latest review) and the standalone Reviews screen.
+  /// Every review, newest first -- `reviews_read_all` (0040_reviews_public_
+  /// read.sql) grants this to every signed-in user, not just staff, since
+  /// reviews are social proof shown on the property page. The embed gives
+  /// each review a first name to show; `reviews` has only one FK into
+  /// `profiles` (`customer_id`), so unlike `reservations` this needs no
+  /// constraint-name hint to disambiguate. Backs the admin dashboard's
+  /// Guest Experience card, the customer property page's reviews section,
+  /// and both standalone Reviews screens.
   Future<List<Review>> all() => _guard(() async {
         final rows = await _db
             .from('reviews')
-            .select()
+            .select('*, profiles(full_name)')
             .order('created_at', ascending: false);
         return rows.map(Review.fromJson).toList();
       });

@@ -54,7 +54,11 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
       ref.invalidate(reviewForReservationProvider(widget.reservationId));
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Thank you for your feedback')));
-      context.go('/bookings');
+      // Back to My Stay, not Bookings -- that's where this screen is now
+      // always reached from (the post-checkout "How was your stay?"
+      // prompt), and it's what shows the plain empty state once this
+      // review exists.
+      context.go('/my-stay');
     } on BookingFailure catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)

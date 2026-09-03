@@ -55,11 +55,14 @@ select throws_ok(
   'a stay that has not been checked out yet cannot be reviewed'
 );
 
+-- 0040_reviews_public_read.sql: reviews are social proof shown to every
+-- signed-in customer on the property page, not just staff and the review's
+-- own author.
 select is(
   (select count(*)::int from public.reviews
     where reservation_id = '97800000-0000-0000-0000-000000000001'),
-  0,
-  'a different customer cannot see ravi''s review'
+  1,
+  'a different customer can see another guest''s review'
 );
 
 set local request.jwt.claims to
