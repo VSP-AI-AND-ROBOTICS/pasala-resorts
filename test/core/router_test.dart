@@ -208,18 +208,30 @@ void main() {
     });
 
     // expenses_read (0027_expenses.sql) already grants admin/accountant/
-    // super_admin at the RLS level, and the admin dashboard's own "Add
-    // Expense" tile needs a real destination -- so this one leaf is the
-    // sole exception to the otherwise-blanket super_admin-only rule.
-    test('a plain admin (but not staff/accountant/customer) reaches '
+    // super_admin at the RLS level -- the accountant role exists
+    // specifically to read financials (see ExpensesScreen's own doc
+    // comment), so it is not just an admin exception.
+    test('admin and accountant (but not staff/customer) reach '
         '/owner/expenses', () {
       expect(_to(_admin, '/owner/expenses'), null);
+      expect(_to(_accountant, '/owner/expenses'), null);
       expect(_to(_staff, '/owner/expenses'), '/404');
-      expect(_to(_accountant, '/owner/expenses'), '/404');
       expect(_to(_customer, '/owner/expenses'), '/404');
     });
 
-    test('staff, accountant, and customer are all redirected away too', () {
+    // food_activity_sales_read/_insert (0026_food_activity_sales.sql)
+    // grant staff-or-above -- any signed-in staff member logging a
+    // walk-in guest's food/pool purchase needs a real destination.
+    test('every staff-or-above role (but not customer) reaches '
+        '/owner/food-sales', () {
+      expect(_to(_admin, '/owner/food-sales'), null);
+      expect(_to(_accountant, '/owner/food-sales'), null);
+      expect(_to(_staff, '/owner/food-sales'), null);
+      expect(_to(_customer, '/owner/food-sales'), '/404');
+    });
+
+    test('staff, accountant, and customer are all redirected away from '
+        'every other /owner/* route', () {
       expect(_to(_staff, '/owner'), '/404');
       expect(_to(_accountant, '/owner'), '/404');
       expect(_to(_customer, '/owner'), '/404');

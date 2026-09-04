@@ -8,6 +8,7 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/food_sale.dart';
+import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/food_sale_repository.dart';
 import '../browse/providers.dart';
 
@@ -24,9 +25,13 @@ DateTimeRange _currentMonth() {
   );
 }
 
-/// `/owner/food-sales` -- log and review on-site food/activity sales, full
-/// CRUD, following `TasksScreen`'s exact shape (filter bar, list, FAB,
-/// popup-menu edit/delete).
+/// `/owner/food-sales` -- log and review on-site food/activity sales,
+/// following `TasksScreen`'s shape (filter bar, list, FAB, popup-menu
+/// edit/delete). `food_activity_sales_read`/`_insert`
+/// (0026_food_activity_sales.sql) grant staff-or-above read+add, but edit/
+/// delete (`_admin_write`/`_admin_delete`) stay admin-only -- so the FAB
+/// shows for any staff-or-above signed-in user, while the popup menu only
+/// renders for `user.isAdmin`.
 class FoodSalesScreen extends ConsumerStatefulWidget {
   const FoodSalesScreen({super.key});
 
@@ -52,6 +57,7 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
   Widget build(BuildContext context) {
     final filter = (from: _range.start, to: _range.end, category: _category);
     final sales = ref.watch(foodSalesProvider(filter));
+    final canEditOrDelete = ref.watch(currentUserProvider).value?.isAdmin ?? false;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Food & activity sales')),
@@ -131,14 +137,15 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
                                 formatInr(sale.amount),
                                 style: const TextStyle(fontWeight: FontWeight.w600),
                               ),
-                              PopupMenuButton<String>(
-                                onSelected: (value) =>
-                                    _onMenuSelected(context, filter, sale, value),
-                                itemBuilder: (context) => const [
-                                  PopupMenuItem(value: 'edit', child: Text('Edit')),
-                                  PopupMenuItem(value: 'delete', child: Text('Delete')),
-                                ],
-                              ),
+                              if (canEditOrDelete)
+                                PopupMenuButton<String>(
+                                  onSelected: (value) =>
+                                      _onMenuSelected(context, filter, sale, value),
+                                  itemBuilder: (context) => const [
+                                    PopupMenuItem(value: 'edit', child: Text('Edit')),
+                                    PopupMenuItem(value: 'delete', child: Text('Delete')),
+                                  ],
+                                ),
                             ],
                           ),
                         ),

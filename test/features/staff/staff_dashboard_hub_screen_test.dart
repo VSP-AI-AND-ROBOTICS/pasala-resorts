@@ -1,7 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pasala/data/models/app_user.dart';
+import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/features/staff/staff_dashboard_hub_screen.dart';
+
+const _staff = AppUser(
+  id: 'staff-1',
+  email: 'staff@pasala.test',
+  role: UserRole.staff,
+  fullName: 'Sita Staff',
+);
+
+const _accountant = AppUser(
+  id: 'accountant-1',
+  email: 'accounts@pasala.test',
+  role: UserRole.accountant,
+  fullName: 'Anil Accounts',
+);
 
 void main() {
   group('staffHubSections', () {
@@ -35,7 +52,7 @@ void main() {
     });
   });
 
-  Widget appFor() {
+  Widget appFor({AppUser user = _staff}) {
     final router = GoRouter(
       initialLocation: '/hub',
       routes: [
@@ -43,7 +60,19 @@ void main() {
           path: '/hub',
           builder: (_, _) => const StaffDashboardHubScreen(),
         ),
-        for (final section in staffHubSections)
+        for (final section in [
+          ...staffHubSections,
+          const (
+            path: '/owner/food-sales',
+            icon: Icons.point_of_sale_outlined,
+            title: 'Food & Activity Sales',
+          ),
+          const (
+            path: '/owner/expenses',
+            icon: Icons.receipt_long_outlined,
+            title: 'Expenses',
+          ),
+        ])
           GoRoute(
             path: section.path,
             builder: (_, _) => Scaffold(
@@ -52,7 +81,12 @@ void main() {
           ),
       ],
     );
-    return MaterialApp.router(routerConfig: router);
+    return ProviderScope(
+      overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(user)),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    );
   }
 
   testWidgets('lists a tappable card for every staff section', (
@@ -83,5 +117,39 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('destination:/staff/leave'), findsOneWidget);
+  });
+
+  // I7: food_activity_sales_read/_insert grant staff-or-above, and
+  // expenses_read grants admin/accountant/super_admin -- every staff-or-
+  // above user gets a Food & Activity Sales card, but only an accountant
+  // also gets an Expenses card (plain staff must not see expenses at all).
+  testWidgets('a plain staff member sees Food & Activity Sales but not Expenses', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(appFor(user: _staff));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Food & Activity Sales'), findsOneWidget);
+    expect(find.text('Expenses'), findsNothing);
+  });
+
+  testWidgets('an accountant sees both Food & Activity Sales and Expenses', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(appFor(user: _accountant));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Food & Activity Sales'), findsOneWidget);
+    expect(find.text('Expenses'), findsOneWidget);
   });
 }

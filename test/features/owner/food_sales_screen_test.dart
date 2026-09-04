@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/food_sale.dart';
 import 'package:pasala/data/models/property.dart';
+import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/data/repositories/food_sale_repository.dart';
 import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/owner/food_sales_screen.dart';
@@ -91,15 +93,62 @@ const _property = Property(
   isActive: true,
 );
 
-Widget _appFor(FakeFoodSaleRepository repo) => ProviderScope(
+const _admin = AppUser(
+  id: 'admin-1',
+  email: 'admin@pasala.test',
+  role: UserRole.admin,
+  fullName: 'Asha Admin',
+);
+
+const _staff = AppUser(
+  id: 'staff-1',
+  email: 'staff@pasala.test',
+  role: UserRole.staff,
+  fullName: 'Sita Staff',
+);
+
+Widget _appFor(
+  FakeFoodSaleRepository repo, {
+  AppUser user = _admin,
+}) =>
+    ProviderScope(
       overrides: [
         foodSaleRepositoryProvider.overrideWithValue(repo),
         propertiesProvider.overrideWith((ref) async => [_property]),
+        currentUserProvider.overrideWith((ref) => Stream.value(user)),
       ],
       child: const MaterialApp(home: FoodSalesScreen()),
     );
 
 void main() {
+  // I7: food_activity_sales_read/_insert (0026_food_activity_sales.sql)
+  // grant staff-or-above read+add, but _admin_write/_admin_delete stay
+  // admin-only -- a plain staff member can log a sale (the FAB still
+  // works) but must never see an edit/delete menu that would just fail
+  // against RLS.
+  testWidgets('a staff member can log a sale but sees no edit/delete menu', (
+    tester,
+  ) async {
+    final repo = FakeFoodSaleRepository()
+      ..store.add(FoodSale(
+        id: 's1',
+        propertyId: 'p1',
+        saleDate: DateTime.now(),
+        category: SaleCategory.food,
+        itemName: 'Breakfast platter',
+        quantity: 2,
+        unitPrice: 300,
+        amount: 600,
+      ));
+
+    await tester.pumpWidget(_appFor(repo, user: _staff));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Breakfast platter'), findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsOneWidget);
+    expect(find.byType(PopupMenuButton<String>), findsNothing);
+  });
+
   testWidgets('shows an empty state when no sales exist yet', (tester) async {
     await tester.pumpWidget(_appFor(FakeFoodSaleRepository()));
     await tester.pumpAndSettle();

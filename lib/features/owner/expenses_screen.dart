@@ -8,6 +8,7 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/expense.dart';
+import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/expense_repository.dart';
 import '../browse/providers.dart';
 
@@ -19,10 +20,11 @@ DateTimeRange _currentMonth() {
   );
 }
 
-/// `/owner/expenses` -- log and review business expenses, full CRUD.
-/// Financial data: reachable only through the super_admin-only `/owner`
-/// route, and `expenses_read` (0027_expenses.sql) additionally restricts
-/// the underlying table to admin/accountant/super_admin regardless.
+/// `/owner/expenses` -- log and review business expenses. Reachable by
+/// admin/accountant/super_admin (`expenses_read`, 0027_expenses.sql), but
+/// only admin/super_admin can actually write (`expenses_admin_write`) --
+/// an accountant is deliberately read-only here, so the add/edit/delete
+/// actions below only render for `user.isAdmin`.
 class ExpensesScreen extends ConsumerStatefulWidget {
   const ExpensesScreen({super.key});
 
@@ -47,6 +49,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
   Widget build(BuildContext context) {
     final filter = (from: _range.start, to: _range.end);
     final expenses = ref.watch(expensesProvider(filter));
+    final canWrite = ref.watch(currentUserProvider).value?.isAdmin ?? false;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Expenses')),
@@ -67,10 +70,12 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
             child: AsyncView(
               value: expenses,
               onRetry: () => ref.invalidate(expensesProvider(filter)),
-              empty: () => const EmptyState(
+              empty: () => EmptyState(
                 icon: Icons.receipt_long_outlined,
                 title: 'No expenses logged in this period',
-                message: 'Tap + to log a business expense.',
+                message: canWrite
+                    ? 'Tap + to log a business expense.'
+                    : 'Nothing to show yet.',
               ),
               data: (list) => ListView(
                 children: [
@@ -105,14 +110,15 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                                 formatInr(expense.amount),
                                 style: const TextStyle(fontWeight: FontWeight.w600),
                               ),
-                              PopupMenuButton<String>(
-                                onSelected: (value) =>
-                                    _onMenuSelected(context, filter, expense, value),
-                                itemBuilder: (context) => const [
-                                  PopupMenuItem(value: 'edit', child: Text('Edit')),
-                                  PopupMenuItem(value: 'delete', child: Text('Delete')),
-                                ],
-                              ),
+                              if (canWrite)
+                                PopupMenuButton<String>(
+                                  onSelected: (value) =>
+                                      _onMenuSelected(context, filter, expense, value),
+                                  itemBuilder: (context) => const [
+                                    PopupMenuItem(value: 'edit', child: Text('Edit')),
+                                    PopupMenuItem(value: 'delete', child: Text('Delete')),
+                                  ],
+                                ),
                             ],
                           ),
                         ),
@@ -124,12 +130,14 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const ExpenseFormScreen()),
-        ),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: canWrite
+          ? FloatingActionButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ExpenseFormScreen()),
+              ),
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
 

@@ -122,17 +122,28 @@ String? redirectFor({
   // cannot reach it just by knowing the URL -- same "route guarding is UX
   // only" caveat as above: every RPC/table this leads to still carries its
   // own real Postgres-level gate independent of this check.
-  // `/owner/expenses` is the one exception: `expenses_read` (0027_expenses.sql)
-  // already grants admin/accountant/super_admin, and the admin dashboard's
-  // own "Add Expense" tile needs somewhere real to go -- so a plain admin is
-  // let through to this one leaf despite the blanket super_admin-only rule
-  // below.
+  // `/owner/expenses` and `/owner/food-sales` are the two exceptions:
+  // `expenses_read` (0027_expenses.sql) already grants admin/accountant/
+  // super_admin, and `food_activity_sales_read`/`_insert`
+  // (0026_food_activity_sales.sql) already grant staff-or-above -- the
+  // accountant role exists specifically to read financials, and any staff
+  // member logging a walk-in guest's food/pool purchase needs somewhere
+  // real to go. Both are let through despite the blanket super_admin-only
+  // rule below; each screen itself still hides the write actions (add/
+  // edit/delete) a given role's own RLS grant doesn't cover, matching the
+  // "route guarding is UX only" caveat -- the real gate is always Postgres.
+  final isExpensesLeaf = path == '/owner/expenses';
+  final isFoodSalesLeaf = path == '/owner/food-sales';
   if (path.startsWith('/owner') &&
-      path != '/owner/expenses' &&
+      !isExpensesLeaf &&
+      !isFoodSalesLeaf &&
       user.role != UserRole.superAdmin) {
     return '/404';
   }
-  if (path == '/owner/expenses' && !user.isAdmin) return '/404';
+  if (isExpensesLeaf && !user.isAdmin && user.role != UserRole.accountant) {
+    return '/404';
+  }
+  if (isFoodSalesLeaf && !user.isStaffOrAbove) return '/404';
   return null;
 }
 

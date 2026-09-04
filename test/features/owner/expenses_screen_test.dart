@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/expense.dart';
 import 'package:pasala/data/models/property.dart';
+import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/data/repositories/expense_repository.dart';
 import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/owner/expenses_screen.dart';
@@ -75,10 +77,29 @@ const _property = Property(
   isActive: true,
 );
 
-Widget _appFor(FakeExpenseRepository repo) => ProviderScope(
+const _admin = AppUser(
+  id: 'admin-1',
+  email: 'admin@pasala.test',
+  role: UserRole.admin,
+  fullName: 'Asha Admin',
+);
+
+const _accountant = AppUser(
+  id: 'accountant-1',
+  email: 'accounts@pasala.test',
+  role: UserRole.accountant,
+  fullName: 'Anil Accounts',
+);
+
+Widget _appFor(
+  FakeExpenseRepository repo, {
+  AppUser user = _admin,
+}) =>
+    ProviderScope(
       overrides: [
         expenseRepositoryProvider.overrideWithValue(repo),
         propertiesProvider.overrideWith((ref) async => [_property]),
+        currentUserProvider.overrideWith((ref) => Stream.value(user)),
       ],
       child: const MaterialApp(home: ExpensesScreen()),
     );
@@ -89,6 +110,31 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('No expenses logged in this period'), findsOneWidget);
+  });
+
+  // I7: expenses_admin_write (0027_expenses.sql) only lets admin/super_admin
+  // actually write -- an accountant can read the books (expenses_read
+  // grants it) but must never see an add/edit/delete control that would
+  // just fail against RLS the moment they tapped it.
+  testWidgets('an accountant sees no add button and no edit/delete menu', (
+    tester,
+  ) async {
+    final repo = FakeExpenseRepository()
+      ..store.add(Expense(
+        id: 'e1',
+        propertyId: 'p1',
+        expenseDate: DateTime.now(),
+        category: 'Utilities',
+        description: 'Electricity bill',
+        amount: 5000,
+      ));
+
+    await tester.pumpWidget(_appFor(repo, user: _accountant));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Electricity bill'), findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsNothing);
+    expect(find.byType(PopupMenuButton<String>), findsNothing);
   });
 
   testWidgets('filling the create form and saving adds an expense to the list', (
