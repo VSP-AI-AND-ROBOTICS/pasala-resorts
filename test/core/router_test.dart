@@ -118,10 +118,13 @@ void main() {
   });
 
   group('staff', () {
-    test('reaches /admin/dashboard, /admin/reports and /admin/outbox', () {
+    test('reaches /admin/dashboard, /admin/reports, /admin/outbox, '
+        '/admin/check-in and /admin/check-out', () {
       expect(_to(_staff, '/admin/dashboard'), null);
       expect(_to(_staff, '/admin/reports'), null);
       expect(_to(_staff, '/admin/outbox'), null);
+      expect(_to(_staff, '/admin/check-in'), null);
+      expect(_to(_staff, '/admin/check-out'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
@@ -157,10 +160,13 @@ void main() {
   });
 
   group('accountant', () {
-    test('reaches /admin/dashboard, /admin/reports and /admin/outbox', () {
+    test('reaches /admin/dashboard, /admin/reports, /admin/outbox, '
+        '/admin/check-in and /admin/check-out', () {
       expect(_to(_accountant, '/admin/dashboard'), null);
       expect(_to(_accountant, '/admin/reports'), null);
       expect(_to(_accountant, '/admin/outbox'), null);
+      expect(_to(_accountant, '/admin/check-in'), null);
+      expect(_to(_accountant, '/admin/check-out'), null);
     });
 
     test('is redirected away from admin-only management routes', () {

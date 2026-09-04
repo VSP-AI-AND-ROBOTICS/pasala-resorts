@@ -103,14 +103,20 @@ String? redirectFor({
     // these two leaf routes are staff-or-above. `outbox_read` (migration
     // 0017) is the same staff-or-above grant -- whoever fields a guest's
     // "did my confirmation go out?" question needs to see the queue, not
-    // just an admin -- so `/admin/outbox` joins them here. Every other
+    // just an admin -- so `/admin/outbox` joins them here. `check_in_booking`
+    // and `checkout_booking` (0037_stay_checkout.sql) are the same
+    // staff-or-above grant too -- reception need not be an admin account to
+    // check a guest in or settle their final bill -- so `/admin/check-in`
+    // and `/admin/check-out` join them here as well. Every other
     // `/admin/*` route (properties, units, rates, blocking, the bookings
     // list) stays admin-only, matching the RLS/RPC surfaces that actually
     // write data.
     final staffOrAboveOk = user.isStaffOrAbove &&
         (path == '/admin/dashboard' ||
             path == '/admin/reports' ||
-            path == '/admin/outbox');
+            path == '/admin/outbox' ||
+            path == '/admin/check-in' ||
+            path == '/admin/check-out');
     if (!user.isAdmin && !staffOrAboveOk) return '/404';
   }
   if (path.startsWith('/staff') && !user.isStaffOrAbove) return '/404';

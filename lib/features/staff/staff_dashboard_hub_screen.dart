@@ -64,18 +64,37 @@ const staffHubSections = <StaffHubSection>[
 /// Sections gated by more than a bare `/staff` prefix, so they live outside
 /// [staffHubSections] (kept `/staff/*`-only -- see that list's own doc
 /// comment and `staff_dashboard_hub_screen_test.dart`, which asserts
-/// exactly that). Both point at real, existing screens whose RLS grant was
-/// already wider than the app's navigation ever exposed:
-/// `food_activity_sales_read`/`_insert` (0026_food_activity_sales.sql)
-/// grant staff-or-above, and `expenses_read` (0027_expenses.sql) grants
-/// admin/accountant/super_admin -- so every signed-in user reaching this
-/// hub can log a food/activity sale, and an accountant specifically can
-/// also read (though not write -- see `ExpensesScreen`) the books.
+/// exactly that). Every one of these points at a real, existing screen
+/// whose RLS/RPC grant was already wider than the app's navigation ever
+/// exposed: `food_activity_sales_read`/`_insert` (0026) grant
+/// staff-or-above, `expenses_read` (0027) grants admin/accountant/
+/// super_admin, `outbox_read` (0017) grants staff-or-above, and
+/// `check_in_booking`/`checkout_booking` (0037) grant staff-or-above too
+/// -- reception need not be an admin account to check a guest in or
+/// settle their bill. So every signed-in user reaching this hub can log a
+/// sale, check a guest in or out, and read the notification queue; an
+/// accountant specifically can also read (though not write -- see
+/// `ExpensesScreen`) the books.
 List<StaffHubSection> _extraSections(UserRole role) => [
+      (
+        path: '/admin/check-in',
+        icon: Icons.login_outlined,
+        title: 'Check-In',
+      ),
+      (
+        path: '/admin/check-out',
+        icon: Icons.logout_outlined,
+        title: 'Check-Out',
+      ),
       (
         path: '/owner/food-sales',
         icon: Icons.point_of_sale_outlined,
         title: 'Food & Activity Sales',
+      ),
+      (
+        path: '/admin/outbox',
+        icon: Icons.outbox_outlined,
+        title: 'Outbox',
       ),
       if (role == UserRole.accountant)
         (

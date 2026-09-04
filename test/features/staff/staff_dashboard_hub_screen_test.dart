@@ -63,9 +63,24 @@ void main() {
         for (final section in [
           ...staffHubSections,
           const (
+            path: '/admin/check-in',
+            icon: Icons.login_outlined,
+            title: 'Check-In',
+          ),
+          const (
+            path: '/admin/check-out',
+            icon: Icons.logout_outlined,
+            title: 'Check-Out',
+          ),
+          const (
             path: '/owner/food-sales',
             icon: Icons.point_of_sale_outlined,
             title: 'Food & Activity Sales',
+          ),
+          const (
+            path: '/admin/outbox',
+            icon: Icons.outbox_outlined,
+            title: 'Outbox',
           ),
           const (
             path: '/owner/expenses',
@@ -119,11 +134,13 @@ void main() {
     expect(find.text('destination:/staff/leave'), findsOneWidget);
   });
 
-  // I7: food_activity_sales_read/_insert grant staff-or-above, and
-  // expenses_read grants admin/accountant/super_admin -- every staff-or-
-  // above user gets a Food & Activity Sales card, but only an accountant
-  // also gets an Expenses card (plain staff must not see expenses at all).
-  testWidgets('a plain staff member sees Food & Activity Sales but not Expenses', (
+  // I7: food_activity_sales_read/_insert, outbox_read, check_in_booking and
+  // checkout_booking all grant staff-or-above -- every staff-or-above user
+  // gets Check-In, Check-Out, Food & Activity Sales and Outbox cards.
+  // expenses_read grants admin/accountant/super_admin, so only an
+  // accountant also gets an Expenses card (plain staff must not see
+  // expenses at all).
+  testWidgets('a plain staff member sees the staff-or-above extras but not Expenses', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(800, 1400);
@@ -134,11 +151,14 @@ void main() {
     await tester.pumpWidget(appFor(user: _staff));
     await tester.pumpAndSettle();
 
+    expect(find.text('Check-In'), findsOneWidget);
+    expect(find.text('Check-Out'), findsOneWidget);
     expect(find.text('Food & Activity Sales'), findsOneWidget);
+    expect(find.text('Outbox'), findsOneWidget);
     expect(find.text('Expenses'), findsNothing);
   });
 
-  testWidgets('an accountant sees both Food & Activity Sales and Expenses', (
+  testWidgets('an accountant sees every extra, including Expenses', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(800, 1400);
@@ -149,7 +169,25 @@ void main() {
     await tester.pumpWidget(appFor(user: _accountant));
     await tester.pumpAndSettle();
 
+    expect(find.text('Check-In'), findsOneWidget);
+    expect(find.text('Check-Out'), findsOneWidget);
     expect(find.text('Food & Activity Sales'), findsOneWidget);
+    expect(find.text('Outbox'), findsOneWidget);
     expect(find.text('Expenses'), findsOneWidget);
+  });
+
+  testWidgets('tapping Check-In navigates to /admin/check-in', (tester) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(appFor());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Check-In'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('destination:/admin/check-in'), findsOneWidget);
   });
 }
