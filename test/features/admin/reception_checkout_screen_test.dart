@@ -69,4 +69,22 @@ void main() {
 
     expect(find.text('CHECKOUT SCREEN'), findsOneWidget);
   });
+
+  // I9: the checkedIn() repository query never embedded the guest's
+  // profile, so this screen's `g.customerName ?? 'Guest'` fallback always
+  // fired -- reception could not tell which checked-in guest was which by
+  // name. This widget test alone can't catch that (it feeds a Reservation
+  // with the name already attached, bypassing the repository), but it
+  // locks in the fallback still behaves correctly when a name is genuinely
+  // absent, now that the common case is fixed at the repository level in
+  // stay_repository.dart.
+  testWidgets('falls back to "Guest" only when no name is available',
+      (tester) async {
+    await tester.pumpWidget(
+      _appFor([_checkedIn('r1', customerName: null)]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Guest'), findsOneWidget);
+  });
 }

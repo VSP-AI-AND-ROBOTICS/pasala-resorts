@@ -59,10 +59,11 @@ class ReceptionCheckinScreen extends ConsumerWidget {
             return Card(
               margin: const EdgeInsets.only(bottom: Spacing.sm),
               child: ListTile(
-                title: Text(
-                  '${formatDay(b.start.toLocal())} → ${formatDay(b.end.toLocal())}',
+                title: Text(b.customerName ?? 'Guest'),
+                subtitle: Text(
+                  '${formatDay(b.start.toLocal())} → ${formatDay(b.end.toLocal())} · '
+                  '${b.guests ?? '—'} guests · Booking ${b.id.substring(0, 8)}',
                 ),
-                subtitle: Text('${b.guests ?? '—'} guests · Booking ${b.id.substring(0, 8)}'),
                 trailing: FilledButton(
                   onPressed: () => _checkIn(ref, context, b.id),
                   child: const Text('Check In'),

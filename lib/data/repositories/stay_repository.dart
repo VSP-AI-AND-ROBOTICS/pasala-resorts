@@ -103,10 +103,18 @@ class StayRepository {
 
   /// Today's confirmed arrivals -- reception's Check-In queue, soonest
   /// arrival first (`ascending: true` -- see the comment on `currentStay`).
+  ///
+  /// The `profiles` embed (same shape `BookingRepository.allBookings` uses)
+  /// gives reception the guest's actual name -- without it, this screen
+  /// showed only a date range and an internal booking id, and
+  /// `ReceptionCheckoutScreen` fell all the way back to the literal string
+  /// "Guest" for every row. `profiles_select_self` (0002_profiles.sql)
+  /// already grants `is_staff_or_above()` read access to any profile, so
+  /// this needed no RLS change -- the embed was simply never added here.
   Future<List<Reservation>> todaysArrivals() => _guard(() async {
         final rows = await _db
             .from('reservations')
-            .select()
+            .select('*, profiles!reservations_customer_id_fkey(full_name, phone)')
             .eq('kind', 'booking')
             .eq('status', 'confirmed')
             .order('period', ascending: true);
@@ -114,11 +122,12 @@ class StayRepository {
       });
 
   /// Every guest currently on-site -- reception's Check-Out queue, soonest
-  /// -arrived guest first.
+  /// -arrived guest first. See `todaysArrivals` for why the `profiles`
+  /// embed is here.
   Future<List<Reservation>> checkedIn() => _guard(() async {
         final rows = await _db
             .from('reservations')
-            .select()
+            .select('*, profiles!reservations_customer_id_fkey(full_name, phone)')
             .eq('kind', 'booking')
             .eq('status', 'checked_in')
             .order('period', ascending: true);
