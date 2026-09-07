@@ -257,7 +257,20 @@ class AdminBookingCard extends StatelessWidget {
           (scheme.tertiaryContainer, scheme.onTertiaryContainer),
       };
 
-  int get _nights => reservation.end.difference(reservation.start).inDays;
+  // `end.difference(start).inDays` truncates the raw duration -- a 2pm
+  // check-in to an 11am check-out next day is ~21 hours, so a genuine
+  // 1-night stay reported "0 Nights" (and a 2-night stay "1 Night"), for
+  // every booking in this list. Reproduced live: a Sep 7 -> Sep 8 booking
+  // showed "(0 Nights)". Counting the gap between local CALENDAR dates
+  // instead -- the same date-based approach `report_occupancy` already
+  // uses server-side -- matches the nights actually billed.
+  int get _nights {
+    final start = reservation.start.toLocal();
+    final end = reservation.end.toLocal();
+    return DateTime(end.year, end.month, end.day)
+        .difference(DateTime(start.year, start.month, start.day))
+        .inDays;
+  }
 
   @override
   Widget build(BuildContext context) {

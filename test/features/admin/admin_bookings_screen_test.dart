@@ -265,6 +265,38 @@ void main() {
       expect(find.textContaining('35,000'), findsOneWidget);
     });
 
+    // I8: `end.difference(start).inDays` truncates the raw duration, so a
+    // realistic 2pm check-in / 11am check-out (~21 hours for 1 night, ~45
+    // hours for 2) always undercounted by one -- a genuine 1-night stay
+    // read "(0 Nights)". Counting calendar dates instead fixes it.
+    testWidgets('a stay with real check-in/check-out times shows its true '
+        'night count, not one fewer', (tester) async {
+      final oneNight = Reservation(
+        id: 'one-night',
+        unitId: 'u1',
+        start: DateTime(2026, 9, 7, 14, 0),
+        end: DateTime(2026, 9, 8, 11, 0),
+        kind: ReservationKind.booking,
+        status: ReservationStatus.checkedOut,
+        customerName: 'Ravi Kumar',
+      );
+      final twoNights = Reservation(
+        id: 'two-nights',
+        unitId: 'u1',
+        start: DateTime(2026, 9, 14, 14, 0),
+        end: DateTime(2026, 9, 16, 11, 0),
+        kind: ReservationKind.booking,
+        status: ReservationStatus.confirmed,
+        customerName: 'Ravi Kumar',
+      );
+      await tester.pumpWidget(app([oneNight, twoNights]));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('(1 Night)'), findsOneWidget);
+      expect(find.textContaining('(2 Nights)'), findsOneWidget);
+      expect(find.textContaining('(0 Nights)'), findsNothing);
+    });
+
     testWidgets('tapping "New Booking" navigates to the property booking flow',
         (tester) async {
       await tester.pumpWidget(app(const []));
