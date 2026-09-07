@@ -53,7 +53,16 @@ class _QuoteSheetState extends State<QuoteSheet> {
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
-    return Padding(
+    // `isScrollControlled: true` (booking_screen.dart's `_showQuoteSheet`)
+    // lets this sheet grow past the default ~half-screen cap, but on a
+    // short viewport the coupon field + full price breakdown + Pay button
+    // can still exceed even the full screen height -- without a scroll
+    // view here, that overflows ("BOTTOM OVERFLOWED BY n PIXELS") instead
+    // of just scrolling. Reproduced live on a short/landscape browser
+    // viewport with a multi-night stay (enough price-breakdown rows to
+    // push the total past the fold).
+    return SingleChildScrollView(
+      child: Padding(
       padding: const EdgeInsets.all(Spacing.lg),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -190,6 +199,7 @@ class _QuoteSheetState extends State<QuoteSheet> {
             child: Text(widget.busy ? 'Processing…' : 'Pay and confirm'),
           ),
         ],
+      ),
       ),
     );
   }
