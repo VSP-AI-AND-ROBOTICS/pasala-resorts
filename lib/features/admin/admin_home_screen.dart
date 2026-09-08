@@ -36,17 +36,29 @@ bool isFarmhouseOccupied(List<Reservation> bookings) => bookings.any(
         r.status == ReservationStatus.checkedIn);
 
 /// Every non-cancelled booking-kind reservation whose stay starts in the
-/// same calendar month as [now] -- the Business Snapshot's "This Month"
-/// count. A cancelled booking contributes no revenue and should not inflate
-/// the count either.
-List<Reservation> bookingsThisMonth(List<Reservation> bookings, DateTime now) =>
-    bookings
-        .where((r) =>
-            r.kind == ReservationKind.booking &&
-            r.status != ReservationStatus.cancelled &&
-            r.start.toLocal().year == now.year &&
-            r.start.toLocal().month == now.month)
-        .toList();
+/// same calendar month as [now], on or before today -- the Business
+/// Snapshot's "This Month" count. A cancelled booking contributes no
+/// revenue and should not inflate the count either.
+///
+/// Matches `dashboard_summary()`'s `month_revenue` (month-to-date, not the
+/// full calendar month) -- both were once on different windows, so a
+/// booking arriving later this month counted toward "Bookings" today but
+/// its revenue wouldn't show up until its arrival date, silently dragging
+/// "Avg. Booking Value" below what any of the counted bookings actually
+/// paid. Reproduced live: 4 bookings this month, but only 2 had already
+/// contributed to the ₹59,000 month-to-date revenue figure -- the card
+/// showed a ₹14,750 average when the two real bookings averaged ₹29,500.
+List<Reservation> bookingsThisMonth(List<Reservation> bookings, DateTime now) {
+  final today = DateTime(now.year, now.month, now.day);
+  return bookings
+      .where((r) =>
+          r.kind == ReservationKind.booking &&
+          r.status != ReservationStatus.cancelled &&
+          r.start.toLocal().year == now.year &&
+          r.start.toLocal().month == now.month &&
+          !DateUtils.dateOnly(r.start.toLocal()).isAfter(today))
+      .toList();
+}
 
 /// `"14:00"` -> `"2:00 PM"`. Postgres `time` columns round-trip via
 /// `Property.checkInTime`/`checkOutTime` as 24-hour `HH:mm`; the dashboard's

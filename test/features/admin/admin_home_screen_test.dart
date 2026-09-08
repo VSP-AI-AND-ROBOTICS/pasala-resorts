@@ -131,6 +131,27 @@ void main() {
       ];
       expect(bookingsThisMonth(bookings, now), isEmpty);
     });
+
+    // I10: this count feeds "Avg. Booking Value" alongside
+    // dashboard_summary()'s month_revenue, which is strictly month-to-date
+    // -- a future arrival later this month has no revenue yet, so counting
+    // it here understated the average. Excluding it keeps both figures on
+    // the same date window.
+    test('excludes a booking later this month that hasn\'t arrived yet', () {
+      final bookings = [
+        _booking('future-this-month',
+            start: DateTime(2026, 9, 20), end: DateTime(2026, 9, 22)),
+      ];
+      expect(bookingsThisMonth(bookings, now), isEmpty);
+    });
+
+    test('includes a booking arriving today', () {
+      final bookings = [
+        _booking('today',
+            start: DateTime(2026, 9, 15), end: DateTime(2026, 9, 17)),
+      ];
+      expect(bookingsThisMonth(bookings, now).map((r) => r.id), ['today']);
+    });
   });
 
   group('formatTimeOfDay', () {
