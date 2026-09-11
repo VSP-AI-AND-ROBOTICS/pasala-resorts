@@ -154,6 +154,15 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // The calendar now opens in a bottom sheet from the "Check-in" field
+  // instead of sitting inline -- open it once before picking either day;
+  // it stays open across both taps and auto-closes once the range is
+  // complete (see `_BookingScreenState._openDatePickerSheet`).
+  Future<void> openDateSheet(WidgetTester tester) async {
+    await tester.tap(find.byKey(const Key('check-in-field')));
+    await tester.pumpAndSettle();
+  }
+
   testWidgets(
       'completing a range that crosses a booked night is rejected with an '
       'error, and does not create a hold', (tester) async {
@@ -182,6 +191,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final cursor = _MonthCursor(DateTime(now.year, now.month));
+    await openDateSheet(tester);
     await tapDay(tester, cursor, from);
     await tapDay(tester, cursor, to);
 

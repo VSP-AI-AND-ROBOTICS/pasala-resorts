@@ -20,7 +20,7 @@
 --     accountant is staff-or-above and must see the numbers too.
 
 begin;
-select plan(18);
+select plan(21);
 
 select has_function('public','dashboard_summary','dashboard_summary() exists');
 select has_function('public','report_revenue','report_revenue() exists');
@@ -114,6 +114,36 @@ values
    'booking','confirmed','cccc0000-0000-0000-0000-000000000001',2,
    jsonb_build_object('total', 15000.00), 'app');
 
+-- I6: a checked_in booking and a checked_out booking must both still count
+-- as revenue -- 0031_stay_lifecycle.sql added these statuses to the
+-- reservation lifecycle after report_revenue was written, and the fix
+-- being tested here is that neither one silently vanishes from the
+-- numbers just because the guest actually completed (or is completing)
+-- their stay.
+insert into public.reservations
+  (unit_id, period, kind, status, customer_id, guests, quote, source)
+values
+  ('d0000000-0000-0000-0000-000000000001',
+   public.build_period('d0000000-0000-0000-0000-000000000001',
+                       date '2027-03-08', date '2027-03-09'),
+   'booking','checked_in','cccc0000-0000-0000-0000-000000000001',2,
+   jsonb_build_object('total', 5000.00), 'app'),
+  ('d0000000-0000-0000-0000-000000000001',
+   public.build_period('d0000000-0000-0000-0000-000000000001',
+                       date '2027-03-09', date '2027-03-10'),
+   'booking','checked_out','cccc0000-0000-0000-0000-000000000001',2,
+   jsonb_build_object('total', 6000.00), 'app');
+
+-- I6: a checked_in booking must still count toward occupied nights.
+insert into public.reservations
+  (unit_id, period, kind, status, customer_id, guests, quote, source)
+values
+  ('d0000000-0000-0000-0000-000000000003',
+   public.build_period('d0000000-0000-0000-0000-000000000003',
+                       date '2027-05-01', date '2027-05-03'),
+   'booking','checked_in','cccc0000-0000-0000-0000-000000000001',2,
+   jsonb_build_object('total', 10000.00), 'app');
+
 -- === a customer must not be able to read the business's numbers ==========
 
 set local role authenticated;
@@ -193,6 +223,22 @@ select is(
   'refund (2000) -- net can go negative on a refund-only day, proving it '
   'is real subtraction, not a copy of gross');
 
+-- === I6: checked_in/checked_out bookings still count as revenue =========
+
+select is(
+  (select gross from public.report_revenue(
+     date '2027-03-08', date '2027-03-08',
+     'e0000000-0000-0000-0000-000000000001')),
+  5000.00::numeric,
+  'I6: a checked_in booking still contributes its total to gross revenue');
+
+select is(
+  (select gross from public.report_revenue(
+     date '2027-03-09', date '2027-03-09',
+     'e0000000-0000-0000-0000-000000000001')),
+  6000.00::numeric,
+  'I6: a checked_out booking still contributes its total to gross revenue');
+
 -- === report_occupancy: night count survives the UTC/IST boundary =========
 
 select is(
@@ -210,6 +256,16 @@ select is(
    where unit_id = 'd0000000-0000-0000-0000-000000000003'),
   20.0::numeric,
   '2 nights in a 10-day window is 20.0 percent occupancy');
+
+-- === I6: a checked_in booking still counts toward occupied nights =======
+
+select is(
+  (select nights_booked from public.report_occupancy(
+     date '2027-05-01', date '2027-05-11',
+     'e0000000-0000-0000-0000-000000000001')
+   where unit_id = 'd0000000-0000-0000-0000-000000000003'),
+  2,
+  'I6: a checked_in booking still counts its nights toward occupancy');
 
 -- === carried-forward fix: the range filter, not just the night-count =====
 -- === arithmetic, must use property-local midnight =========================

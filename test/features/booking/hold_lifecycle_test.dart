@@ -587,6 +587,19 @@ void main() {
       expect(find.byType(AppBar), findsNothing);
     });
 
+    // The booking screen is taller than the test surface's default height,
+    // so any key below the fold (the Price section's button, the hold
+    // banner's Resume/Cancel) must be scrolled into view before tapping --
+    // otherwise `tester.tap` dispatches at an offset outside the render
+    // tree entirely.
+    Future<void> tapVisible(WidgetTester tester, Key key) async {
+      final finder = find.byKey(key);
+      await tester.ensureVisible(finder);
+      await tester.pumpAndSettle();
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
     Future<void> pickRange(
       WidgetTester tester,
       _MonthCursor cursor,
@@ -603,8 +616,21 @@ void main() {
         await tester.pumpAndSettle();
       }
 
+      // The calendar now opens in a bottom sheet from the "Check-in" field
+      // instead of sitting inline -- it stays open across both taps and
+      // auto-closes once the range is complete (see
+      // `_BookingScreenState._openDatePickerSheet`).
+      await tester.tap(find.byKey(const Key('check-in-field')));
+      await tester.pumpAndSettle();
       await tapDay(from);
       await tapDay(to);
+
+      // The quote sheet (coupon field + Pay button) no longer pops up on
+      // its own the moment a quote resolves -- it only opens from the "3
+      // Price" section's own button, an explicit customer action. Every
+      // caller of `pickRange` immediately goes on to interact with the
+      // sheet's `pay-button`, so open it here once, centrally.
+      await tapVisible(tester, const Key('open-payment-button'));
     }
 
     testWidgets('double-tap on Pay charges exactly once (Finding 3)',
@@ -681,10 +707,9 @@ void main() {
       await pickRange(tester, cursor, from, to);
       actions.calls.clear(); // isolate the quote fetch above from assertions
 
-      // Sheet auto-opens once the quote resolves.
+      // `pickRange` already opened the sheet via the Price section's button.
       expect(find.byKey(const Key('pay-button')), findsOneWidget);
-      await tester.tap(find.byKey(const Key('pay-button')));
-      await tester.pumpAndSettle();
+      await tapVisible(tester, const Key('pay-button'));
 
       expect(actions.calls, ['createHold'],
           reason: 'the decline must not touch the hold at all -- it stays '
@@ -700,8 +725,7 @@ void main() {
 
       // Resuming must reopen the sheet WITHOUT creating a new hold or
       // re-quoting -- it reuses the existing hold and its stored quote.
-      await tester.tap(find.byKey(const Key('resume-hold-button')));
-      await tester.pumpAndSettle();
+      await tapVisible(tester, const Key('resume-hold-button'));
 
       expect(find.byKey(const Key('pay-button')), findsOneWidget,
           reason: 'Resume payment must reopen the QuoteSheet');
@@ -711,8 +735,7 @@ void main() {
 
       // Retrying now succeeds, reusing the same hold (exactly Finding 1's
       // retry-after-decline path).
-      await tester.tap(find.byKey(const Key('pay-button')));
-      await tester.pumpAndSettle();
+      await tapVisible(tester, const Key('pay-button'));
 
       expect(gateway.callCount, 2);
       expect(
@@ -742,15 +765,13 @@ void main() {
       final cursor = _MonthCursor(DateTime(now.year, now.month));
       await pickRange(tester, cursor, from, to);
 
-      await tester.tap(find.byKey(const Key('pay-button')));
-      await tester.pumpAndSettle();
+      await tapVisible(tester, const Key('pay-button'));
 
       expect(find.byKey(const Key('cancel-hold-button')), findsOneWidget);
       final heldId = actions.cancelledIds; // empty so far
       expect(heldId, isEmpty);
 
-      await tester.tap(find.byKey(const Key('cancel-hold-button')));
-      await tester.pumpAndSettle();
+      await tapVisible(tester, const Key('cancel-hold-button'));
 
       expect(actions.cancelledIds, ['hold-0'],
           reason: 'Cancel hold must call cancel_booking for the held '

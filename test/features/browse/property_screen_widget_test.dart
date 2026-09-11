@@ -5,8 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/theme/app_assets.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/reservation.dart';
+import 'package:pasala/data/models/review.dart';
 import 'package:pasala/data/models/unit.dart';
 import 'package:pasala/data/repositories/booking_repository.dart';
+import 'package:pasala/data/repositories/review_repository.dart';
 import 'package:pasala/features/booking/providers.dart' show unitByIdProvider;
 import 'package:pasala/features/browse/property_screen.dart';
 import 'package:pasala/features/browse/providers.dart';
@@ -49,13 +51,14 @@ class _NoOccupancyCalendarSource implements UnitCalendarSource {
   Future<List<Reservation>> fetchUnit(String unitId) async => const [];
 }
 
-Widget _appFor() => ProviderScope(
+Widget _appFor({List<Review> reviews = const []}) => ProviderScope(
       overrides: [
         propertyProvider('p1').overrideWith((ref) => Future.value(_property)),
         unitsProvider('p1').overrideWith((ref) => Future.value(_units)),
         unitByIdProvider('u1').overrideWith((ref) => Future.value(_unit)),
         unitCalendarSourceProvider
             .overrideWithValue(_NoOccupancyCalendarSource()),
+        allReviewsProvider.overrideWith((ref) => Future.value(reviews)),
       ],
       child: const MaterialApp(
         home: Scaffold(body: PropertyScreen(propertyId: 'p1')),
@@ -104,15 +107,72 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Dates'), findsOneWidget);
-      // 'Guests' legitimately renders twice in BookingScreen: once as this
-      // numbered section's title, and once as the guest stepper's own row
-      // label inside it (see `_guestStepper` in booking_screen.dart) --
-      // findsWidgets (rather than findsOneWidget) asserts the section is
-      // present without over-specifying BookingScreen's internal layout.
+      // findsWidgets (rather than findsOneWidget) asserts the "Guests" step
+      // is present without over-specifying exactly how many places its
+      // label appears inside `_PlanYourStayCard`.
       expect(find.text('Guests'), findsWidgets);
       expect(find.byKey(const Key('occasion-field')), findsOneWidget);
+      // Pay is no longer its own numbered section -- once a quote exists,
+      // the Price section's own button is the payment action, so there is
+      // no separate fourth step to assert on.
       expect(find.text('Price'), findsOneWidget);
-      expect(find.text('Pay'), findsOneWidget);
+    },
+  );
+
+  testWidgets('shows a friendly message when there are no reviews yet', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_appFor());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Customer Reviews'), findsOneWidget);
+    expect(
+      find.text('No reviews yet -- be the first to share your stay.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'shows the average rating and up to 3 of the newest reviews, with '
+    'each guest\'s first name',
+    (tester) async {
+      final reviews = [
+        Review(
+          id: 'r1',
+          reservationId: 'res-1',
+          customerId: 'c1',
+          farmhouseRating: 5,
+          cleanlinessRating: 5,
+          foodRating: 5,
+          serviceRating: 5,
+          activitiesRating: 5,
+          overallRating: 5,
+          feedback: 'Wonderful stay!',
+          customerFirstName: 'Ramesh',
+        ),
+        Review(
+          id: 'r2',
+          reservationId: 'res-2',
+          customerId: 'c2',
+          farmhouseRating: 4,
+          cleanlinessRating: 4,
+          foodRating: 4,
+          serviceRating: 4,
+          activitiesRating: 4,
+          overallRating: 4,
+          feedback: 'Very good.',
+          customerFirstName: 'Sneha',
+        ),
+      ];
+      await tester.pumpWidget(_appFor(reviews: reviews));
+      await tester.pumpAndSettle();
+
+      expect(find.text('4.5'), findsOneWidget);
+      expect(find.text('(2 reviews)'), findsOneWidget);
+      expect(find.text('Ramesh'), findsOneWidget);
+      expect(find.text('Sneha'), findsOneWidget);
+      expect(find.text('Wonderful stay!'), findsOneWidget);
+      expect(find.byKey(const Key('view-all-reviews-button')), findsOneWidget);
     },
   );
 }

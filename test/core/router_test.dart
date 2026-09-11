@@ -62,8 +62,8 @@ void main() {
       expect(landingPathFor(_admin), '/admin');
     });
 
-    test('super_admin lands on /admin', () {
-      expect(landingPathFor(_superAdmin), '/admin');
+    test('super_admin lands on /owner', () {
+      expect(landingPathFor(_superAdmin), '/owner');
     });
   });
 
@@ -87,8 +87,8 @@ void main() {
       expect(loginRedirect(_admin), '/admin');
     });
 
-    test('super_admin -> /admin', () {
-      expect(loginRedirect(_superAdmin), '/admin');
+    test('super_admin -> /owner', () {
+      expect(loginRedirect(_superAdmin), '/owner');
     });
   });
 
@@ -118,10 +118,13 @@ void main() {
   });
 
   group('staff', () {
-    test('reaches /admin/dashboard, /admin/reports and /admin/outbox', () {
+    test('reaches /admin/dashboard, /admin/reports, /admin/outbox, '
+        '/admin/check-in and /admin/check-out', () {
       expect(_to(_staff, '/admin/dashboard'), null);
       expect(_to(_staff, '/admin/reports'), null);
       expect(_to(_staff, '/admin/outbox'), null);
+      expect(_to(_staff, '/admin/check-in'), null);
+      expect(_to(_staff, '/admin/check-out'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
@@ -157,10 +160,13 @@ void main() {
   });
 
   group('accountant', () {
-    test('reaches /admin/dashboard, /admin/reports and /admin/outbox', () {
+    test('reaches /admin/dashboard, /admin/reports, /admin/outbox, '
+        '/admin/check-in and /admin/check-out', () {
       expect(_to(_accountant, '/admin/dashboard'), null);
       expect(_to(_accountant, '/admin/reports'), null);
       expect(_to(_accountant, '/admin/outbox'), null);
+      expect(_to(_accountant, '/admin/check-in'), null);
+      expect(_to(_accountant, '/admin/check-out'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
@@ -182,6 +188,59 @@ void main() {
       ]) {
         expect(_to(_accountant, path), null, reason: path);
       }
+    });
+  });
+
+  group('owner', () {
+    test('super_admin reaches every /owner/* route', () {
+      for (final path in [
+        '/owner',
+        '/owner/dashboard',
+        '/owner/food-sales',
+        '/owner/expenses',
+        '/owner/staff-performance',
+        '/owner/reports',
+        '/owner/settings',
+      ]) {
+        expect(_to(_superAdmin, path), null, reason: path);
+      }
+    });
+
+    test('a plain admin is redirected away from every /owner/* route '
+        'except /owner/expenses', () {
+      expect(_to(_admin, '/owner'), '/404');
+      expect(_to(_admin, '/owner/dashboard'), '/404');
+      expect(_to(_admin, '/owner/settings'), '/404');
+    });
+
+    // expenses_read (0027_expenses.sql) already grants admin/accountant/
+    // super_admin at the RLS level -- the accountant role exists
+    // specifically to read financials (see ExpensesScreen's own doc
+    // comment), so it is not just an admin exception.
+    test('admin and accountant (but not staff/customer) reach '
+        '/owner/expenses', () {
+      expect(_to(_admin, '/owner/expenses'), null);
+      expect(_to(_accountant, '/owner/expenses'), null);
+      expect(_to(_staff, '/owner/expenses'), '/404');
+      expect(_to(_customer, '/owner/expenses'), '/404');
+    });
+
+    // food_activity_sales_read/_insert (0026_food_activity_sales.sql)
+    // grant staff-or-above -- any signed-in staff member logging a
+    // walk-in guest's food/pool purchase needs a real destination.
+    test('every staff-or-above role (but not customer) reaches '
+        '/owner/food-sales', () {
+      expect(_to(_admin, '/owner/food-sales'), null);
+      expect(_to(_accountant, '/owner/food-sales'), null);
+      expect(_to(_staff, '/owner/food-sales'), null);
+      expect(_to(_customer, '/owner/food-sales'), '/404');
+    });
+
+    test('staff, accountant, and customer are all redirected away from '
+        'every other /owner/* route', () {
+      expect(_to(_staff, '/owner'), '/404');
+      expect(_to(_accountant, '/owner'), '/404');
+      expect(_to(_customer, '/owner'), '/404');
     });
   });
 

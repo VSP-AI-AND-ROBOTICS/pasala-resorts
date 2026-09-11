@@ -106,6 +106,7 @@ void main() {
       expect(amenityIcon('Barbecue'), Icons.outdoor_grill);
       expect(amenityIcon('Parking'), Icons.local_parking);
       expect(amenityIcon('Garden'), Icons.grass);
+      expect(amenityIcon('Spacious'), Icons.aspect_ratio);
     });
 
     test('falls back to a generic icon for an unknown amenity', () {
