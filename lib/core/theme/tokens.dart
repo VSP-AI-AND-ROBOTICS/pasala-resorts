@@ -11,6 +11,14 @@ abstract final class PasalaTokens {
   static const Color seed = Color(0xFF2E6B4F);
   static const Color accent = Color(0xFFC2703D);
 
+  static const double displayLetterSpacing = -0.8;
+  static const FontWeight displayWeight = FontWeight.w700;
+
+  /// The single width breakpoint the app treats as "wide" (desktop/tablet
+  /// landscape vs. phone) — shared by `AppShell`'s rail/bottom-bar switch
+  /// and `BrowseScreen`'s grid/list switch so the two can never disagree.
+  static const double wideBreakpoint = 840;
+
   static const double radiusSm = 8;
   static const double radiusMd = 16;
   static const double radiusLg = 28;

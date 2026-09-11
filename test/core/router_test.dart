@@ -12,7 +12,7 @@ const _customer =
     AppUser(id: 'c', email: 'customer@pasala.test', role: UserRole.customer);
 
 String? _to(AppUser? user, String path) =>
-    redirectFor(user: user, path: path, loggingIn: false);
+    redirectFor(user: user, path: path, onPreAuthScreen: false);
 
 void main() {
   group('unauthenticated', () {
@@ -21,15 +21,29 @@ void main() {
       expect(_to(null, '/admin/dashboard'), '/login');
     });
 
-    test('is left on /login and /signup', () {
-      expect(redirectFor(user: null, path: '/login', loggingIn: true), null);
-      expect(redirectFor(user: null, path: '/signup', loggingIn: true), null);
+    test('is left on /splash, /welcome, /login, and /signup', () {
+      for (final path in ['/splash', '/welcome', '/login', '/signup']) {
+        expect(
+          redirectFor(user: null, path: path, onPreAuthScreen: true),
+          null,
+          reason: path,
+        );
+      }
     });
   });
 
-  test('a signed-in customer hitting /login or /signup is sent home', () {
-    expect(redirectFor(user: _customer, path: '/login', loggingIn: true), '/');
-  });
+  test(
+    'a signed-in customer hitting any pre-auth screen is sent home',
+    () {
+      for (final path in ['/splash', '/welcome', '/login', '/signup']) {
+        expect(
+          redirectFor(user: _customer, path: path, onPreAuthScreen: true),
+          '/',
+          reason: path,
+        );
+      }
+    },
+  );
 
   group('landingPathFor', () {
     test('customer lands on /', () {
@@ -40,22 +54,22 @@ void main() {
       expect(landingPathFor(_staff), '/staff');
     });
 
-    test('accountant lands on /admin/dashboard', () {
-      expect(landingPathFor(_accountant), '/admin/dashboard');
+    test('accountant lands on /staff/dashboard', () {
+      expect(landingPathFor(_accountant), '/staff/dashboard');
     });
 
     test('admin lands on /admin', () {
       expect(landingPathFor(_admin), '/admin');
     });
 
-    test('super_admin lands on /admin', () {
-      expect(landingPathFor(_superAdmin), '/admin');
+    test('super_admin lands on /owner', () {
+      expect(landingPathFor(_superAdmin), '/owner');
     });
   });
 
   group('redirectFor sends a signed-in user hitting /login by role', () {
     String? loginRedirect(AppUser user) =>
-        redirectFor(user: user, path: '/login', loggingIn: true);
+        redirectFor(user: user, path: '/login', onPreAuthScreen: true);
 
     test('customer -> /', () {
       expect(loginRedirect(_customer), '/');
@@ -65,16 +79,16 @@ void main() {
       expect(loginRedirect(_staff), '/staff');
     });
 
-    test('accountant -> /admin/dashboard', () {
-      expect(loginRedirect(_accountant), '/admin/dashboard');
+    test('accountant -> /staff/dashboard', () {
+      expect(loginRedirect(_accountant), '/staff/dashboard');
     });
 
     test('admin -> /admin', () {
       expect(loginRedirect(_admin), '/admin');
     });
 
-    test('super_admin -> /admin', () {
-      expect(loginRedirect(_superAdmin), '/admin');
+    test('super_admin -> /owner', () {
+      expect(loginRedirect(_superAdmin), '/owner');
     });
   });
 
@@ -104,10 +118,13 @@ void main() {
   });
 
   group('staff', () {
-    test('reaches /admin/dashboard, /admin/reports and /admin/outbox', () {
+    test('reaches /admin/dashboard, /admin/reports, /admin/outbox, '
+        '/admin/check-in and /admin/check-out', () {
       expect(_to(_staff, '/admin/dashboard'), null);
       expect(_to(_staff, '/admin/reports'), null);
       expect(_to(_staff, '/admin/outbox'), null);
+      expect(_to(_staff, '/admin/check-in'), null);
+      expect(_to(_staff, '/admin/check-out'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
@@ -125,22 +142,105 @@ void main() {
       }
     });
 
-    test('reaches /staff', () {
-      expect(_to(_staff, '/staff'), null);
+    test('reaches /staff and every /staff/* section route', () {
+      for (final path in [
+        '/staff',
+        '/staff/dashboard',
+        '/staff/profile',
+        '/staff/working-hours',
+        '/staff/leave',
+        '/staff/tasks',
+        '/staff/schedules',
+        '/staff/time-slots',
+        '/staff/daily-status',
+      ]) {
+        expect(_to(_staff, path), null, reason: path);
+      }
     });
   });
 
   group('accountant', () {
-    test('reaches /admin/dashboard, /admin/reports and /admin/outbox', () {
+    test('reaches /admin/dashboard, /admin/reports, /admin/outbox, '
+        '/admin/check-in and /admin/check-out', () {
       expect(_to(_accountant, '/admin/dashboard'), null);
       expect(_to(_accountant, '/admin/reports'), null);
       expect(_to(_accountant, '/admin/outbox'), null);
+      expect(_to(_accountant, '/admin/check-in'), null);
+      expect(_to(_accountant, '/admin/check-out'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
       expect(_to(_accountant, '/admin/properties'), '/404');
       expect(_to(_accountant, '/admin/bookings'), '/404');
       expect(_to(_accountant, '/admin/users'), '/404');
+    });
+
+    test('reaches every /staff/* section route', () {
+      for (final path in [
+        '/staff/dashboard',
+        '/staff/profile',
+        '/staff/working-hours',
+        '/staff/leave',
+        '/staff/tasks',
+        '/staff/schedules',
+        '/staff/time-slots',
+        '/staff/daily-status',
+      ]) {
+        expect(_to(_accountant, path), null, reason: path);
+      }
+    });
+  });
+
+  group('owner', () {
+    test('super_admin reaches every /owner/* route', () {
+      for (final path in [
+        '/owner',
+        '/owner/dashboard',
+        '/owner/food-sales',
+        '/owner/expenses',
+        '/owner/staff-performance',
+        '/owner/reports',
+        '/owner/settings',
+      ]) {
+        expect(_to(_superAdmin, path), null, reason: path);
+      }
+    });
+
+    test('a plain admin is redirected away from every /owner/* route '
+        'except /owner/expenses', () {
+      expect(_to(_admin, '/owner'), '/404');
+      expect(_to(_admin, '/owner/dashboard'), '/404');
+      expect(_to(_admin, '/owner/settings'), '/404');
+    });
+
+    // expenses_read (0027_expenses.sql) already grants admin/accountant/
+    // super_admin at the RLS level -- the accountant role exists
+    // specifically to read financials (see ExpensesScreen's own doc
+    // comment), so it is not just an admin exception.
+    test('admin and accountant (but not staff/customer) reach '
+        '/owner/expenses', () {
+      expect(_to(_admin, '/owner/expenses'), null);
+      expect(_to(_accountant, '/owner/expenses'), null);
+      expect(_to(_staff, '/owner/expenses'), '/404');
+      expect(_to(_customer, '/owner/expenses'), '/404');
+    });
+
+    // food_activity_sales_read/_insert (0026_food_activity_sales.sql)
+    // grant staff-or-above -- any signed-in staff member logging a
+    // walk-in guest's food/pool purchase needs a real destination.
+    test('every staff-or-above role (but not customer) reaches '
+        '/owner/food-sales', () {
+      expect(_to(_admin, '/owner/food-sales'), null);
+      expect(_to(_accountant, '/owner/food-sales'), null);
+      expect(_to(_staff, '/owner/food-sales'), null);
+      expect(_to(_customer, '/owner/food-sales'), '/404');
+    });
+
+    test('staff, accountant, and customer are all redirected away from '
+        'every other /owner/* route', () {
+      expect(_to(_staff, '/owner'), '/404');
+      expect(_to(_accountant, '/owner'), '/404');
+      expect(_to(_customer, '/owner'), '/404');
     });
   });
 
@@ -159,8 +259,20 @@ void main() {
       }
     });
 
-    test('is redirected away from /staff', () {
-      expect(_to(_customer, '/staff'), '/404');
+    test('is redirected away from /staff and every /staff/* section route', () {
+      for (final path in [
+        '/staff',
+        '/staff/dashboard',
+        '/staff/profile',
+        '/staff/working-hours',
+        '/staff/leave',
+        '/staff/tasks',
+        '/staff/schedules',
+        '/staff/time-slots',
+        '/staff/daily-status',
+      ]) {
+        expect(_to(_customer, path), '/404', reason: path);
+      }
     });
 
     test('reaches ordinary customer routes', () {

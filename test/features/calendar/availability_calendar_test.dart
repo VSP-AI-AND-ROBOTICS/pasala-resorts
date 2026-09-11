@@ -6,6 +6,19 @@ import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/repositories/booking_repository.dart';
 import 'package:pasala/features/calendar/availability_calendar.dart';
 import 'package:pasala/features/calendar/providers.dart';
+import 'package:pasala/data/repositories/booking_repository.dart' show UnitCalendarSource;
+
+/// A [UnitCalendarSource] with no occupied dates at all -- used by the
+/// widget-level tests below that only care about a day's colour/label, not
+/// occupancy rendering (that's covered by `statusFor`'s own pure tests
+/// above).
+class _EmptyCalendarSource implements UnitCalendarSource {
+  @override
+  Stream<List<Reservation>> watchUnit(String unitId) => const Stream.empty();
+
+  @override
+  Future<List<Reservation>> fetchUnit(String unitId) async => const [];
+}
 
 void main() {
   Reservation res({
@@ -220,6 +233,105 @@ void main() {
     // and `addTearDown` runs too late in that sequence to satisfy it.
     await tester.pumpWidget(const SizedBox());
     container.dispose();
+  });
+
+  testWidgets('the legend says Reserved, not On hold', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          unitCalendarSourceProvider.overrideWithValue(_EmptyCalendarSource()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: AvailabilityCalendar(
+                unitId: 'u1',
+                month: DateTime(2030, 1),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reserved'), findsOneWidget);
+    expect(find.text('On hold'), findsNothing);
+  });
+
+  testWidgets('an available day is filled green', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          unitCalendarSourceProvider.overrideWithValue(_EmptyCalendarSource()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: AvailabilityCalendar(
+                unitId: 'u1',
+                month: DateTime(2030, 1),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final decoratedBox = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byKey(const Key('day-15')),
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    final decoration = decoratedBox.decoration as BoxDecoration;
+    expect(decoration.color, Colors.green.shade50);
+    expect(decoration.border, isA<Border>());
+    expect(
+      (decoration.border! as Border).top.color,
+      Colors.green.shade700,
+    );
+  });
+
+  testWidgets(
+      'the whole selected range is filled, not just the endpoints bordered',
+      (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          unitCalendarSourceProvider.overrideWithValue(_EmptyCalendarSource()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: AvailabilityCalendar(
+                unitId: 'u1',
+                month: DateTime(2030, 1),
+                selectedStart: DateTime(2030, 1, 10),
+                selectedEnd: DateTime(2030, 1, 12),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Day 11 is strictly between the selected start/end -- it must carry
+    // the range fill even though it isn't an endpoint.
+    final middleDayBox = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byKey(const Key('day-11')),
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    final middleDecoration = middleDayBox.decoration as BoxDecoration;
+    expect(middleDecoration.color, isNot(Colors.green.shade50));
   });
 }
 

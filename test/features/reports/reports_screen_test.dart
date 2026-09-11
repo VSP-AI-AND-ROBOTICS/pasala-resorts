@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/data/models/expense.dart';
+import 'package:pasala/data/models/food_sale.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/report.dart';
 import 'package:pasala/data/models/slot_type.dart';
@@ -41,6 +43,16 @@ class FakeReportRepository implements ReportRepository {
     occupancyFilters.add((from: from, to: to, propertyId: propertyId));
     return occupancyRows;
   }
+
+  @override
+  Future<List<FoodSalesReportRow>> foodSales(DateTime from, DateTime to,
+          [String? propertyId]) async =>
+      [];
+
+  @override
+  Future<List<ExpensesReportRow>> expenses(DateTime from, DateTime to,
+          [String? propertyId]) async =>
+      [];
 }
 
 /// Only `properties()` is exercised here -- [ReportsScreen] uses it for the
@@ -70,6 +82,10 @@ class FakeCatalogRepository implements CatalogRepository {
 
   @override
   Future<Unit> upsertUnit(Unit unit, {String? id}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> updateSettings(String propertyId, Map<String, dynamic> fields) =>
       throw UnimplementedError();
 }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/widgets/brand_mark.dart';
 import 'package:pasala/features/auth/login_screen.dart';
 
 void main() {
@@ -18,5 +19,11 @@ void main() {
     await tester.pump();
 
     expect(find.text('Enter your email'), findsOneWidget);
+  });
+
+  testWidgets('shows the brand mark above the heading', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+
+    expect(find.byType(BrandMark), findsOneWidget);
   });
 }

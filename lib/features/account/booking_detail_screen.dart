@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/errors.dart';
 import '../../core/format.dart';
@@ -11,15 +12,10 @@ import '../../data/models/quote.dart';
 import '../../data/models/refund_quote.dart';
 import '../../data/models/reservation.dart';
 import '../../data/repositories/booking_repository.dart';
+import '../../data/repositories/stay_repository.dart' show currentStayProvider;
 import '../booking/providers.dart' show reservationProvider;
 import '../staff/providers.dart' show allBookingsProvider;
 import 'providers.dart';
-
-/// `100.00` -> `'100'`, `33.33` -> `'33.33'` -- drops a trailing `.00` from
-/// the numeric percentage Postgres returns without ever rounding the actual
-/// figure being displayed.
-String _formatPct(num pct) =>
-    pct % 1 == 0 ? pct.toStringAsFixed(0) : pct.toString();
 
 class BookingDetailScreen extends ConsumerWidget {
   const BookingDetailScreen({super.key, required this.reservationId});
@@ -122,6 +118,10 @@ class _DetailState extends ConsumerState<_Detail> {
       // cancel here must invalidate it too or those screens keep showing a
       // now-stale status until something else happens to refresh them.
       ref.invalidate(allBookingsProvider);
+      // currentStayProvider picks the soonest-upcoming confirmed
+      // reservation -- cancelling that exact one must let My Stay move on
+      // to whatever's next (or nothing), not keep showing the cancelled one.
+      ref.invalidate(currentStayProvider);
       context.pop();
     } on BookingFailure catch (e) {
       if (!mounted) return;
@@ -172,6 +172,16 @@ class _DetailState extends ConsumerState<_Detail> {
                       ?.copyWith(color: scheme.onSurfaceVariant),
                 ),
               ],
+              if (!isBlock &&
+                  reservation.occasion != null &&
+                  reservation.occasion!.trim().isNotEmpty) ...[
+                const SizedBox(height: Spacing.xs),
+                Text(
+                  'Occasion: ${reservation.occasion}',
+                  style: textTheme.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ],
               if (isBlock && reservation.blockReason != null) ...[
                 const SizedBox(height: Spacing.xs),
                 Text(
@@ -186,6 +196,36 @@ class _DetailState extends ConsumerState<_Detail> {
         if (quote != null) ...[
           const SizedBox(height: Spacing.lg),
           _DetailCard(child: _QuoteBreakdown(quote: quote)),
+        ],
+        if (!isBlock &&
+            (reservation.status == ReservationStatus.confirmed ||
+                reservation.status == ReservationStatus.checkedIn)) ...[
+          const SizedBox(height: Spacing.lg),
+          _DetailCard(
+            child: Column(
+              children: [
+                Text('Check-in QR', style: textTheme.titleMedium),
+                const SizedBox(height: Spacing.sm),
+                Container(
+                  padding: const EdgeInsets.all(Spacing.sm),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+                  ),
+                  child: QrImageView(
+                    data: reservation.id,
+                    size: 140,
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: Spacing.md),
+                FilledButton(
+                  onPressed: () => context.push('/my-stay'),
+                  child: const Text('Go to My Stay'),
+                ),
+              ],
+            ),
+          ),
         ],
         if (reservation.status == ReservationStatus.confirmed) ...[
           const SizedBox(height: Spacing.lg),
@@ -279,7 +319,7 @@ class _CancelBookingDialogState extends State<_CancelBookingDialog> {
                 key: const Key('refund-preview-text'),
                 'You will be refunded '
                 '${formatInr(widget.refund!.refundAmount)} '
-                '(${_formatPct(widget.refund!.refundPct)}% of '
+                '(${formatPct(widget.refund!.refundPct)}% of '
                 '${formatInr(widget.quoteTotal!)}).',
                 style: Theme.of(context)
                     .textTheme
@@ -383,6 +423,22 @@ class _QuoteBreakdown extends StatelessWidget {
                       textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant))),
           Text(formatInr(quote.cleaningFee)),
         ]),
+        if (quote.taxAmount > 0) ...[
+          const SizedBox(height: Spacing.xs),
+          Row(
+            key: const Key('tax-row'),
+            children: [
+              Expanded(
+                child: Text(
+                  'Tax (${formatPct(quote.taxPct)}%)',
+                  style: textTheme.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ),
+              Text(formatInr(quote.taxAmount)),
+            ],
+          ),
+        ],
         // I3: this row was missing entirely -- `quote_sheet.dart` (the same
         // breakdown shown at booking time) renders the coupon discount, but
         // this screen, which claims to show "the figures the server already

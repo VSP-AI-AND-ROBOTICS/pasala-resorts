@@ -57,6 +57,8 @@ class Quote {
     required this.cleaningFee,
     required this.total,
     this.coupon,
+    this.taxPct = 0,
+    this.taxAmount = 0,
   });
 
   final String currency;
@@ -66,9 +68,18 @@ class Quote {
   final num cleaningFee;
   final AppliedCoupon? coupon;
 
-  /// Server-computed, already net of [coupon]'s discount when one is
-  /// applied. Never derived from [lines]/[coupon] in Dart — the server is
-  /// the only authority on price.
+  /// Added by `0025_property_settings.sql` -- an additive line on top of
+  /// the coupon-discounted subtotal, computed from the property's
+  /// `tax_pct`. Both default to 0 so a quote from before this feature
+  /// (or a property that never sets a tax rate) parses exactly as it did
+  /// before these two fields existed.
+  final num taxPct;
+  final num taxAmount;
+
+  /// Server-computed, already net of [coupon]'s discount and inclusive of
+  /// [taxAmount] when either applies. Never derived from
+  /// [lines]/[coupon]/[taxAmount] in Dart — the server is the only
+  /// authority on price.
   final num total;
 
   factory Quote.fromJson(Map<String, dynamic> json) => Quote(
@@ -82,6 +93,8 @@ class Quote {
         coupon: json['coupon'] == null
             ? null
             : AppliedCoupon.fromJson(json['coupon'] as Map<String, dynamic>),
+        taxPct: json['tax_pct'] as num? ?? 0,
+        taxAmount: json['tax_amount'] as num? ?? 0,
         total: json['total'] as num,
       );
 }

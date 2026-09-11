@@ -1,0 +1,128 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/data/models/app_user.dart';
+import 'package:pasala/data/models/staff_task.dart';
+import 'package:pasala/data/repositories/auth_repository.dart';
+import 'package:pasala/data/repositories/task_repository.dart';
+import 'package:pasala/features/staff/assigned_tasks_screen.dart';
+
+const _staff = AppUser(
+  id: 'staff-1',
+  email: 'staff@pasala.test',
+  role: UserRole.staff,
+);
+
+class FakeTaskRepository implements TaskRepository {
+  final List<StaffTask> store = [];
+
+  @override
+  Future<List<StaffTask>> list({String? assigneeId, TaskStatus? status}) async =>
+      store.where((t) {
+        if (assigneeId != null && t.assigneeId != assigneeId) return false;
+        if (status != null && t.status != status) return false;
+        return true;
+      }).toList();
+
+  @override
+  Future<void> create({
+    required String assigneeId,
+    required String title,
+    required String description,
+  }) async =>
+      throw UnimplementedError('staff never creates tasks');
+
+  @override
+  Future<void> update({
+    required String id,
+    required String title,
+    required String description,
+    required String assigneeId,
+  }) async =>
+      throw UnimplementedError('staff never edits task details');
+
+  @override
+  Future<void> updateStatus({required String id, required TaskStatus status}) async {
+    final i = store.indexWhere((t) => t.id == id);
+    final existing = store[i];
+    store[i] = StaffTask(
+      id: existing.id,
+      assigneeId: existing.assigneeId,
+      assigneeName: existing.assigneeName,
+      title: existing.title,
+      description: existing.description,
+      status: status,
+    );
+  }
+
+  @override
+  Future<void> delete({required String id}) async =>
+      throw UnimplementedError('staff never deletes tasks');
+}
+
+Widget _appFor(FakeTaskRepository repo) => ProviderScope(
+      overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
+        taskRepositoryProvider.overrideWithValue(repo),
+      ],
+      child: const MaterialApp(home: AssignedTasksScreen()),
+    );
+
+void main() {
+  testWidgets('shows an empty state when the staff member has no tasks', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_appFor(FakeTaskRepository()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No tasks assigned yet'), findsOneWidget);
+  });
+
+  testWidgets('lists only the signed-in staff member\'s own tasks', (tester) async {
+    final repo = FakeTaskRepository()
+      ..store.addAll(const [
+        StaffTask(
+          id: 't1',
+          assigneeId: 'staff-1',
+          title: 'Restock minibar',
+          description: 'Villa 2',
+          status: TaskStatus.todo,
+        ),
+        StaffTask(
+          id: 't2',
+          assigneeId: 'someone-else',
+          title: 'Not mine',
+          description: '',
+          status: TaskStatus.todo,
+        ),
+      ]);
+
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Restock minibar'), findsOneWidget);
+    expect(find.text('Not mine'), findsNothing);
+  });
+
+  testWidgets('changing the status control calls updateStatus', (tester) async {
+    final repo = FakeTaskRepository()
+      ..store.add(const StaffTask(
+        id: 't1',
+        assigneeId: 'staff-1',
+        title: 'Restock minibar',
+        description: 'Villa 2',
+        status: TaskStatus.todo,
+      ));
+
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('task-status-t1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('In Progress').last);
+    await tester.pumpAndSettle();
+
+    expect(repo.store.first.status, TaskStatus.inProgress);
+    expect(find.text('In Progress'), findsWidgets);
+  });
+}

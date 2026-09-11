@@ -20,7 +20,12 @@ class CatalogRepository {
   }
 
   Future<List<Property>> properties() => _guard(() async {
-        final rows = await _db.from('properties').select().order('name');
+        // `.order()` defaults to descending in postgrest-dart --
+        // `ascending: true` for A-Z, not Z-A.
+        final rows = await _db
+            .from('properties')
+            .select()
+            .order('name', ascending: true);
         return rows.map(Property.fromJson).toList();
       });
 
@@ -30,9 +35,9 @@ class CatalogRepository {
       });
 
   /// Fetches a single unit by id. Used by the booking flow, which only ever
-  /// arrives with a `unitId` (from `/book/:unitId`) and needs the unit's
-  /// capacity, booking mode, and property before it can render a calendar
-  /// or a guest picker.
+  /// arrives with a `unitId` (from the booking flow embedded on the property
+  /// page) and needs the unit's capacity, booking mode, and property before
+  /// it can render a calendar or a guest picker.
   Future<Unit> unit(String id) => _guard(() async {
         final row = await _db.from('units').select().eq('id', id).single();
         return Unit.fromJson(row);
@@ -43,7 +48,7 @@ class CatalogRepository {
             .from('units')
             .select()
             .eq('property_id', propertyId)
-            .order('name');
+            .order('name', ascending: true);
         return rows.map(Unit.fromJson).toList();
       });
 
@@ -65,6 +70,17 @@ class CatalogRepository {
                 .select()
                 .single();
         return Property.fromJson(row);
+      });
+
+  /// A narrow, targeted update for the Owner Settings screens (tax,
+  /// booking rules, payment display) -- deliberately separate from
+  /// [upsertProperty]/[Property.toInsert], which `PropertyFormScreen`
+  /// (Farmhouse Information) uses and which never touches these columns.
+  /// Each Settings screen passes only the column(s) it owns, e.g.
+  /// `{'tax_pct': 18, 'gstin': '29ABCDE1234F1Z5'}`.
+  Future<void> updateSettings(String propertyId, Map<String, dynamic> fields) =>
+      _guard(() async {
+        await _db.from('properties').update(fields).eq('id', propertyId);
       });
 
   Future<Unit> upsertUnit(Unit unit, {String? id}) => _guard(() async {

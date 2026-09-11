@@ -218,7 +218,7 @@ String _legendLabel(DayStatus status) => switch (status) {
   DayStatus.available => 'Available',
   DayStatus.booked => 'Booked',
   DayStatus.blocked => 'Blocked',
-  DayStatus.pending => 'On hold',
+  DayStatus.pending => 'Reserved',
   DayStatus.past => 'Past',
 };
 
@@ -249,9 +249,9 @@ class _DayCell extends StatelessWidget {
     Widget cell = switch (status) {
       DayStatus.available => DecoratedBox(
         decoration: BoxDecoration(
-          color: scheme.surface,
+          color: Colors.green.shade50,
           borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
-          border: Border.all(color: scheme.outlineVariant),
+          border: Border.all(color: Colors.green.shade700),
         ),
         child: Center(child: label),
       ),
@@ -311,10 +311,20 @@ class _DayCell extends StatelessWidget {
     }
 
     if (selected) {
-      cell = DecoratedBox(
+      // A gap between this ring and the cell it wraps is what makes the
+      // selection actually visible: every status branch above already
+      // paints its own opaque fill, so nesting the ring flush against it
+      // (no padding) would have the ring's own fill painted over entirely
+      // and its border sit pixel-on-pixel against the "available" cell's
+      // own similarly green border -- selecting a date looked like nothing
+      // happened at all. The 3px inset leaves a visible halo regardless of
+      // the wrapped cell's own colours.
+      cell = Container(
+        padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
-          border: Border.all(color: scheme.primary, width: 2),
+          color: scheme.primary.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(PasalaTokens.radiusSm + 3),
+          border: Border.all(color: scheme.primary, width: 2.5),
         ),
         child: cell,
       );

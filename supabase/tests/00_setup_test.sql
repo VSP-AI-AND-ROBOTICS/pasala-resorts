@@ -5,7 +5,7 @@ select has_extension('btree_gist');
 
 select enum_has_labels(
   'public', 'reservation_status',
-  array['hold','pending_payment','confirmed','cancelled']
+  array['hold','pending_payment','confirmed','checked_in','checked_out','cancelled']
 );
 
 select enum_has_labels(

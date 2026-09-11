@@ -48,6 +48,16 @@ dependencies:
   freezed_annotation: ^3.1.0
   json_annotation: ">=4.9.0 <4.10.0"
   intl: ^0.20.3
+  # Photo attachment on maintenance reports (works on web via a file
+  # picker, no native camera dependency required).
+  image_picker: ^1.2.0
+  # Decorative QR code on the confirmation/booking-detail screens --
+  # nothing in this app ever scans one back.
+  qr_flutter: ^4.1.0
+  # Used directly in lib/features/browse/property_screen.dart to open the
+  # property's address in the device's maps app -- previously a transitive
+  # dependency only, pulled in by supabase_flutter.
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:
@@ -73,6 +83,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/images/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

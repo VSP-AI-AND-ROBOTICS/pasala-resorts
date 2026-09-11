@@ -15,6 +15,8 @@ import '../../data/models/reservation.dart';
 import '../../data/models/slot_type.dart';
 import '../../data/models/unit.dart';
 import '../../data/repositories/booking_repository.dart';
+import '../../data/repositories/stay_repository.dart' show currentStayProvider;
+import '../account/providers.dart' show myBookingsProvider;
 import '../browse/providers.dart' show slotTypesProvider;
 import '../calendar/availability_calendar.dart';
 import '../calendar/providers.dart' show unitReservationsProvider;
@@ -80,6 +82,7 @@ class HoldParams {
     required this.guests,
     required this.slotTypeId,
     required this.couponCode,
+    required this.occasion,
   });
 
   final String unitId;
@@ -99,6 +102,13 @@ class HoldParams {
   /// payment gateway had already been charged the discounted amount.
   final String? couponCode;
 
+  /// Unlike `couponCode`, an occasion change never affects the quote --
+  /// `get_quote` never reads it -- but it's still part of a hold's
+  /// identity so editing it while a hold is live flows through the same
+  /// `_changeSelection`/`resolveSelectionChange` machinery every other
+  /// selection field already uses, instead of a bespoke code path.
+  final String? occasion;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -108,11 +118,19 @@ class HoldParams {
           other.to == to &&
           other.guests == guests &&
           other.slotTypeId == slotTypeId &&
-          other.couponCode == couponCode);
+          other.couponCode == couponCode &&
+          other.occasion == occasion);
 
   @override
-  int get hashCode =>
-      Object.hash(unitId, from, to, guests, slotTypeId, couponCode);
+  int get hashCode => Object.hash(
+        unitId,
+        from,
+        to,
+        guests,
+        slotTypeId,
+        couponCode,
+        occasion,
+      );
 }
 
 /// What should happen to a live hold when the selection is about to become
@@ -242,17 +260,51 @@ Future<Reservation> resolveHoldForPayment({
     slotTypeId: params.slotTypeId,
     expectedTotal: expectedTotal,
     couponCode: params.couponCode,
+    occasion: params.occasion,
   );
 }
 
-/// Formats a hold's remaining time for the "Holding your dates — mm:ss
-/// left" banner. Pure so the countdown text is testable without a running
-/// [Timer].
+/// Formats a hold's remaining time for the "Your dates are reserved —
+/// mm:ss left to complete payment" banner. Pure so the countdown text is
+/// testable without a running [Timer].
 String formatHoldRemaining(Duration remaining) {
   final clamped = remaining.isNegative ? Duration.zero : remaining;
   final minutes = clamped.inMinutes.remainder(60).toString().padLeft(2, '0');
   final seconds = clamped.inSeconds.remainder(60).toString().padLeft(2, '0');
   return '$minutes:$seconds left';
+}
+
+/// Whether any night between [from] (inclusive) and [to] (the checkout day,
+/// exclusive) is not [DayStatus.available] -- i.e. already booked, blocked,
+/// or reserved by someone else's hold. Reuses [statusFor], the same rule the
+/// calendar grid colours itself by, so a range that looks fully green never
+/// disagrees with this check. [to] itself is excluded because it is the
+/// departure day, not a night of this stay -- `statusFor` already treats a
+/// checkout day as available for the next arrival.
+///
+/// This is a client-side courtesy check only: it can only see whatever
+/// [reservations] were fetched as of the last calendar refresh, so a
+/// same-second collision with another customer still surfaces later as a
+/// `23P01`/[UnitUnavailable] from `createHold`, which the flow already
+/// handles. Its job is to catch the far more common case -- a stale grid
+/// that shows a multi-day drag as selectable before the customer commits to
+/// paying for it -- before that costs a round trip.
+bool rangeHasUnavailableDay({
+  required DateTime from,
+  required DateTime to,
+  required List<Reservation> reservations,
+  DateTime? today,
+}) {
+  for (
+    var day = DateUtils.dateOnly(from);
+    day.isBefore(to);
+    day = day.add(const Duration(days: 1))
+  ) {
+    if (statusFor(day, reservations, today: today) != DayStatus.available) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /// The dead-end fix: whether the hold banner should show a "Resume
@@ -320,6 +372,8 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   String? _couponError;
   bool _couponBusy = false;
 
+  String? _occasion;
+
   bool _sheetShown = false;
   StateSetter? _sheetSetState;
 
@@ -347,6 +401,33 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     } else {
       newTo = day;
     }
+
+    // A completed range can still cross a night that was booked, blocked,
+    // or put on hold by someone else after this calendar last refreshed --
+    // the grid only disables the exact day tapped, not every day a drag
+    // between two available days might pass through. Catching that here,
+    // before a hold is ever created for it, turns a `23P01`/UnitUnavailable
+    // failure deep in the payment flow into an immediate, in-place message.
+    if (newFrom != null && newTo != null) {
+      final reservations =
+          ref.read(unitReservationsProvider(widget.unitId)).value ??
+              const <Reservation>[];
+      if (rangeHasUnavailableDay(
+        from: newFrom,
+        to: newTo,
+        reservations: reservations,
+      )) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Some of those dates aren't available. Pick a different range.",
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     unawaited(
       _changeSelection(
         from: newFrom,
@@ -389,6 +470,19 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     );
   }
 
+  void _onOccasionChanged(String occasion) {
+    final trimmed = occasion.trim();
+    unawaited(
+      _changeSelection(
+        from: _from,
+        to: _to,
+        guests: _guests,
+        slotTypeId: _slotTypeId,
+        applyLocalChange: () => _occasion = trimmed.isEmpty ? null : trimmed,
+      ),
+    );
+  }
+
   /// The Finding-1 fix: applies a dates/guests/slot-type change, first
   /// releasing a live hold that no longer matches (or reusing it if it still
   /// does) via [resolveSelectionChange] BEFORE the local selection state
@@ -415,6 +509,10 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
             // against the fresh quote `_maybeFetchQuote` is about to fetch,
             // never silently carried over.
             couponCode: null,
+            // Unlike couponCode, occasion carries over unchanged -- it has
+            // nothing to do with pricing, so a dates/guests change has no
+            // reason to clear it.
+            occasion: _occasion,
           )
         : null;
     final result = await resolveSelectionChange(
@@ -479,11 +577,16 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
             slotTypeId: _slotTypeId,
           );
       if (!mounted) return;
+      // Updating `_quote` is enough on its own -- the "3 Price" section
+      // already renders the breakdown inline (see `_priceSectionContent`)
+      // as soon as this rebuilds. The payment sheet (coupon field + Pay
+      // button) must stay an explicit action from that section's own
+      // button, not something that pops up uninvited the moment a date or
+      // guest-count change produces a fresh quote.
       setState(() {
         _quote = quote;
         _quoteLoading = false;
       });
-      _showQuoteSheet();
     } on BookingFailure catch (e) {
       if (!mounted) return;
       setState(() => _quoteLoading = false);
@@ -537,6 +640,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         guests: _guests,
         slotTypeId: _slotTypeId,
         couponCode: code,
+        occasion: _occasion,
       );
       final result = await resolveSelectionChange(
         actions: actions,
@@ -668,6 +772,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         guests: _guests,
         slotTypeId: _slotTypeId,
         couponCode: _couponCode,
+        occasion: _occasion,
       );
       // Finding 1: reuses a still-live hold that matches `params` exactly
       // (the retry-after-decline path) instead of creating a duplicate,
@@ -702,6 +807,13 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         amount: quote.total,
       );
       _ticker?.cancel();
+      // Both are plain (non-autoDispose) providers that may already have a
+      // cached value from earlier in this session -- without invalidating
+      // them here, My Bookings and the My Stay hub (which picks the
+      // soonest-upcoming confirmed reservation) can keep showing pre
+      // -booking state until something else happens to refetch them.
+      ref.invalidate(myBookingsProvider);
+      ref.invalidate(currentStayProvider);
       if (mounted) context.go('/booking/${confirmed.id}');
     } on BookingFailure catch (e) {
       _handleFailure(e);
@@ -794,16 +906,13 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   @override
   Widget build(BuildContext context) {
     final unitAsync = ref.watch(unitByIdProvider(widget.unitId));
-    return Scaffold(
-      appBar: AppBar(title: Text(unitAsync.value?.name ?? 'Book')),
-      body: unitAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => FailureView(
-          error: e,
-          onRetry: () => ref.invalidate(unitByIdProvider(widget.unitId)),
-        ),
-        data: (unit) => _buildBody(context, unit),
+    return unitAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => FailureView(
+        error: e,
+        onRetry: () => ref.invalidate(unitByIdProvider(widget.unitId)),
       ),
+      data: (unit) => _buildBody(context, unit),
     );
   }
 
@@ -830,146 +939,154 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     }
 
     final remaining = _hold?.holdRemaining;
-    final textTheme = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
 
-    // A plain Column inside a SingleChildScrollView, not a ListView: a
-    // ListView's Sliver machinery builds children lazily by cache extent,
-    // and the calendar's own shrink-wrapped GridView (nested sliver inside
-    // a sliver list item) throws that lazy accounting off -- items further
-    // down silently never get built, no matter how large `cacheExtent` is
-    // set. A Column always builds every child eagerly.
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(Spacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(unit.name, style: textTheme.headlineSmall),
-          const SizedBox(height: Spacing.xs),
-          Text(
-            'Sleeps ${unit.capacityBase}–${unit.capacityMax}',
-            style: textTheme.bodyMedium?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-
-          // The hold countdown: a prominent, persistent surface pinned
-          // above the numbered flow -- not nested inside it -- so it stays
-          // in reach (and, in particular, its Resume/Cancel buttons stay
-          // reachable) no matter how far a customer scrolls into the
-          // sections below. Section 4 (`Pay`) still narrates its status as
-          // part of the numbered flow, but this is the one live control
-          // surface for it.
-          if (remaining != null) ...[
-            const SizedBox(height: Spacing.md),
-            _HoldBanner(
-              remaining: remaining,
-              showResume: shouldShowResumeHold(
-                hold: _hold,
-                remaining: remaining,
-              ),
-              busy: _busy,
-              onResume: _showQuoteSheet,
-              onCancel: _cancelHold,
-            ),
-          ],
-          const SizedBox(height: Spacing.lg),
-
-          // 1 · Dates -- always actionable: picking dates is where the flow
-          // starts, so this section is never muted.
-          _NumberedSection(
-            number: 1,
-            title: 'Dates',
-            subtitle: _datesSubtitle,
-            active: true,
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      onPressed: () => setState(
-                        () => _month = DateTime(_month.year, _month.month - 1),
-                      ),
-                    ),
-                    Text(
-                      DateFormat.yMMMM().format(_month),
-                      style: textTheme.titleSmall,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      onPressed: () => setState(
-                        () => _month = DateTime(_month.year, _month.month + 1),
-                      ),
-                    ),
-                  ],
-                ),
-                AvailabilityCalendar(
-                  unitId: widget.unitId,
-                  month: _month,
-                  selectedStart: _from,
-                  selectedEnd: _to,
-                  onDayTap: _pickDay,
-                ),
-              ],
-            ),
+    // A plain Column, not a ListView: a ListView's Sliver machinery builds
+    // children lazily by cache extent, and the calendar's own
+    // shrink-wrapped GridView (nested sliver inside a sliver list item)
+    // throws that lazy accounting off -- items further down silently never
+    // get built, no matter how large `cacheExtent` is set. This widget is
+    // embedded inside `PropertyScreen`'s own single `SingleChildScrollView`
+    // (see `property_screen.dart`) rather than owning one itself, for the
+    // same reason -- there must be exactly one scrollable ancestor between
+    // here and the calendar.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // The hold countdown: a prominent, persistent surface pinned
+        // above the plan-your-stay card -- not nested inside it -- so it
+        // stays in reach (and, in particular, its Resume/Cancel buttons
+        // stay reachable) no matter how far a customer scrolls into the
+        // sections below. The Price section still narrates its status as
+        // part of the flow, but this is the one live control surface for it.
+        if (remaining != null) ...[
+          _HoldBanner(
+            remaining: remaining,
+            showResume: shouldShowResumeHold(hold: _hold, remaining: remaining),
+            busy: _busy,
+            onResume: _showQuoteSheet,
+            onCancel: _cancelHold,
           ),
           const SizedBox(height: Spacing.lg),
-
-          // 2 · Guests -- also always actionable; guest count and slot type
-          // can be set before or after dates.
-          _NumberedSection(
-            number: 2,
-            title: 'Guests',
-            subtitle: '$_guests guest${_guests == 1 ? '' : 's'}',
-            active: true,
-            child: Column(children: [slotSelector, _guestStepper(unit)]),
-          ),
-          const SizedBox(height: Spacing.lg),
-
-          // 3 · Price -- genuinely not actionable until a quote exists (or is
-          // in flight), so it is the first section that can render muted.
-          _NumberedSection(
-            number: 3,
-            title: 'Price',
-            subtitle: _quoteLoading
-                ? 'Calculating…'
-                : (_quote != null
-                      ? formatInr(_quote!.total)
-                      : 'Select your dates to see pricing'),
-            active: _quoteLoading || _quote != null,
-            child: _priceSectionContent(context),
-          ),
-          const SizedBox(height: Spacing.lg),
-
-          // 4 · Pay -- narrates whatever the hold banner above is doing;
-          // muted once there is nothing to pay yet. The live Resume/Cancel
-          // controls live in that pinned banner, not here, so they never
-          // depend on how far this section has scrolled.
-          _NumberedSection(
-            number: 4,
-            title: 'Pay',
-            subtitle: remaining != null
-                ? formatHoldRemaining(remaining)
-                : 'Nothing to pay yet',
-            active: remaining != null,
-            child: Text(
-              remaining != null
-                  ? 'Your dates are held above while you complete payment.'
-                  : 'Once your dates are quoted, paying holds them for 15 '
-                        'minutes while you complete checkout.',
-              style: textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ),
         ],
+
+        _PlanYourStayCard(
+          datesSubtitle: _datesSubtitle,
+          from: _from,
+          to: _to,
+          guests: _guests,
+          maxGuests: unit.capacityMax,
+          onCheckInTap: () => _openDatePickerSheet(unit, pickingFrom: true),
+          onCheckOutTap: () => _openDatePickerSheet(unit, pickingFrom: false),
+          onGuestsChanged: _onGuestsChanged,
+          slotSelector: slotSelector,
+          occasionField: _occasionField(),
+        ),
+        const SizedBox(height: Spacing.lg),
+
+        // Price -- genuinely not actionable until a quote exists (or is in
+        // flight), so it is the first section that can render muted. Pay
+        // lives here too, once a quote exists, rather than as its own
+        // separate step: a step with nothing to show until a quote exists
+        // ("Nothing to pay yet") was pure clutter on first load, and the
+        // actual payment action was already reachable only from this
+        // section's own button -- folding it in removes a dead card
+        // without losing anything the hold banner above doesn't already
+        // narrate live.
+        _NumberedSection(
+          number: 3,
+          title: 'Price',
+          subtitle: _quoteLoading
+              ? 'Calculating…'
+              : (_quote != null
+                    ? formatInr(_quote!.total)
+                    : 'Select your dates to see pricing'),
+          active: _quoteLoading || _quote != null,
+          child: _priceSectionContent(context, remaining),
+        ),
+      ],
+    );
+  }
+
+  /// Opens the existing availability calendar (unchanged: same legend, same
+  /// month navigation, same [_pickDay] logic) in a bottom sheet, reached by
+  /// tapping either of [_PlanYourStayCard]'s two compact date fields rather
+  /// than a permanently inline grid. [pickingFrom] only decides which
+  /// field opened the sheet for the reopen-behaviour comment below -- the
+  /// calendar itself always drives off `_from`/`_to` exactly as it always
+  /// has, so tapping "Check-out" first behaves the same as tapping any
+  /// other day first: it becomes the new check-in.
+  void _openDatePickerSheet(Unit unit, {required bool pickingFrom}) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => SafeArea(
+          // Scrollable, not just a plain Column: the calendar (with its
+          // own legend row) can be taller than a short viewport leaves for
+          // a bottom sheet, and nothing here should ever overflow instead
+          // of just scrolling -- this is the one scrollable ancestor the
+          // calendar's own shrink-wrapped GridView needs (see
+          // `AvailabilityCalendar`'s doc comment), same as the page's own
+          // `SingleChildScrollView` is for the inline layout this replaces.
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(Spacing.md),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.chevron_left),
+                        onPressed: () => setSheetState(
+                          () => setState(() => _month =
+                              DateTime(_month.year, _month.month - 1)),
+                        ),
+                      ),
+                      Text(
+                        DateFormat.yMMMM().format(_month),
+                        style: Theme.of(sheetContext).textTheme.titleSmall,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.chevron_right),
+                        onPressed: () => setSheetState(
+                          () => setState(() => _month =
+                              DateTime(_month.year, _month.month + 1)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  AvailabilityCalendar(
+                    unitId: widget.unitId,
+                    month: _month,
+                    selectedStart: _from,
+                    selectedEnd: _to,
+                    onDayTap: (day) {
+                      // A tap completes the range (and so should close the
+                      // sheet) exactly when it lands with a check-in
+                      // already set and no check-out yet -- the same
+                      // condition `_pickDay` itself uses to decide "this
+                      // tap is the checkout tap", checked here BEFORE
+                      // calling it since `_pickDay`'s own selection change
+                      // resolves asynchronously and can't be awaited from
+                      // inside a calendar tap.
+                      final completesRange = _slotTypeId != null ||
+                          (_from != null && _to == null);
+                      setSheetState(() => _pickDay(day));
+                      if (completesRange) Navigator.of(sheetContext).pop();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  Widget _priceSectionContent(BuildContext context) {
+  Widget _priceSectionContent(BuildContext context, Duration? remaining) {
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
@@ -983,9 +1100,110 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
         style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
       );
     }
+    // For a nightly stay, `quote.lines` has exactly one entry per night
+    // already -- length doubles as the night count. A slot booking has one
+    // line for the whole slot, not a "night" at all, so the count is
+    // omitted rather than showing a misleading "1 night" for a 9-hour slot.
+    final nights = quote.lines.length;
+    final isNightly = _slotTypeId == null;
+    final extraGuestLines = quote.lines.where((l) => l.extraGuests > 0).toList();
+    final extraGuestTotal = extraGuestLines.fold<num>(
+      0,
+      (sum, l) => sum + l.extraGuestAmount,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Text(
+          [
+            if (isNightly) '$nights night${nights == 1 ? '' : 's'}',
+            '$_guests guest${_guests == 1 ? '' : 's'}',
+          ].join(' · '),
+          style: textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: Spacing.xs),
+        // Every line already carries its own weekday/weekend/override label
+        // (see `QuoteSheet`, opened below) -- a Diwali-week booking and a
+        // plain weekday one never look like the same flat nightly rate.
+        for (final line in quote.lines)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 96,
+                  child: Text(formatDay(line.date), style: textTheme.bodySmall),
+                ),
+                Expanded(child: Text(line.label)),
+                Text(formatInr(line.amount)),
+              ],
+            ),
+          ),
+        // Extra-guest charges are their own line, distinct from the base
+        // nightly rate above -- a booking with 6 guests on a 4-guest base
+        // unit must never look like the base rate silently went up.
+        if (extraGuestLines.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              key: const Key('extra-guest-charge-row'),
+              children: [
+                const Expanded(child: Text('Extra guest charges')),
+                Text(formatInr(extraGuestTotal)),
+              ],
+            ),
+          ),
+        const Divider(),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Cleaning fee',
+                style: textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            Text(formatInr(quote.cleaningFee)),
+          ],
+        ),
+        if (quote.taxAmount > 0) ...[
+          const SizedBox(height: Spacing.xs),
+          Row(
+            key: const Key('tax-row'),
+            children: [
+              Expanded(
+                child: Text(
+                  'Tax (${formatPct(quote.taxPct)}%)',
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              Text(formatInr(quote.taxAmount)),
+            ],
+          ),
+        ],
+        if (quote.coupon != null) ...[
+          const SizedBox(height: Spacing.xs),
+          Row(
+            key: const Key('coupon-discount-row'),
+            children: [
+              Expanded(
+                child: Text(
+                  'Coupon (${quote.coupon!.code})',
+                  style: TextStyle(color: scheme.primary),
+                ),
+              ),
+              Text(
+                '-${formatInr(quote.coupon!.discount)}',
+                style: TextStyle(color: scheme.primary),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: Spacing.sm),
         Row(
           children: [
             Expanded(child: Text('Total', style: textTheme.titleMedium)),
@@ -993,33 +1211,30 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
           ],
         ),
         const SizedBox(height: Spacing.sm),
-        OutlinedButton(
-          key: const Key('review-price-button'),
+        FilledButton(
+          key: const Key('open-payment-button'),
           onPressed: _showQuoteSheet,
-          child: const Text('Review price breakdown'),
+          child: Text(
+            remaining != null
+                ? 'Resume payment · ${formatHoldRemaining(remaining)}'
+                : 'Pay ${formatInr(quote.total)}',
+          ),
         ),
       ],
     );
   }
 
-  Widget _guestStepper(Unit unit) => Row(
-    children: [
-      const Text('Guests'),
-      const Spacer(),
-      IconButton(
-        key: const Key('guests-minus'),
-        icon: const Icon(Icons.remove_circle_outline),
-        onPressed: _guests > 1 ? () => _onGuestsChanged(_guests - 1) : null,
+  Widget _occasionField() => Padding(
+    padding: const EdgeInsets.only(top: Spacing.sm),
+    child: TextFormField(
+      key: const Key('occasion-field'),
+      initialValue: _occasion,
+      decoration: const InputDecoration(
+        labelText: 'Occasion (optional)',
+        helperText: 'Tell us what you\'re celebrating',
       ),
-      Text('$_guests', style: Theme.of(context).textTheme.titleMedium),
-      IconButton(
-        key: const Key('guests-plus'),
-        icon: const Icon(Icons.add_circle_outline),
-        onPressed: _guests < unit.capacityMax
-            ? () => _onGuestsChanged(_guests + 1)
-            : null,
-      ),
-    ],
+      onChanged: _onOccasionChanged,
+    ),
   );
 
   Widget _slotSelector(Unit unit, List<SlotType> slotTypes) {
@@ -1038,14 +1253,13 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   }
 }
 
-/// One step of the booking flow's `1 Dates` / `2 Guests` / `3 Price` /
-/// `4 Pay` structure. Every section always renders -- nothing is ever
-/// hidden -- so the customer can see the whole flow ahead of them; a
-/// section that has nothing to act on yet ([active] false) is dimmed rather
-/// than removed. This is purely a presentation choice: it never gates
-/// interaction, since every control it wraps already governs its own
-/// enabled state (see `_guestStepper`, the hold banner's resume/cancel
-/// buttons).
+/// A standalone numbered step below the "Plan Your Stay" card -- today just
+/// Price/Pay, since Dates and Guests moved into [_PlanYourStayCard]. Always
+/// renders -- nothing is ever hidden -- so the customer can see it's coming;
+/// a section that has nothing to act on yet ([active] false) is dimmed
+/// rather than removed. This is purely a presentation choice: it never
+/// gates interaction, since every control it wraps already governs its own
+/// enabled state.
 class _NumberedSection extends StatelessWidget {
   const _NumberedSection({
     required this.number,
@@ -1161,7 +1375,8 @@ class _HoldBanner extends StatelessWidget {
               const SizedBox(width: Spacing.sm),
               Expanded(
                 child: Text(
-                  'Holding your dates — ${formatHoldRemaining(remaining)}',
+                  'Your dates are reserved — '
+                  '${formatHoldRemaining(remaining)} to complete payment',
                   style: textTheme.titleMedium?.copyWith(
                     color: scheme.onTertiaryContainer,
                   ),
@@ -1191,6 +1406,275 @@ class _HoldBanner extends StatelessWidget {
               ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The card wrapping Dates ("01") and Guests ("02") into one visual unit.
+/// Purely presentational -- [onCheckInTap]/[onCheckOutTap] open the
+/// (unchanged) calendar sheet showing Available/Booked/Blocked dates, which
+/// is this app's "Check Availability" step: tapping either field IS
+/// checking availability, so there is no separate button for it.
+/// [onGuestsChanged] drives the existing guest-count flow; none of the
+/// actual booking logic lives here.
+class _PlanYourStayCard extends StatelessWidget {
+  const _PlanYourStayCard({
+    required this.datesSubtitle,
+    required this.from,
+    required this.to,
+    required this.guests,
+    required this.maxGuests,
+    required this.onCheckInTap,
+    required this.onCheckOutTap,
+    required this.onGuestsChanged,
+    required this.slotSelector,
+    required this.occasionField,
+  });
+
+  final String datesSubtitle;
+  final DateTime? from;
+  final DateTime? to;
+  final int guests;
+  final int maxGuests;
+  final VoidCallback onCheckInTap;
+  final VoidCallback onCheckOutTap;
+  final ValueChanged<int> onGuestsChanged;
+  final Widget slotSelector;
+  final Widget occasionField;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.calendar_month_outlined, color: scheme.primary),
+                const SizedBox(width: Spacing.sm),
+                Text(
+                  'PLAN YOUR STAY',
+                  style: textTheme.titleSmall?.copyWith(
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: Spacing.lg),
+            _StepHeader(number: 1, title: 'Dates', subtitle: datesSubtitle),
+            const SizedBox(height: Spacing.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: _DateField(
+                    key: const Key('check-in-field'),
+                    label: 'Check-in',
+                    date: from,
+                    onTap: onCheckInTap,
+                  ),
+                ),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: _DateField(
+                    key: const Key('check-out-field'),
+                    label: 'Check-out',
+                    date: to,
+                    onTap: onCheckOutTap,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: Spacing.lg),
+            _StepHeader(
+              number: 2,
+              title: 'Guests',
+              subtitle: '$guests guest${guests == 1 ? '' : 's'}',
+            ),
+            const SizedBox(height: Spacing.sm),
+            slotSelector,
+            _GuestPillStepper(
+              guests: guests,
+              maxGuests: maxGuests,
+              onChanged: onGuestsChanged,
+            ),
+            occasionField,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A small "01 Dates" / "02 Guests" step label, matching [_NumberedSection]'s
+/// own number-circle-plus-title language so the combined card and the
+/// standalone Price section below it still read as one continuous flow.
+class _StepHeader extends StatelessWidget {
+  const _StepHeader({
+    required this.number,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final int number;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 12,
+          backgroundColor: scheme.primary,
+          foregroundColor: scheme.onPrimary,
+          child: Text(number.toString().padLeft(2, '0'),
+              style: const TextStyle(fontSize: 12)),
+        ),
+        const SizedBox(width: Spacing.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: textTheme.titleMedium),
+              Text(
+                subtitle,
+                style: textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One of the two compact "Check-in"/"Check-out" boxes: a label, a calendar
+/// icon, and (once picked) the date on one line and its weekday on the
+/// next. Tapping it opens the calendar sheet -- it never opens a picker of
+/// its own, so there is exactly one place dates actually get chosen.
+class _DateField extends StatelessWidget {
+  const _DateField({
+    super.key,
+    required this.label,
+    required this.date,
+    required this.onTap,
+  });
+
+  final String label;
+  final DateTime? date;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(Spacing.sm),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: textTheme.labelMedium
+                    ?.copyWith(color: scheme.onSurfaceVariant)),
+            const SizedBox(height: Spacing.xs),
+            Row(
+              children: [
+                Icon(Icons.calendar_today_outlined,
+                    size: 16, color: scheme.onSurfaceVariant),
+                const SizedBox(width: Spacing.xs),
+                Expanded(
+                  child: date == null
+                      ? Text('Select date', style: textTheme.bodyMedium)
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              DateFormat('d MMM yyyy').format(date!),
+                              style: textTheme.bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            Text(
+                              DateFormat.EEEE().format(date!),
+                              style: textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The rounded "− N +" guest control, keeping the same
+/// `guests-minus`/`guests-plus` keys the existing tests already target.
+class _GuestPillStepper extends StatelessWidget {
+  const _GuestPillStepper({
+    required this.guests,
+    required this.maxGuests,
+    required this.onChanged,
+  });
+
+  final int guests;
+  final int maxGuests;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            key: const Key('guests-minus'),
+            icon: const Icon(Icons.remove),
+            onPressed: guests > 1 ? () => onChanged(guests - 1) : null,
+          ),
+          Expanded(
+            child: Center(
+              child: Text('$guests Guests', style: textTheme.bodyLarge),
+            ),
+          ),
+          IconButton(
+            key: const Key('guests-plus'),
+            icon: const Icon(Icons.add),
+            onPressed:
+                guests < maxGuests ? () => onChanged(guests + 1) : null,
+          ),
         ],
       ),
     );

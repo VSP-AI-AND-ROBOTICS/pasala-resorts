@@ -40,6 +40,10 @@ class FakeCatalogRepository implements CatalogRepository {
       throw UnimplementedError();
 
   @override
+  Future<void> updateSettings(String propertyId, Map<String, dynamic> fields) =>
+      throw UnimplementedError();
+
+  @override
   Future<Unit> upsertUnit(Unit unit, {String? id}) async {
     final saved = Unit(
       id: id ?? 'unit-${_idCounter++}',

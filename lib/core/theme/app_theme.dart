@@ -19,8 +19,12 @@ ThemeData buildTheme(Brightness brightness) {
     scaffoldBackgroundColor: scheme.surface,
     textTheme: base.textTheme.copyWith(
       headlineMedium: base.textTheme.headlineMedium?.copyWith(
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.5,
+        fontWeight: PasalaTokens.displayWeight,
+        letterSpacing: PasalaTokens.displayLetterSpacing,
+      ),
+      headlineSmall: base.textTheme.headlineSmall?.copyWith(
+        fontWeight: PasalaTokens.displayWeight,
+        letterSpacing: PasalaTokens.displayLetterSpacing,
       ),
       titleLarge: base.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
       labelLarge: base.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),

@@ -85,11 +85,11 @@ class UnitsScreen extends ConsumerWidget {
           ),
         );
       case 'rates':
-        context.go('/admin/rates/${unit.id}');
+        context.push('/admin/rates/${unit.id}');
       case 'block':
-        context.go('/admin/block/${unit.id}');
+        context.push('/admin/block/${unit.id}');
       case 'ota':
-        context.go('/admin/ota/${unit.id}');
+        context.push('/admin/ota/${unit.id}');
     }
   }
 }

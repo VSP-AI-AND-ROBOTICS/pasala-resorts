@@ -51,45 +51,29 @@ update public.profiles set role = 'accountant'
 insert into public.properties
   (id, name, slug, description, address, check_in_time, check_out_time, amenities)
 values
-  ('a0000000-0000-0000-0000-000000000001','Pasala Riverside','riverside',
-   'Riverside farmhouse with private pool.','Shamirpet, Hyderabad',
-   '14:00','11:00', array['Pool','Wi-Fi','Barbecue','Parking']),
-  ('a0000000-0000-0000-0000-000000000002','Pasala Hilltop','hilltop',
-   'Hilltop farmhouse with open lawn.','Moinabad, Hyderabad',
-   '15:00','10:00', array['Lawn','Bonfire','Wi-Fi']);
+  ('a0000000-0000-0000-0000-000000000001','Pasala Farm House','pasala-farm-house',
+   'A boutique farmhouse resort with a private pool and themed cottages.',
+   '- Bommalaramaram Rd, Rangapuram, Telangana',
+   '14:00','11:00', array['Pool','Wi-Fi','Barbecue','Parking','Spacious','Garden']);
 
 insert into public.slot_types (id, property_id, code, start_time, end_time)
 values
   ('50000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000001',
    'day','09:00','18:00'),
   ('50000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000001',
-   'night','18:00','09:00'),
-  ('50000000-0000-0000-0000-000000000003','a0000000-0000-0000-0000-000000000002',
-   'full_day','09:00','08:00');
+   'night','18:00','09:00');
 
 insert into public.units
   (id, property_id, name, capacity_base, capacity_max, booking_mode)
 values
   ('b0000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000001',
-   'Whole Villa', 10, 16, 'both'),
-  ('b0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000001',
-   'Garden Room', 2, 4, 'nightly'),
-  ('b0000000-0000-0000-0000-000000000003','a0000000-0000-0000-0000-000000000001',
-   'Pool Deck', 20, 40, 'slot'),
-  ('b0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000002',
-   'Main House', 8, 12, 'nightly'),
-  ('b0000000-0000-0000-0000-000000000005','a0000000-0000-0000-0000-000000000002',
-   'Lawn', 30, 60, 'slot');
+   'Pasala Farm House', 20, 40, 'nightly');
 
--- base rates for every unit
+-- base rate for the one whole-property unit
 insert into public.rate_rules
   (unit_id, kind, label, price, extra_guest_price, cleaning_fee, priority)
 values
-  ('b0000000-0000-0000-0000-000000000001','base','Weekday',25000,1500,2500,0),
-  ('b0000000-0000-0000-0000-000000000002','base','Weekday', 4500, 800, 600,0),
-  ('b0000000-0000-0000-0000-000000000003','base','Weekday',12000, 400,1500,0),
-  ('b0000000-0000-0000-0000-000000000004','base','Weekday',18000,1200,2000,0),
-  ('b0000000-0000-0000-0000-000000000005','base','Weekday',15000, 300,2000,0);
+  ('b0000000-0000-0000-0000-000000000001','base','Weekday',18000,1000,2500,0);
 
 -- weekend uplift, Saturday and Sunday (ISO dow 6 and 7)
 insert into public.rate_rules
@@ -110,8 +94,8 @@ from public.rate_rules where kind = 'base';
 insert into public.reservations
   (unit_id, period, kind, status, customer_id, guests, source)
 values
-  ('b0000000-0000-0000-0000-000000000002',
-   public.build_period('b0000000-0000-0000-0000-000000000002',
+  ('b0000000-0000-0000-0000-000000000001',
+   public.build_period('b0000000-0000-0000-0000-000000000001',
                        current_date + 7, current_date + 9),
    'booking','confirmed','10000000-0000-0000-0000-000000000005',2,'app');
 
@@ -122,3 +106,41 @@ values
    public.build_period('b0000000-0000-0000-0000-000000000001',
                        current_date + 14, current_date + 16),
    'block','confirmed','Deep cleaning','admin');
+
+
+-- Starter food menu and activity catalog for the Guest Stay Experience
+-- feature (0032_food_ordering.sql / 0033_activity_booking.sql).
+insert into public.food_categories (id, property_id, name, sort_order) values
+  ('60000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'Breakfast', 1),
+  ('60000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'Lunch', 2),
+  ('60000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'Dinner', 3),
+  ('60000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'Snacks', 4),
+  ('60000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'Beverages', 5);
+
+insert into public.food_items (category_id, name, description, price) values
+  ('60000000-0000-0000-0000-000000000001', 'South Indian Thali', 'Idli, dosa, sambar, chutney', 250),
+  ('60000000-0000-0000-0000-000000000001', 'Bread Omelette', 'Two eggs, buttered toast', 150),
+  ('60000000-0000-0000-0000-000000000002', 'Veg Thali', 'Rice, dal, two curries, roti', 300),
+  ('60000000-0000-0000-0000-000000000002', 'Chicken Biryani', 'Hyderabadi style, raita included', 380),
+  ('60000000-0000-0000-0000-000000000003', 'Barbecue Platter', 'Grilled chicken and vegetables', 550),
+  ('60000000-0000-0000-0000-000000000003', 'Paneer Tikka Masala', 'With butter naan', 320),
+  ('60000000-0000-0000-0000-000000000004', 'Masala Fries', null, 120),
+  ('60000000-0000-0000-0000-000000000004', 'Pakora Platter', 'Mixed vegetable fritters', 150),
+  ('60000000-0000-0000-0000-000000000005', 'Filter Coffee', null, 60),
+  ('60000000-0000-0000-0000-000000000005', 'Fresh Lime Soda', null, 80);
+
+insert into public.activities (id, property_id, name, description, price_per_person, capacity_per_slot) values
+  ('62000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001',
+   'Swimming', 'Private pool access', 0, 20),
+  ('62000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001',
+   'Bonfire', 'Evening bonfire with music', 500, 40),
+  ('62000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001',
+   'Badminton', 'Court and equipment', 100, 8),
+  ('62000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001',
+   'Cricket', 'Turf and equipment', 100, 22),
+  ('62000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001',
+   'Cycling', 'Guided farmhouse trail ride', 150, 10),
+  ('62000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001',
+   'Indoor Games', 'Carrom, chess, table tennis', 0, 12),
+  ('62000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001',
+   'Nature Walk', 'Guided walk around the property', 0, 15);

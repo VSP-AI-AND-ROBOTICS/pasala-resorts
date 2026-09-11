@@ -51,6 +51,7 @@ abstract class BookingActions {
     String? slotTypeId,
     num? expectedTotal,
     String? couponCode,
+    String? occasion,
   });
 
   Future<Reservation> confirm({
@@ -165,6 +166,7 @@ class BookingRepository
     String? slotTypeId,
     num? expectedTotal,
     String? couponCode,
+    String? occasion,
   }) =>
       _guard(() async {
         final row = await _db.rpc('create_hold', params: {
@@ -180,6 +182,7 @@ class BookingRepository
           // the client computed WITH the discount applied), so every
           // couponed booking would fail with P0007 -- exactly backwards.
           'p_coupon_code': couponCode,
+          'p_occasion': occasion,
         });
         return Reservation.fromJson(row as Map<String, dynamic>);
       });
@@ -265,14 +268,39 @@ class BookingRepository
 
   Future<List<Reservation>> allBookings({DateTime? from, DateTime? to}) =>
       _guard(() async {
-        final rows =
-            await _db.from('reservations').select().order('period');
+        // The embed gives the admin bookings list a guest name/phone to
+        // show and search by, without a separate round trip per row.
+        // `reservations` has two FKs into `profiles` (customer_id and
+        // created_by), so the embed must name which one via its
+        // constraint -- otherwise PostgREST returns 300 Multiple Choices.
+        // `.order()` defaults to descending in postgrest-dart --
+        // `ascending: true` so the soonest booking (what an admin most
+        // likely needs to act on) sorts to the top, not the furthest-out one.
+        final rows = await _db
+            .from('reservations')
+            .select(
+                '*, profiles!reservations_customer_id_fkey(full_name, phone)')
+            .order('period', ascending: true);
         return rows
             .map(Reservation.fromJson)
             .where((r) =>
                 (from == null || r.end.isAfter(from)) &&
                 (to == null || r.start.isBefore(to)))
             .toList();
+      });
+
+  /// Sum of every `succeeded` payment recorded against [reservationId] --
+  /// the real advance/balance split from `confirm_booking`/`checkout_booking`,
+  /// never re-derived or guessed. Used to show an admin the genuine
+  /// outstanding balance on a booking rather than assuming "quoted total
+  /// == amount actually paid".
+  Future<num> paidAmount(String reservationId) => _guard(() async {
+        final rows = await _db
+            .from('payments')
+            .select('amount')
+            .eq('reservation_id', reservationId)
+            .eq('status', 'succeeded');
+        return rows.fold<num>(0, (sum, row) => sum + (row['amount'] as num));
       });
 
   @override

@@ -247,7 +247,7 @@ class AdminPropertiesScreen extends ConsumerWidget {
                   Expanded(
                     child: PropertyCard(
                       property: property,
-                      onTap: () => context.go('/admin/units/${property.id}'),
+                      onTap: () => context.push('/admin/units/${property.id}'),
                     ),
                   ),
                   IconButton(
