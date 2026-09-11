@@ -11,3 +11,12 @@ import '../../data/repositories/booking_repository.dart';
 final allBookingsProvider = FutureProvider<List<Reservation>>(
   (ref) => ref.watch(bookingRepositoryProvider).allBookings(),
 );
+
+/// The real amount paid so far on one reservation -- see
+/// [BookingRepository.paidAmount]. Keyed by reservation id so the admin
+/// dashboard's "next arrival" card and any future per-booking balance view
+/// can each request their own without colliding.
+final paidAmountProvider = FutureProvider.family<num, String>(
+  (ref, reservationId) =>
+      ref.watch(bookingRepositoryProvider).paidAmount(reservationId),
+);

@@ -11,6 +11,9 @@ class DashboardSummary {
     required this.upcomingArrivals,
     required this.cancellationsThisMonth,
     required this.activeHolds,
+    this.foodSalesToday = 0,
+    this.expensesMonthTotal = 0,
+    this.netProfitMonth = 0,
   });
 
   final num todayRevenue;
@@ -19,6 +22,13 @@ class DashboardSummary {
   final int upcomingArrivals;
   final int cancellationsThisMonth;
   final int activeHolds;
+
+  /// Added by `0030_owner_dashboard_summary.sql`, read only by
+  /// [BusinessDashboardScreen] -- `DashboardScreen` (`/admin/dashboard`)
+  /// keeps working unmodified, since these three are purely additive keys.
+  final num foodSalesToday;
+  final num expensesMonthTotal;
+  final num netProfitMonth;
 
   factory DashboardSummary.fromJson(Map<String, dynamic> json) =>
       DashboardSummary(
@@ -29,6 +39,9 @@ class DashboardSummary {
         cancellationsThisMonth:
             (json['cancellations_this_month'] as num?)?.toInt() ?? 0,
         activeHolds: (json['active_holds'] as num?)?.toInt() ?? 0,
+        foodSalesToday: (json['food_sales_today'] as num?) ?? 0,
+        expensesMonthTotal: (json['expenses_month_total'] as num?) ?? 0,
+        netProfitMonth: (json['net_profit_month'] as num?) ?? 0,
       );
 }
 

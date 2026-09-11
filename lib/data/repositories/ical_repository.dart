@@ -72,7 +72,7 @@ class IcalRepository implements IcalSource {
             .from('ical_feeds')
             .select()
             .eq('unit_id', unitId)
-            .order('created_at');
+            .order('created_at', ascending: true);
         return rows.map(IcalFeed.fromJson).toList();
       });
 

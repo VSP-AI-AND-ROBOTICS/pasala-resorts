@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/errors.dart';
 import '../../core/supabase_client.dart';
+import '../models/expense.dart';
+import '../models/food_sale.dart';
 import '../models/report.dart';
 
 String _d(DateTime d) =>
@@ -61,6 +63,40 @@ class ReportRepository {
         }) as List<dynamic>;
         return rows
             .map((e) => OccupancyRow.fromJson(e as Map<String, dynamic>))
+            .toList();
+      });
+
+  Future<List<FoodSalesReportRow>> foodSales(
+    DateTime from,
+    DateTime to, [
+    String? propertyId,
+  ]) =>
+      _guard(() async {
+        final rows = await _db.rpc('report_food_sales', params: {
+          'p_from': _d(from),
+          'p_to': _d(to),
+          'p_property_id': propertyId,
+        }) as List<dynamic>;
+        return rows
+            .map((e) => FoodSalesReportRow.fromJson(e as Map<String, dynamic>))
+            .toList();
+      });
+
+  /// admin/accountant/super_admin only (see `0027_expenses.sql`) -- a
+  /// plain staff member calling this gets P0008, mapped to [NotPermitted].
+  Future<List<ExpensesReportRow>> expenses(
+    DateTime from,
+    DateTime to, [
+    String? propertyId,
+  ]) =>
+      _guard(() async {
+        final rows = await _db.rpc('report_expenses', params: {
+          'p_from': _d(from),
+          'p_to': _d(to),
+          'p_property_id': propertyId,
+        }) as List<dynamic>;
+        return rows
+            .map((e) => ExpensesReportRow.fromJson(e as Map<String, dynamic>))
             .toList();
       });
 }

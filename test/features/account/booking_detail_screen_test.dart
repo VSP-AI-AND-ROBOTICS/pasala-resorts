@@ -161,6 +161,45 @@ Reservation _couponedReservation({
       quote: _couponedQuote(),
     );
 
+/// A quote with tax applied -- 12000 (line) + 1500 (cleaning) = 13500,
+/// plus 18% tax (2430) = 15930 total. Matches
+/// `test/features/booking/quote_sheet_test.dart`'s own taxed fixture shape,
+/// so this proves the same tax row that screen renders is also rendered
+/// here.
+Quote _taxedQuote() => Quote.fromJson(const {
+      'currency': 'INR',
+      'guests': 4,
+      'lines': [
+        {
+          'date': '2026-08-03',
+          'label': 'Weekend rate',
+          'amount': 12000,
+          'extra_guests': 0,
+          'extra_guest_amount': 0,
+        },
+      ],
+      'subtotal': 12000,
+      'cleaning_fee': 1500,
+      'tax_pct': 18,
+      'tax_amount': 2430,
+      'total': 15930,
+    });
+
+Reservation _taxedReservation({
+  required ReservationStatus status,
+  String id = 'r1',
+}) =>
+    Reservation(
+      id: id,
+      unitId: 'unit-1',
+      start: DateTime.utc(2026, 8, 3),
+      end: DateTime.utc(2026, 8, 5),
+      kind: ReservationKind.booking,
+      status: status,
+      guests: 4,
+      quote: _taxedQuote(),
+    );
+
 /// I4: an admin block has no customer, no guests, and no quote -- it exists
 /// purely to keep a unit off the calendar.
 Reservation _block({String id = 'block-1'}) => Reservation(
@@ -211,6 +250,18 @@ void main() {
     BookingActions actions, {
     RefundSource? refunds,
   }) async {
+    // The Check-in QR card (added for the Guest Stay Experience feature)
+    // pushes the cancel-booking button below the default 800x600 test
+    // viewport's cache extent, so `ListView`'s sliver never builds that
+    // element at all -- not merely off-screen, genuinely absent from the
+    // tree. A taller test surface, same fix as
+    // `owner_home_screen_test.dart`'s own GridView virtualization issue,
+    // keeps every row reachable without scrolling.
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(
         app(reservation: reservation, actions: actions, refunds: refunds));
     await tester.pumpAndSettle();
@@ -278,6 +329,28 @@ void main() {
     await openDetail(tester, reservation, _FakeCancelActions());
 
     expect(find.byKey(const Key('coupon-discount-row')), findsNothing);
+  });
+
+  testWidgets('a booking with zero tax (the default) shows no tax row',
+      (tester) async {
+    final reservation = _reservation(status: ReservationStatus.confirmed);
+    await openDetail(tester, reservation, _FakeCancelActions());
+
+    expect(find.byKey(const Key('tax-row')), findsNothing);
+  });
+
+  testWidgets(
+      'a taxed booking shows the tax row, matching quote_sheet',
+      (tester) async {
+    final reservation = _taxedReservation(status: ReservationStatus.confirmed);
+    await openDetail(tester, reservation, _FakeCancelActions());
+
+    expect(find.byKey(const Key('tax-row')), findsOneWidget);
+    expect(find.textContaining('Tax (18%)'), findsOneWidget);
+    expect(find.text('₹2,430'), findsOneWidget);
+    expect(find.text('₹15,930'), findsOneWidget,
+        reason: 'the total shown is still the server-computed, '
+            'tax-inclusive figure');
   });
 
   testWidgets('the cancel action is present for a confirmed reservation', (tester) async {

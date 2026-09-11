@@ -53,8 +53,8 @@ insert into public.properties
 values
   ('a0000000-0000-0000-0000-000000000001','Pasala Farm House','pasala-farm-house',
    'A boutique farmhouse resort with a private pool and themed cottages.',
-   'Shamirpet, Hyderabad',
-   '14:00','11:00', array['Pool','Wi-Fi','Barbecue','Parking','Garden']);
+   '- Bommalaramaram Rd, Rangapuram, Telangana',
+   '14:00','11:00', array['Pool','Wi-Fi','Barbecue','Parking','Spacious','Garden']);
 
 insert into public.slot_types (id, property_id, code, start_time, end_time)
 values
@@ -106,3 +106,41 @@ values
    public.build_period('b0000000-0000-0000-0000-000000000001',
                        current_date + 14, current_date + 16),
    'block','confirmed','Deep cleaning','admin');
+
+
+-- Starter food menu and activity catalog for the Guest Stay Experience
+-- feature (0032_food_ordering.sql / 0033_activity_booking.sql).
+insert into public.food_categories (id, property_id, name, sort_order) values
+  ('60000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'Breakfast', 1),
+  ('60000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'Lunch', 2),
+  ('60000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'Dinner', 3),
+  ('60000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'Snacks', 4),
+  ('60000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'Beverages', 5);
+
+insert into public.food_items (category_id, name, description, price) values
+  ('60000000-0000-0000-0000-000000000001', 'South Indian Thali', 'Idli, dosa, sambar, chutney', 250),
+  ('60000000-0000-0000-0000-000000000001', 'Bread Omelette', 'Two eggs, buttered toast', 150),
+  ('60000000-0000-0000-0000-000000000002', 'Veg Thali', 'Rice, dal, two curries, roti', 300),
+  ('60000000-0000-0000-0000-000000000002', 'Chicken Biryani', 'Hyderabadi style, raita included', 380),
+  ('60000000-0000-0000-0000-000000000003', 'Barbecue Platter', 'Grilled chicken and vegetables', 550),
+  ('60000000-0000-0000-0000-000000000003', 'Paneer Tikka Masala', 'With butter naan', 320),
+  ('60000000-0000-0000-0000-000000000004', 'Masala Fries', null, 120),
+  ('60000000-0000-0000-0000-000000000004', 'Pakora Platter', 'Mixed vegetable fritters', 150),
+  ('60000000-0000-0000-0000-000000000005', 'Filter Coffee', null, 60),
+  ('60000000-0000-0000-0000-000000000005', 'Fresh Lime Soda', null, 80);
+
+insert into public.activities (id, property_id, name, description, price_per_person, capacity_per_slot) values
+  ('62000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001',
+   'Swimming', 'Private pool access', 0, 20),
+  ('62000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001',
+   'Bonfire', 'Evening bonfire with music', 500, 40),
+  ('62000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001',
+   'Badminton', 'Court and equipment', 100, 8),
+  ('62000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001',
+   'Cricket', 'Turf and equipment', 100, 22),
+  ('62000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001',
+   'Cycling', 'Guided farmhouse trail ride', 150, 10),
+  ('62000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001',
+   'Indoor Games', 'Carrom, chess, table tennis', 0, 12),
+  ('62000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001',
+   'Nature Walk', 'Guided walk around the property', 0, 15);

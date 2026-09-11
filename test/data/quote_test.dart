@@ -39,6 +39,24 @@ void main() {
     expect(quote.coupon, isNull);
   });
 
+  test('taxPct/taxAmount default to 0 when the server omits them', () {
+    final quote = Quote.fromJson(json);
+    expect(quote.taxPct, 0);
+    expect(quote.taxAmount, 0);
+  });
+
+  test('parses tax_pct/tax_amount when present', () {
+    final quote = Quote.fromJson({
+      ...json,
+      'tax_pct': 18,
+      'tax_amount': 2970,
+      'total': 19470,
+    });
+    expect(quote.taxPct, 18);
+    expect(quote.taxAmount, 2970);
+    expect(quote.total, 19470);
+  });
+
   test('parses an applied coupon', () {
     final quote = Quote.fromJson({
       ...json,
