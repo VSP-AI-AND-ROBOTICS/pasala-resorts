@@ -1,0 +1,31 @@
+import 'package:flutter/material.dart';
+
+export 'spacing.dart';
+
+/// Design tokens for Pasala Resorts.
+///
+/// The palette is warm and land-facing rather than corporate blue: a deep
+/// green for primary actions, a clay accent for highlights, and a bone
+/// surface that photographs of the property sit on without fighting them.
+abstract final class PasalaTokens {
+  static const Color seed = Color(0xFF2E6B4F);
+  static const Color accent = Color(0xFFC2703D);
+
+  static const double displayLetterSpacing = -0.8;
+  static const FontWeight displayWeight = FontWeight.w700;
+
+  /// The single width breakpoint the app treats as "wide" (desktop/tablet
+  /// landscape vs. phone) — shared by `AppShell`'s rail/bottom-bar switch
+  /// and `BrowseScreen`'s grid/list switch so the two can never disagree.
+  static const double wideBreakpoint = 840;
+
+  static const double radiusSm = 8;
+  static const double radiusMd = 16;
+  static const double radiusLg = 28;
+
+  static const Duration motionFast = Duration(milliseconds: 150);
+  static const Duration motionBase = Duration(milliseconds: 250);
+
+  /// Minimum interactive size, per WCAG 2.5.5 and Material guidance.
+  static const double minTapTarget = 48;
+}

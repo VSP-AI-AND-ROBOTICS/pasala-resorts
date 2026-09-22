@@ -1,4 +1,4 @@
-name: resorthub
+name: pasala
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -31,16 +31,33 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  flutter_riverpod: ^2.5.1
-  go_router: ^14.2.0
-  supabase_flutter: ^2.6.0
-  intl: ^0.19.0
-  uuid: ^4.4.0
-  geolocator: ^12.0.0
-  fl_chart: ^0.68.0
-  google_fonts: ^6.2.1
-  shared_preferences: ^2.2.3
+  supabase_flutter: ^2.16.0
+  # Used directly in lib/core/errors.dart to recognize the ClientException
+  # BrowserClient throws for transport failures on web (I5) -- previously a
+  # transitive dependency only, pulled in by supabase_flutter/gotrue.
+  http: ^1.6.0
+  flutter_riverpod: ^3.3.2
+  go_router: ^17.3.0
+  # Used directly in lib/features/reports/csv_download_web.dart to trigger a
+  # browser download of an exported report -- previously a transitive
+  # dependency only, pulled in by the Flutter web engine itself.
+  web: ^1.1.1
+  freezed_annotation: ^3.1.0
+  json_annotation: ">=4.9.0 <4.10.0"
+  intl: ^0.20.3
+  # Photo attachment on maintenance reports (works on web via a file
+  # picker, no native camera dependency required).
+  image_picker: ^1.2.0
+  # Decorative QR code on the confirmation/booking-detail screens --
+  # nothing in this app ever scans one back.
+  qr_flutter: ^4.1.0
+  # Used directly in lib/features/browse/property_screen.dart to open the
+  # property's address in the device's maps app -- previously a transitive
+  # dependency only, pulled in by supabase_flutter.
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:
@@ -52,6 +69,9 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  build_runner: ^2.15.1
+  freezed: ^3.2.3
+  json_serializable: ^6.11.2
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -63,6 +83,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/images/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

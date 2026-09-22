@@ -1,38 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'core/router.dart';
+import 'core/supabase_client.dart';
 import 'core/theme/app_theme.dart';
-import 'core/router/app_router.dart';
-import 'core/services/supabase_service.dart';
-import 'core/widgets/mobile_frame_wrapper.dart';
+import 'core/widgets/app_splash_overlay.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize Supabase (with automatic graceful fallback to Mock store)
-  await SupabaseService.instance.initialize();
-
-  runApp(const ResortHubApp());
+  await initSupabase();
+  runApp(const ProviderScope(child: PasalaApp()));
 }
 
-class ResortHubApp extends StatelessWidget {
-  const ResortHubApp({super.key});
+class PasalaApp extends ConsumerWidget {
+  const PasalaApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: AppTheme.themeNotifier,
-      builder: (context, currentMode, _) {
-        return MaterialApp.router(
-          title: 'ResortHub',
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.darkTheme,
-          themeMode: currentMode,
-          routerConfig: AppRouter.router,
-          builder: (context, child) => MobileFrameWrapper(
-            child: child ?? const SizedBox.shrink(),
-          ),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context, WidgetRef ref) => MaterialApp.router(
+        title: 'Pasala Resorts',
+        theme: buildTheme(Brightness.light),
+        darkTheme: buildTheme(Brightness.dark),
+        routerConfig: ref.watch(routerProvider),
+        builder: (context, child) =>
+            AppSplashOverlay(child: child ?? const SizedBox()),
+      );
 }
