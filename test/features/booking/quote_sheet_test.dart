@@ -50,13 +50,17 @@ void main() {
     bool couponBusy = false,
     String? couponError,
     VoidCallback? onPay,
+    num advancePct = 100,
+    void Function(num amount, bool isSplit)? onPaySplit,
   }) =>
       MaterialApp(
         home: Scaffold(
           body: QuoteSheet(
             quote: quote,
             busy: busy,
+            advancePct: advancePct,
             onPay: onPay ?? () {},
+            onPaySplit: onPaySplit,
             onApplyCoupon: onApplyCoupon ?? (_) async {},
             couponBusy: couponBusy,
             couponError: couponError,
@@ -159,5 +163,36 @@ void main() {
     final button = tester.widget<OutlinedButton>(
         find.byKey(const Key('apply-coupon-button')));
     expect(button.onPressed, isNull);
+  });
+
+  testWidgets('offers 35% advance deposit option when advancePct < 100',
+      (tester) async {
+    num? paidAmount;
+    bool? wasSplit;
+
+    await tester.pumpWidget(sheet(
+      quote: quote, // ₹16,500 total
+      advancePct: 35,
+      onPaySplit: (amount, split) {
+        paidAmount = amount;
+        wasSplit = split;
+      },
+    ));
+
+    expect(find.byKey(const Key('pay-split-radio')), findsOneWidget);
+    expect(find.byKey(const Key('pay-full-radio')), findsOneWidget);
+    expect(find.textContaining('35% advance now'), findsOneWidget);
+
+    // Tap the split payment radio option
+    await tester.tap(find.byKey(const Key('pay-split-radio')));
+    await tester.pumpAndSettle();
+
+    // Tap Pay button
+    await tester.tap(find.byKey(const Key('pay-button')));
+    await tester.pumpAndSettle();
+
+    // 16500 * 0.35 = 5775
+    expect(paidAmount, equals(5775.0));
+    expect(wasSplit, isTrue);
   });
 }

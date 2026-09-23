@@ -19,10 +19,14 @@ class QuoteSheet extends StatefulWidget {
     required this.onApplyCoupon,
     this.couponBusy = false,
     this.couponError,
+    this.advancePct = 100,
+    this.onPaySplit,
   });
 
   final Quote quote;
   final VoidCallback onPay;
+  final void Function(num amountToPay, bool isSplit)? onPaySplit;
+  final num advancePct;
   final bool busy;
 
   /// Called with the trimmed field text when Apply is tapped. Re-fetching
@@ -40,6 +44,7 @@ class QuoteSheet extends StatefulWidget {
 
 class _QuoteSheetState extends State<QuoteSheet> {
   final _controller = TextEditingController();
+  bool _splitPayment = false;
 
   @override
   void dispose() {
@@ -52,6 +57,9 @@ class _QuoteSheetState extends State<QuoteSheet> {
     final quote = widget.quote;
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
+    final advanceAmount =
+        (quote.total * widget.advancePct / 100.0).roundToDouble();
+    final dueAmount = (quote.total - advanceAmount).roundToDouble();
 
     // `isScrollControlled: true` (booking_screen.dart's `_showQuoteSheet`)
     // lets this sheet grow past the default ~half-screen cap, but on a
@@ -192,11 +200,71 @@ class _QuoteSheetState extends State<QuoteSheet> {
               ),
             ],
           ),
+          if (widget.advancePct < 100) ...[
+            const SizedBox(height: Spacing.md),
+            Container(
+              padding: const EdgeInsets.all(Spacing.sm),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+                border: Border.all(color: scheme.outlineVariant),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+                    child: Text('Payment Option', style: textTheme.labelLarge),
+                  ),
+                  const SizedBox(height: Spacing.xs),
+                  RadioListTile<bool>(
+                    key: const Key('pay-split-radio'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text(
+                      'Pay ${widget.advancePct.toInt()}% advance now (${formatInr(advanceAmount)})',
+                    ),
+                    subtitle: Text('Remaining ${formatInr(dueAmount)} due at check-in'),
+                    value: true,
+                    groupValue: _splitPayment,
+                    onChanged: (val) =>
+                        setState(() => _splitPayment = val ?? false),
+                  ),
+                  RadioListTile<bool>(
+                    key: const Key('pay-full-radio'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text(
+                      'Pay full amount now (${formatInr(quote.total)})',
+                    ),
+                    value: false,
+                    groupValue: _splitPayment,
+                    onChanged: (val) =>
+                        setState(() => _splitPayment = val ?? false),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: Spacing.lg),
           FilledButton(
             key: const Key('pay-button'),
-            onPressed: widget.busy ? null : widget.onPay,
-            child: Text(widget.busy ? 'Processing…' : 'Pay and confirm'),
+            onPressed: widget.busy
+                ? null
+                : () {
+                    if (widget.onPaySplit != null) {
+                      final amountToPay =
+                          _splitPayment ? advanceAmount : quote.total;
+                      widget.onPaySplit!(amountToPay, _splitPayment);
+                    } else {
+                      widget.onPay();
+                    }
+                  },
+            child: Text(widget.busy
+                ? 'Processing…'
+                : _splitPayment
+                    ? 'Pay advance (${formatInr(advanceAmount)}) & confirm'
+                    : 'Pay and confirm'),
           ),
         ],
       ),

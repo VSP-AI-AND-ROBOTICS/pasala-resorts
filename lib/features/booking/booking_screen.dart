@@ -708,7 +708,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
             child: QuoteSheet(
               quote: quote,
               busy: _busy,
+              advancePct: 35,
               onPay: _pay,
+              onPaySplit: (amount, _) => _pay(amountToPay: amount),
               onApplyCoupon: _applyCoupon,
               couponBusy: _couponBusy,
               couponError: _couponError,
@@ -752,7 +754,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     });
   }
 
-  Future<void> _pay() async {
+  Future<void> _pay({num? amountToPay}) async {
     // Finding 3: without this, two rapid taps can both enter `_pay` before
     // `setState`'s rebuild (next frame, not synchronous) has a chance to
     // disable the button. Harmless against today's mock gateway, but Phase 2
@@ -762,6 +764,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     final from = _from, to = _to, quote = _quote;
     if (from == null || to == null || quote == null) return;
 
+    final payAmount = amountToPay ?? quote.total;
     _setBusy(true);
     try {
       final actions = ref.read(bookingActionsProvider);
@@ -796,7 +799,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
 
       final payment = await ref
           .read(paymentGatewayProvider)
-          .charge(reservationId: hold.id, amount: quote.total);
+          .charge(reservationId: hold.id, amount: payAmount);
       if (!payment.succeeded) {
         throw InvalidState(payment.failureMessage ?? 'Payment failed');
       }
@@ -804,7 +807,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       final confirmed = await actions.confirm(
         reservationId: hold.id,
         paymentRef: payment.reference,
-        amount: quote.total,
+        amount: payAmount,
       );
       _ticker?.cancel();
       // Both are plain (non-autoDispose) providers that may already have a
