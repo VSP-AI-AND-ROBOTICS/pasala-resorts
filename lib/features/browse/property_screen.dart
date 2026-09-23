@@ -83,6 +83,30 @@ class _PropertyGalleryState extends State<PropertyGallery> {
             itemBuilder: (context, i) =>
                 Image.asset(_galleryPhotos[i], fit: BoxFit.cover),
           ),
+          Positioned(
+            top: Spacing.md,
+            right: Spacing.md,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.sm,
+                vertical: Spacing.xs,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Text(
+                '${_page + 1} / $pageCount',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
           // A single Column, not two independently `bottomCenter`-aligned
           // Stack children -- Stack positions each child by [alignment]
           // on its own, so a button and the dot row as separate children
@@ -172,17 +196,42 @@ class PropertyScreen extends ConsumerWidget {
                   Text(p.name, style: textTheme.headlineMedium),
                   if (p.address != null) ...[
                     const SizedBox(height: Spacing.xs),
-                    Row(
-                      children: [
-                        Icon(Icons.location_on_outlined,
-                            size: 18, color: scheme.onSurfaceVariant),
-                        const SizedBox(width: Spacing.xs),
-                        Text(
-                          p.address!,
-                          style: textTheme.bodyMedium
-                              ?.copyWith(color: scheme.onSurfaceVariant),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
+                      onTap: () async {
+                        final query = Uri.encodeComponent('${p.name}, ${p.address}');
+                        final mapsUrl = Uri.parse(
+                          'https://www.google.com/maps/search/?api=1&query=$query',
+                        );
+                        if (await canLaunchUrl(mapsUrl)) {
+                          await launchUrl(mapsUrl, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.location_on_outlined,
+                                size: 18, color: scheme.primary),
+                            const SizedBox(width: Spacing.xs),
+                            Flexible(
+                              child: Text(
+                                p.address!,
+                                style: textTheme.bodyMedium?.copyWith(
+                                  color: scheme.primary,
+                                  decoration: TextDecoration.underline,
+                                  decorationColor:
+                                      scheme.primary.withValues(alpha: 0.4),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: Spacing.xs),
+                            Icon(Icons.open_in_new,
+                                size: 14, color: scheme.primary),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ],
                   if (p.description != null) ...[

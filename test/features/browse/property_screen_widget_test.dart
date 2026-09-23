@@ -175,4 +175,45 @@ void main() {
       expect(find.byKey(const Key('view-all-reviews-button')), findsOneWidget);
     },
   );
+
+  testWidgets('gallery shows counter badge indicating current photo index', (tester) async {
+    await tester.pumpWidget(_appFor());
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 / 8'), findsOneWidget);
+  });
+
+  testWidgets('renders address row with clickable maps navigation link', (tester) async {
+    const propertyWithAddress = Property(
+      id: 'p1',
+      name: 'Pasala Dallas Cottage',
+      slug: 'dallas-cottage',
+      description: 'A themed cottage by the pool.',
+      address: 'Near Kanakapura Road, Bengaluru',
+      images: [],
+      amenities: ['Pool'],
+      checkInTime: '14:00',
+      checkOutTime: '11:00',
+      isActive: true,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          propertyProvider('p1').overrideWith((ref) => Future.value(propertyWithAddress)),
+          unitsProvider('p1').overrideWith((ref) => Future.value(_units)),
+          unitByIdProvider('u1').overrideWith((ref) => Future.value(_unit)),
+          unitCalendarSourceProvider.overrideWithValue(_NoOccupancyCalendarSource()),
+          allReviewsProvider.overrideWith((ref) => Future.value([])),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: PropertyScreen(propertyId: 'p1')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Near Kanakapura Road, Bengaluru'), findsOneWidget);
+    expect(find.byIcon(Icons.open_in_new), findsOneWidget);
+  });
 }
