@@ -203,9 +203,12 @@ class PropertyScreen extends ConsumerWidget {
                         final mapsUrl = Uri.parse(
                           'https://www.google.com/maps/search/?api=1&query=$query',
                         );
-                        if (await canLaunchUrl(mapsUrl)) {
-                          await launchUrl(mapsUrl, mode: LaunchMode.externalApplication);
-                        }
+                        // No canLaunchUrl gate: on Android 11+ it returns
+                        // false for https unless the manifest declares a
+                        // matching <queries> entry, making the tap a silent
+                        // no-op.
+                        await launchUrl(mapsUrl,
+                            mode: LaunchMode.externalApplication);
                       },
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 2),

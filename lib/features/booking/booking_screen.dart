@@ -17,7 +17,7 @@ import '../../data/models/unit.dart';
 import '../../data/repositories/booking_repository.dart';
 import '../../data/repositories/stay_repository.dart' show currentStayProvider;
 import '../account/providers.dart' show myBookingsProvider;
-import '../browse/providers.dart' show slotTypesProvider;
+import '../browse/providers.dart' show propertyProvider, slotTypesProvider;
 import '../calendar/availability_calendar.dart';
 import '../calendar/providers.dart' show unitReservationsProvider;
 import 'payment_gateway.dart';
@@ -704,11 +704,20 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
           // playing. Never force-unwrap here.
           final quote = _quote;
           if (quote == null) return const SizedBox.shrink();
+          // The owner's `properties.advance_pct` (Payment Settings), which
+          // `confirm_booking` enforces as the minimum payment. Until the
+          // property has loaded, fall back to 100 -- full payment is always
+          // accepted, a guessed smaller share might not be.
+          final unit = ref.read(unitByIdProvider(widget.unitId)).value;
+          final advancePct = unit == null
+              ? 100
+              : ref.read(propertyProvider(unit.propertyId)).value?.advancePct ??
+                  100;
           return SafeArea(
             child: QuoteSheet(
               quote: quote,
               busy: _busy,
-              advancePct: 35,
+              advancePct: advancePct,
               onPay: _pay,
               onPaySplit: (amount, _) => _pay(amountToPay: amount),
               onApplyCoupon: _applyCoupon,
@@ -928,6 +937,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   }
 
   Widget _buildBody(BuildContext context, Unit unit) {
+    // Warm the property so its `advancePct` is ready by the time the quote
+    // sheet opens (read there, not watched).
+    ref.watch(propertyProvider(unit.propertyId));
     Widget slotSelector = const SizedBox.shrink();
     if (unit.supportsSlots) {
       final slotTypesAsync = ref.watch(slotTypesProvider(unit.propertyId));

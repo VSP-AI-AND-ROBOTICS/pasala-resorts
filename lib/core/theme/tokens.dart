@@ -4,9 +4,10 @@ export 'spacing.dart';
 
 /// Design tokens for Pasala Resorts.
 ///
-/// The palette is warm and land-facing rather than corporate blue: a deep
-/// green for primary actions, a clay accent for highlights, and a bone
-/// surface that photographs of the property sit on without fighting them.
+/// The palette is fresh and land-facing rather than corporate blue: an
+/// emerald green for primary actions and highlights, and a soft mint
+/// surface (deep ink in dark mode) that photographs of the property sit on
+/// without fighting them.
 abstract final class PasalaTokens {
   static const Color seed = Color(0xFF059669);
   static const Color accent = Color(0xFF10B981);

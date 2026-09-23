@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -57,9 +58,16 @@ class _QuoteSheetState extends State<QuoteSheet> {
     final quote = widget.quote;
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
-    final advanceAmount =
-        (quote.total * widget.advancePct / 100.0).roundToDouble();
-    final dueAmount = (quote.total - advanceAmount).roundToDouble();
+    // Round the advance *up* to the rupee: `confirm_booking` rejects any
+    // amount below round(total * advance_pct / 100, 2), so rounding to the
+    // nearest rupee could land a few paise short and fail after charging.
+    final advanceAmount = math.min(
+      (quote.total * widget.advancePct / 100.0).ceilToDouble(),
+      quote.total.toDouble(),
+    );
+    final dueAmount = quote.total - advanceAmount;
+    final pct = widget.advancePct;
+    final pctLabel = pct == pct.roundToDouble() ? '${pct.toInt()}' : '$pct';
 
     // `isScrollControlled: true` (booking_screen.dart's `_showQuoteSheet`)
     // lets this sheet grow past the default ~half-screen cap, but on a
@@ -202,47 +210,55 @@ class _QuoteSheetState extends State<QuoteSheet> {
           ),
           if (widget.advancePct < 100) ...[
             const SizedBox(height: Spacing.md),
-            Container(
-              padding: const EdgeInsets.all(Spacing.sm),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            // Material, not a decorated Container: RadioListTile paints its
+            // ink on the nearest Material, which a coloured box would hide.
+            Material(
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
-                border: Border.all(color: scheme.outlineVariant),
+                side: BorderSide(color: scheme.outlineVariant),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-                    child: Text('Payment Option', style: textTheme.labelLarge),
-                  ),
-                  const SizedBox(height: Spacing.xs),
-                  RadioListTile<bool>(
-                    key: const Key('pay-split-radio'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    title: Text(
-                      'Pay ${widget.advancePct.toInt()}% advance now (${formatInr(advanceAmount)})',
+              child: Padding(
+                padding: const EdgeInsets.all(Spacing.sm),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+                      child: Text('Payment Option', style: textTheme.labelLarge),
                     ),
-                    subtitle: Text('Remaining ${formatInr(dueAmount)} due at check-in'),
-                    value: true,
-                    groupValue: _splitPayment,
-                    onChanged: (val) =>
-                        setState(() => _splitPayment = val ?? false),
-                  ),
-                  RadioListTile<bool>(
-                    key: const Key('pay-full-radio'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    title: Text(
-                      'Pay full amount now (${formatInr(quote.total)})',
+                    const SizedBox(height: Spacing.xs),
+                    RadioGroup<bool>(
+                      groupValue: _splitPayment,
+                      onChanged: (val) =>
+                          setState(() => _splitPayment = val ?? false),
+                      child: Column(
+                        children: [
+                          RadioListTile<bool>(
+                            key: const Key('pay-split-radio'),
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            title: Text(
+                              'Pay $pctLabel% advance now (${formatInr(advanceAmount)})',
+                            ),
+                            subtitle: Text(
+                                'Remaining ${formatInr(dueAmount)} due at check-in'),
+                            value: true,
+                          ),
+                          RadioListTile<bool>(
+                            key: const Key('pay-full-radio'),
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            title: Text(
+                              'Pay full amount now (${formatInr(quote.total)})',
+                            ),
+                            value: false,
+                          ),
+                        ],
+                      ),
                     ),
-                    value: false,
-                    groupValue: _splitPayment,
-                    onChanged: (val) =>
-                        setState(() => _splitPayment = val ?? false),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],

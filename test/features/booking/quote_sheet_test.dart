@@ -195,4 +195,32 @@ void main() {
     expect(paidAmount, equals(5775.0));
     expect(wasSplit, isTrue);
   });
+
+  testWidgets('rounds a fractional advance up so confirm_booking accepts it',
+      (tester) async {
+    num? paidAmount;
+
+    await tester.pumpWidget(sheet(
+      quote: quote, // ₹16,500 total
+      advancePct: 33.33,
+      onPaySplit: (amount, _) => paidAmount = amount,
+    ));
+
+    await tester.tap(find.byKey(const Key('pay-split-radio')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pay-button')));
+    await tester.pumpAndSettle();
+
+    // Server minimum is round(16500 * 33.33 / 100, 2) = 5499.45; rounding
+    // to the nearest rupee (5499) would be rejected after the charge.
+    expect(paidAmount, equals(5500.0));
+    expect(find.textContaining('33.33% advance now'), findsOneWidget);
+  });
+
+  testWidgets('offers no split when the property requires full payment',
+      (tester) async {
+    await tester.pumpWidget(sheet(quote: quote, advancePct: 100));
+
+    expect(find.byKey(const Key('pay-split-radio')), findsNothing);
+  });
 }

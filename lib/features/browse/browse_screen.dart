@@ -59,8 +59,9 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
 
         final filteredList = _selectedAmenity == null
             ? list
-            : list.where((p) => p.amenities.any((a) =>
-                a.toLowerCase().contains(_selectedAmenity!.toLowerCase()))).toList();
+            : list
+                .where((p) => p.amenities.contains(_selectedAmenity))
+                .toList();
 
         return RefreshIndicator(
           onRefresh: () async => ref.invalidate(propertiesProvider),
