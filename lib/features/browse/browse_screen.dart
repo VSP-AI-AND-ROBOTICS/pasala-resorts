@@ -12,11 +12,18 @@ import '../../core/widgets/staggered_fade_in.dart';
 import '../../data/models/property.dart';
 import 'providers.dart';
 
-class BrowseScreen extends ConsumerWidget {
+class BrowseScreen extends ConsumerStatefulWidget {
   const BrowseScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<BrowseScreen> createState() => _BrowseScreenState();
+}
+
+class _BrowseScreenState extends ConsumerState<BrowseScreen> {
+  String? _selectedAmenity;
+
+  @override
+  Widget build(BuildContext context) {
     final properties = ref.watch(propertiesProvider);
     final wide =
         MediaQuery.sizeOf(context).width >= PasalaTokens.wideBreakpoint;
@@ -42,12 +49,86 @@ class BrowseScreen extends ConsumerWidget {
           });
           return const LoadingState();
         }
+
+        // Collect all distinct amenities present across properties
+        final allAmenities = <String>{};
+        for (final p in list) {
+          allAmenities.addAll(p.amenities);
+        }
+        final amenityList = allAmenities.toList()..sort();
+
+        final filteredList = _selectedAmenity == null
+            ? list
+            : list.where((p) => p.amenities.any((a) =>
+                a.toLowerCase().contains(_selectedAmenity!.toLowerCase()))).toList();
+
         return RefreshIndicator(
           onRefresh: () async => ref.invalidate(propertiesProvider),
           child: CustomScrollView(
             slivers: [
               SliverToBoxAdapter(child: _BrowseHero(wide: wide)),
-              if (wide)
+              if (amenityList.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.only(
+                      left: Spacing.md,
+                      right: Spacing.md,
+                      top: Spacing.md,
+                      bottom: Spacing.xs,
+                    ),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          FilterChip(
+                            label: const Text('All'),
+                            selected: _selectedAmenity == null,
+                            onSelected: (_) => setState(() => _selectedAmenity = null),
+                          ),
+                          const SizedBox(width: Spacing.xs),
+                          for (final amenity in amenityList) ...[
+                            FilterChip(
+                              label: Text(amenity),
+                              selected: _selectedAmenity == amenity,
+                              onSelected: (selected) => setState(() {
+                                _selectedAmenity = selected ? amenity : null;
+                              }),
+                            ),
+                            const SizedBox(width: Spacing.xs),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              if (filteredList.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(Spacing.xl),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.filter_alt_off_outlined,
+                              size: 48,
+                              color: Theme.of(context).colorScheme.outline),
+                          const SizedBox(height: Spacing.md),
+                          Text(
+                            'No properties with "$_selectedAmenity"',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: Spacing.sm),
+                          TextButton(
+                            onPressed: () => setState(() => _selectedAmenity = null),
+                            child: const Text('Show all properties'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else if (wide)
                 SliverPadding(
                   padding: const EdgeInsets.all(Spacing.md),
                   sliver: SliverGrid(
@@ -60,14 +141,14 @@ class BrowseScreen extends ConsumerWidget {
                         ),
                     delegate: SliverChildBuilderDelegate(
                       (context, i) => StaggeredFadeIn(
-                        key: ValueKey(list[i].id),
+                        key: ValueKey(filteredList[i].id),
                         index: i,
                         child: PropertyCard(
-                          property: list[i],
-                          onTap: () => context.go('/property/${list[i].id}'),
+                          property: filteredList[i],
+                          onTap: () => context.go('/property/${filteredList[i].id}'),
                         ),
                       ),
-                      childCount: list.length,
+                      childCount: filteredList.length,
                     ),
                   ),
                 )
@@ -79,15 +160,15 @@ class BrowseScreen extends ConsumerWidget {
                       (context, i) => Padding(
                         padding: const EdgeInsets.only(bottom: Spacing.md),
                         child: StaggeredFadeIn(
-                          key: ValueKey(list[i].id),
+                          key: ValueKey(filteredList[i].id),
                           index: i,
                           child: PropertyCard(
-                            property: list[i],
-                            onTap: () => context.go('/property/${list[i].id}'),
+                            property: filteredList[i],
+                            onTap: () => context.go('/property/${filteredList[i].id}'),
                           ),
                         ),
                       ),
-                      childCount: list.length,
+                      childCount: filteredList.length,
                     ),
                   ),
                 ),
