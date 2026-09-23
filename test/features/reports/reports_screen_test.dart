@@ -265,18 +265,28 @@ void main() {
     await tester.tap(find.byTooltip('Switch to input'));
     await tester.pumpAndSettle();
 
+    // The screen defaults to the current month, so a hardcoded range
+    // would equal that default whenever the suite runs in the same month.
+    // Pick the month two before today instead: always distinct from the
+    // default, always inside the picker's 2020-2100 bounds.
+    final now = DateTime.now();
+    final pickedFrom = DateTime(now.year, now.month - 2, 1);
+    final pickedTo = DateTime(now.year, now.month - 1, 0);
+    String mdy(DateTime d) => '${d.month.toString().padLeft(2, '0')}/'
+        '${d.day.toString().padLeft(2, '0')}/${d.year}';
+
     final fields = find.byType(TextField);
     expect(fields, findsNWidgets(2));
-    await tester.enterText(fields.at(0), '09/01/2026');
-    await tester.enterText(fields.at(1), '09/30/2026');
+    await tester.enterText(fields.at(0), mdy(pickedFrom));
+    await tester.enterText(fields.at(1), mdy(pickedTo));
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
 
     final afterRange = repo.revenueFilters.last;
     expect(afterRange.from, isNot(afterProperty.from));
     expect(afterRange.to, isNot(afterProperty.to));
-    expect(afterRange.from, DateTime(2026, 9, 1));
-    expect(afterRange.to, DateTime(2026, 9, 30));
+    expect(afterRange.from, pickedFrom);
+    expect(afterRange.to, pickedTo);
     // The property selected earlier must survive the date-range change --
     // proof the two filters compose rather than one silently resetting the
     // other.
