@@ -22,12 +22,15 @@ class _MobileFrameWrapperState extends State<MobileFrameWrapper> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final backdropColor = isDark ? const Color(0xFF080D0B) : const Color(0xFFDFECE5);
+    final frameColor = isDark ? AppTheme.resortDarkBg : Colors.white;
+    final frameBorderColor = isDark ? const Color(0xFF263A32) : const Color(0xFF1E1E1E);
 
     return Stack(
       children: [
         if (_isMobileFrameActive)
           Container(
-            color: isDark ? const Color(0xFF020617) : const Color(0xFF0F172A), // Dark slate backdrop
+            color: backdropColor,
             child: Center(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(vertical: 24),
@@ -36,12 +39,12 @@ class _MobileFrameWrapperState extends State<MobileFrameWrapper> {
                     width: 390,
                     height: 844,
                     decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF0F172A) : AppTheme.bookingBgLight,
+                      color: frameColor,
                       borderRadius: BorderRadius.circular(44),
-                      border: Border.all(color: isDark ? const Color(0xFF475569) : const Color(0xFF334155), width: 10),
+                      border: Border.all(color: frameBorderColor, width: 10),
                       boxShadow: const [
                         BoxShadow(
-                          color: Colors.black54,
+                          color: Colors.black12,
                           blurRadius: 36,
                           spreadRadius: 4,
                           offset: Offset(0, 16),
@@ -81,7 +84,7 @@ class _MobileFrameWrapperState extends State<MobileFrameWrapper> {
                                     width: 10,
                                     height: 10,
                                     decoration: const BoxDecoration(
-                                      color: Color(0xFF1E293B),
+                                      color: Color(0xFF262626),
                                       shape: BoxShape.circle,
                                     ),
                                   ),
@@ -90,7 +93,7 @@ class _MobileFrameWrapperState extends State<MobileFrameWrapper> {
                                     width: 8,
                                     height: 8,
                                     decoration: const BoxDecoration(
-                                      color: Color(0xFF0F172A),
+                                      color: Color(0xFF171717),
                                       shape: BoxShape.circle,
                                     ),
                                   ),
@@ -147,9 +150,9 @@ class _MobileFrameWrapperState extends State<MobileFrameWrapper> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                           decoration: BoxDecoration(
-                            color: isDark ? const Color(0xFF334155) : Colors.white,
+                            color: isDark ? const Color(0xFF262626) : Colors.white,
                             borderRadius: BorderRadius.circular(24),
-                            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8)],
+                            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
                           ),
                           child: Row(
                             children: [
@@ -173,7 +176,7 @@ class _MobileFrameWrapperState extends State<MobileFrameWrapper> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: _isMobileFrameActive ? AppTheme.bookingYellow : AppTheme.bookingNavy,
+                        color: _isMobileFrameActive ? AppTheme.resortCoral : AppTheme.resortCharcoal,
                         borderRadius: BorderRadius.circular(24),
                         boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8)],
                       ),
@@ -182,14 +185,14 @@ class _MobileFrameWrapperState extends State<MobileFrameWrapper> {
                         children: [
                           Icon(
                             _isMobileFrameActive ? Icons.desktop_windows : Icons.smartphone,
-                            color: _isMobileFrameActive ? AppTheme.bookingNavy : Colors.white,
+                            color: Colors.white,
                             size: 18,
                           ),
                           const SizedBox(width: 4),
                           Text(
                             _isMobileFrameActive ? 'Web' : 'Mobile',
-                            style: TextStyle(
-                              color: _isMobileFrameActive ? AppTheme.bookingNavy : Colors.white,
+                            style: const TextStyle(
+                              color: Colors.white,
                               fontWeight: FontWeight.bold,
                               fontSize: 11,
                             ),

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:resorthub/core/models/user_profile.dart';
-import 'package:resorthub/core/services/mock_data_store.dart';
+import 'package:pasala/core/models/user_profile.dart';
+import 'package:pasala/core/services/mock_data_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

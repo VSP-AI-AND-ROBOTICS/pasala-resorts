@@ -104,8 +104,15 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final pageBg = AppTheme.pageBg(context);
+    final cardBg = AppTheme.cardBg(context);
+    final border = AppTheme.border(context);
+    final textPrimary = AppTheme.textPrimary(context);
+    final textMuted = AppTheme.textMuted(context);
+
     return Scaffold(
-      backgroundColor: AppTheme.bookingNavy, // Booking.com Royal Navy Backdrop
+      backgroundColor: pageBg,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -114,13 +121,14 @@ class _RegisterPageState extends State<RegisterPage> {
               constraints: const BoxConstraints(maxWidth: 460),
               padding: const EdgeInsets.all(32),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: const [
+                color: cardBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: border),
+                boxShadow: [
                   BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 16,
-                    offset: Offset(0, 4),
+                    color: isDark ? Colors.black.withValues(alpha: 0.3) : const Color(0xFF1C1917).withValues(alpha: 0.06),
+                    blurRadius: 20,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
@@ -133,12 +141,12 @@ class _RegisterPageState extends State<RegisterPage> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
+                        Text(
                           'ResortHub',
                           style: TextStyle(
                             fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.bookingNavy,
+                            fontWeight: FontWeight.w900,
+                            color: textPrimary,
                             letterSpacing: -0.5,
                           ),
                         ),
@@ -146,7 +154,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppTheme.bookingYellow,
+                            color: const Color(0xFFFF5A36),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: const Text(
@@ -154,7 +162,7 @@ class _RegisterPageState extends State<RegisterPage> {
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
-                              color: AppTheme.bookingNavy,
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -162,26 +170,26 @@ class _RegisterPageState extends State<RegisterPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  const Center(
+                  Center(
                     child: Text(
                       'Create an Account',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF1A1A1A),
+                        color: textPrimary,
                       ),
                     ),
                   ),
                   const SizedBox(height: 16),
 
                   // Account Type Selector Card
-                  const Text('Select Account Type:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                  Text('Select Account Type:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textMuted)),
                   const SizedBox(height: 8),
                   Container(
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
+                      color: AppTheme.pillBg(context),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade300),
+                      border: Border.all(color: border),
                     ),
                     child: Row(
                       children: [

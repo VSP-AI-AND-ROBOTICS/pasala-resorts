@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/models/resort.dart';
 import '../../core/models/user_profile.dart';
 import '../../core/services/mock_data_store.dart';
+import '../../core/theme/app_theme.dart';
 
 class PromotionalMessagingDialog extends StatefulWidget {
   final Resort resort;
@@ -61,7 +62,7 @@ class _PromotionalMessagingDialogState extends State<PromotionalMessagingDialog>
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A),
+                  color: AppTheme.resortCharcoal,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -86,8 +87,8 @@ class _PromotionalMessagingDialogState extends State<PromotionalMessagingDialog>
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  border: Border.all(color: Colors.blue.shade200),
+                  color: const Color(0xFFFFF7ED),
+                  border: Border.all(color: AppTheme.resortCoral.withOpacity(0.3)),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -95,33 +96,33 @@ class _PromotionalMessagingDialogState extends State<PromotionalMessagingDialog>
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.sms, color: Color(0xFF006CE4), size: 18),
+                        const Icon(Icons.sms, color: AppTheme.resortCoral, size: 18),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             'SMS FROM: ${widget.resort.name.toUpperCase()}',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF003580)),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppTheme.resortDarkText),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
                     ),
                     const Divider(height: 16),
-                    Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A))),
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.resortDarkText)),
                     const SizedBox(height: 6),
                     Text(body, style: const TextStyle(fontSize: 12, color: Color(0xFF334155), height: 1.4)),
                     const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.blue.shade100)),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6), border: Border.all(color: const Color(0xFFE7E5E4))),
                       child: Row(
                         children: [
-                          const Icon(Icons.link, color: Color(0xFF006CE4), size: 16),
+                          const Icon(Icons.link, color: AppTheme.resortCoral, size: 16),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               'resorthub://resort/${widget.resort.id}',
-                              style: const TextStyle(fontSize: 11, color: Color(0xFF006CE4), fontWeight: FontWeight.bold),
+                              style: const TextStyle(fontSize: 11, color: AppTheme.resortCoral, fontWeight: FontWeight.bold),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -139,7 +140,7 @@ class _PromotionalMessagingDialogState extends State<PromotionalMessagingDialog>
                         maxLines: 1,
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF006CE4),
+                        backgroundColor: AppTheme.resortCoral,
                         foregroundColor: Colors.white,
                         minimumSize: const Size.fromHeight(44),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -268,19 +269,20 @@ class _PromotionalMessagingDialogState extends State<PromotionalMessagingDialog>
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.blue.shade50,
+                color: const Color(0xFFFFF7ED),
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppTheme.resortCoral.withOpacity(0.2)),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.add_link, color: Color(0xFF006CE4), size: 18),
+                  const Icon(Icons.add_link, color: AppTheme.resortCoral, size: 18),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('App Deep Link Included Automatically:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF003580))),
-                        Text('resorthub://resort/${widget.resort.id}', style: const TextStyle(fontSize: 11, color: Color(0xFF006CE4))),
+                        const Text('App Deep Link Included Automatically:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.resortDarkText)),
+                        Text('resorthub://resort/${widget.resort.id}', style: const TextStyle(fontSize: 11, color: AppTheme.resortCoral)),
                       ],
                     ),
                   ),
@@ -296,7 +298,7 @@ class _PromotionalMessagingDialogState extends State<PromotionalMessagingDialog>
           icon: const Icon(Icons.send_rounded, size: 18),
           label: const Text('Broadcast SMS'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: isPremium ? const Color(0xFF0F172A) : Colors.grey,
+            backgroundColor: isPremium ? AppTheme.resortCoral : Colors.grey,
             foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),

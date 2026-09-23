@@ -73,23 +73,31 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final pageBg = AppTheme.pageBg(context);
+    final cardBg = AppTheme.cardBg(context);
+    final border = AppTheme.border(context);
+    final textPrimary = AppTheme.textPrimary(context);
+    final textMuted = AppTheme.textMuted(context);
+
     return Scaffold(
-      backgroundColor: AppTheme.bookingNavy, // Booking.com Royal Navy Backdrop
+      backgroundColor: pageBg,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 36),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
             child: Container(
               constraints: const BoxConstraints(maxWidth: 420),
-              padding: const EdgeInsets.all(32),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: const [
+                color: cardBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: border),
+                boxShadow: [
                   BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 24,
-                    offset: Offset(0, 10),
+                    color: isDark ? Colors.black.withValues(alpha: 0.3) : const Color(0xFF1C1917).withValues(alpha: 0.06),
+                    blurRadius: 20,
+                    offset: const Offset(0, 4),
                   )
                 ],
               ),
@@ -97,72 +105,76 @@ class _LoginPageState extends State<LoginPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // App Brand Logo
+                  // App Brand Logo: ResortHub
                   Center(
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text(
-                            'ResortHub',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.bookingNavy,
-                              letterSpacing: -0.5,
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF5A36),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.apartment_rounded,
+                              color: Colors.white,
+                              size: 22,
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppTheme.bookingYellow,
-                              borderRadius: BorderRadius.circular(4),
+                          const SizedBox(width: 10),
+                          Text(
+                            'ResortHub',
+                            style: TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w900,
+                              color: textPrimary,
+                              letterSpacing: -0.5,
                             ),
-                            child: const Text('INDIA', style: TextStyle(color: AppTheme.bookingNavy, fontWeight: FontWeight.bold, fontSize: 10)),
                           ),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                   Text(
                     'Sign in to manage or book your stays',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                    style: TextStyle(color: textMuted, fontSize: 13),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 28),
 
-                  // Email Field
+                  // Email Input
                   TextField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
-                    style: const TextStyle(fontSize: 14),
+                    style: TextStyle(fontSize: 14, color: textPrimary),
                     decoration: InputDecoration(
-                      labelText: 'Email address',
-                      prefixIcon: const Icon(Icons.email_outlined, size: 20, color: AppTheme.bookingNavy),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                      labelText: 'Email Address',
+                      prefixIcon: Icon(Icons.email_outlined, size: 20, color: textMuted),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
                   const SizedBox(height: 16),
 
-                  // Password Field
+                  // Password Input
                   TextField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _handleLogin(),
-                    style: const TextStyle(fontSize: 14),
+                    style: TextStyle(fontSize: 14, color: textPrimary),
                     decoration: InputDecoration(
                       labelText: 'Password',
-                      prefixIcon: const Icon(Icons.lock_outline, size: 20, color: AppTheme.bookingNavy),
+                      prefixIcon: Icon(Icons.lock_outline, size: 20, color: textMuted),
                       suffixIcon: IconButton(
-                        icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20),
+                        icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20, color: textMuted),
                         onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                       ),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
 
@@ -173,7 +185,7 @@ class _LoginPageState extends State<LoginPage> {
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
                         color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.red.shade200),
                       ),
                       child: Row(
@@ -191,18 +203,18 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ],
 
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 24),
 
-                  // Booking.com Action Button (Royal Blue)
+                  // Primary Action Button
                   SizedBox(
                     height: 48,
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _handleLogin,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.bookingActionBlue,
+                        backgroundColor: const Color(0xFFFF5A36),
                         foregroundColor: Colors.white,
                         elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                       child: _isLoading
                           ? const SizedBox(
@@ -214,14 +226,82 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
+
                   Center(
                     child: TextButton(
                       onPressed: () => context.go('/register'),
                       child: const Text(
                         "Don't have an account? Create an account",
-                        style: TextStyle(color: AppTheme.bookingActionBlue, fontSize: 14, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: Color(0xFFFF5A36), fontSize: 14, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center,
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 16),
+                  Divider(color: border),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Quick Demo Logins:',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textMuted),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      ActionChip(
+                        avatar: Icon(Icons.public, size: 14, color: textPrimary),
+                        label: Text('All Resorts Accountant', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textPrimary)),
+                        backgroundColor: AppTheme.pillBg(context),
+                        side: BorderSide(color: border),
+                        onPressed: () {
+                          setState(() {
+                            _emailController.text = 'accountant@resorthub.com';
+                            _passwordController.text = 'password123';
+                            _errorMessage = null;
+                          });
+                        },
+                      ),
+                      ActionChip(
+                        avatar: Icon(Icons.lock, size: 14, color: textMuted),
+                        label: Text('Grand Palms Accountant', style: TextStyle(fontSize: 11, color: textPrimary)),
+                        backgroundColor: AppTheme.pillBg(context),
+                        side: BorderSide(color: border),
+                        onPressed: () {
+                          setState(() {
+                            _emailController.text = 'accountant@grandpalms.com';
+                            _passwordController.text = 'password123';
+                            _errorMessage = null;
+                          });
+                        },
+                      ),
+                      ActionChip(
+                        label: Text('Resort Admin', style: TextStyle(fontSize: 11, color: textPrimary)),
+                        backgroundColor: AppTheme.pillBg(context),
+                        side: BorderSide(color: border),
+                        onPressed: () {
+                          setState(() {
+                            _emailController.text = 'admin@grandpalms.com';
+                            _passwordController.text = 'password123';
+                            _errorMessage = null;
+                          });
+                        },
+                      ),
+                      ActionChip(
+                        label: Text('Super Admin', style: TextStyle(fontSize: 11, color: textPrimary)),
+                        backgroundColor: AppTheme.pillBg(context),
+                        side: BorderSide(color: border),
+                        onPressed: () {
+                          setState(() {
+                            _emailController.text = 'owner@resorthub.com';
+                            _passwordController.text = 'password123';
+                            _errorMessage = null;
+                          });
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),

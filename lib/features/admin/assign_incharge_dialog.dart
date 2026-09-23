@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import '../../core/models/resort.dart';
 import '../../core/models/user_profile.dart';
 import '../../core/services/mock_data_store.dart';
+import '../../core/theme/app_theme.dart';
+import '../../data/repositories/auth_repository.dart';
 
 class AssignInchargeDialog extends StatefulWidget {
-  final Resort resort;
+  final Resort? resort;
 
-  const AssignInchargeDialog({super.key, required this.resort});
+  const AssignInchargeDialog({super.key, this.resort});
 
   @override
   State<AssignInchargeDialog> createState() => _AssignInchargeDialogState();
@@ -15,6 +17,7 @@ class AssignInchargeDialog extends StatefulWidget {
 class _AssignInchargeDialogState extends State<AssignInchargeDialog> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final MockDataStore _store = MockDataStore.instance;
+  late final Resort _activeResort;
 
   String? _selectedInchargeEmail;
 
@@ -30,8 +33,9 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
   @override
   void initState() {
     super.initState();
+    _activeResort = widget.resort ?? _store.resorts.values.first;
     _tabController = TabController(length: 2, vsync: this);
-    final currentIncharge = _store.getInchargeForResort(widget.resort.id);
+    final currentIncharge = _store.getInchargeForResort(_activeResort.id);
     _selectedInchargeEmail = currentIncharge?.email;
   }
 
@@ -47,9 +51,9 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
 
   void _handleAssignExisting() {
     if (_selectedInchargeEmail == null) {
-      _store.unassignInchargeFromResort(widget.resort.id);
+      _store.unassignInchargeFromResort(_activeResort.id);
     } else {
-      _store.assignInchargeToResort(_selectedInchargeEmail!, widget.resort.id);
+      _store.assignInchargeToResort(_selectedInchargeEmail!, _activeResort.id);
     }
     Navigator.of(context).pop(true);
   }
@@ -75,11 +79,18 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
     await Future.delayed(const Duration(milliseconds: 400));
 
     _store.addInchargeForResort(
-      resortId: widget.resort.id,
+      resortId: _activeResort.id,
       fullName: name,
       email: email,
       phone: phone,
       password: password,
+    );
+
+    AuthRepository.registerIncharge(
+      fullName: name,
+      email: email,
+      password: password,
+      phone: phone,
     );
 
     if (!mounted) return;
@@ -95,22 +106,26 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
       clipBehavior: Clip.antiAlias,
       child: Container(
         constraints: const BoxConstraints(maxWidth: 540, maxHeight: 660),
-        color: Theme.of(context).cardColor,
+        color: Colors.white,
         child: Column(
           children: [
-            // Dark Header
+            // Clean Header
             Container(
               padding: const EdgeInsets.all(20),
-              color: const Color(0xFF1F2533),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: Color(0xFFE7E5E4))),
+              ),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF003580).withOpacity(0.4),
+                      color: const Color(0xFFFFF7ED),
                       shape: BoxShape.circle,
+                      border: Border.all(color: AppTheme.resortGold.withOpacity(0.3)),
                     ),
-                    child: const Icon(Icons.badge, color: Color(0xFFFEBB02), size: 24),
+                    child: const Icon(Icons.badge, color: AppTheme.resortGold, size: 24),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -118,14 +133,14 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text('Assign / Change Operations Incharge',
-                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white)),
+                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppTheme.resortDarkText)),
                         const SizedBox(height: 2),
-                        Text('Resort: ${widget.resort.name}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                        Text('Resort: ${_activeResort.name}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
                       ],
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
+                    icon: const Icon(Icons.close, color: AppTheme.resortDarkText),
                     onPressed: () => Navigator.of(context).pop(false),
                   ),
                 ],
@@ -134,9 +149,9 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
 
             TabBar(
               controller: _tabController,
-              labelColor: const Color(0xFF003580),
+              labelColor: AppTheme.resortCoral,
               unselectedLabelColor: Colors.grey,
-              indicatorColor: const Color(0xFF003580),
+              indicatorColor: AppTheme.resortCoral,
               indicatorWeight: 3,
               isScrollable: true,
               tabAlignment: TabAlignment.start,
@@ -162,9 +177,9 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
                                   itemCount: allIncharges.length,
                                   itemBuilder: (context, index) {
                                     final incharge = allIncharges[index];
-                                    final isAssignedToOther = incharge.resortId != null && incharge.resortId != widget.resort.id;
+                                    final isAssignedToOther = incharge.resortId != null && incharge.resortId != _activeResort.id;
                                     final otherResortName = isAssignedToOther ? _store.resorts[incharge.resortId]?.name ?? 'Another Resort' : null;
-                                    final isCurrentlyAssigned = incharge.resortId == widget.resort.id;
+                                    final isCurrentlyAssigned = incharge.resortId == _activeResort.id;
                                     final isSelected = _selectedInchargeEmail == incharge.email;
 
                                     return Card(
@@ -172,11 +187,11 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
                                       elevation: isSelected ? 2 : 0,
                                       color: isAssignedToOther
                                           ? Colors.grey.shade100
-                                          : (isSelected ? Colors.blue.shade50 : Colors.white),
+                                          : (isSelected ? const Color(0xFFFFF7ED) : Colors.white),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                         side: BorderSide(
-                                          color: isSelected ? const Color(0xFF003580) : Colors.grey.shade300,
+                                          color: isSelected ? AppTheme.resortCoral : Colors.grey.shade300,
                                           width: isSelected ? 2 : 1,
                                         ),
                                       ),
@@ -200,7 +215,7 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
                                                     isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
                                                     color: isAssignedToOther
                                                         ? Colors.grey.shade400
-                                                        : (isSelected ? const Color(0xFF003580) : Colors.grey),
+                                                        : (isSelected ? AppTheme.resortCoral : Colors.grey),
                                                     size: 20,
                                                   ),
                                                   const SizedBox(width: 10),
@@ -210,7 +225,7 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
                                                       style: TextStyle(
                                                         fontWeight: FontWeight.bold,
                                                         fontSize: 14,
-                                                        color: isAssignedToOther ? Colors.grey : const Color(0xFF1F2533),
+                                                        color: isAssignedToOther ? Colors.grey : AppTheme.resortDarkText,
                                                       ),
                                                     ),
                                                   ),
@@ -315,7 +330,7 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
                         ElevatedButton(
                           onPressed: _handleAssignExisting,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF003580),
+                            backgroundColor: AppTheme.resortCoral,
                             foregroundColor: Colors.white,
                             minimumSize: const Size.fromHeight(48),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -333,7 +348,7 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Text(
-                              'Register a new Operations Incharge profile with Work Mail & Password, then assign them to ${widget.resort.name}.',
+                              'Register a new Operations Incharge profile with Work Mail & Password, then assign them to ${_activeResort.name}.',
                               style: const TextStyle(fontSize: 13, color: Colors.grey),
                             ),
                             const SizedBox(height: 16),
@@ -401,7 +416,7 @@ class _AssignInchargeDialogState extends State<AssignInchargeDialog> with Single
                             ElevatedButton(
                               onPressed: _isLoading ? null : _handleCreateNew,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF003580),
+                                backgroundColor: AppTheme.resortCoral,
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/models/user_profile.dart';
 import '../../core/services/mock_data_store.dart';
+import '../../core/theme/app_theme.dart';
 
 class InchargeLoginPage extends StatefulWidget {
   const InchargeLoginPage({super.key});
@@ -47,8 +48,15 @@ class _InchargeLoginPageState extends State<InchargeLoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final pageBg = AppTheme.pageBg(context);
+    final cardBg = AppTheme.cardBg(context);
+    final border = AppTheme.border(context);
+    final textPrimary = AppTheme.textPrimary(context);
+    final textMuted = AppTheme.textMuted(context);
+
     return Scaffold(
-      backgroundColor: Colors.blueGrey.shade900,
+      backgroundColor: pageBg,
       body: Center(
         child: SingleChildScrollView(
           child: Container(
@@ -56,13 +64,14 @@ class _InchargeLoginPageState extends State<InchargeLoginPage> {
             margin: const EdgeInsets.all(24),
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: cardBg,
               borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: border),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 24,
-                  offset: const Offset(0, 10),
+                  color: isDark ? Colors.black.withValues(alpha: 0.3) : const Color(0xFF1C1917).withValues(alpha: 0.06),
+                  blurRadius: 20,
+                  offset: const Offset(0, 4),
                 )
               ],
             ),
@@ -85,31 +94,31 @@ class _InchargeLoginPageState extends State<InchargeLoginPage> {
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: Colors.blueGrey.shade900,
+                    color: textPrimary,
                   ),
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   'Operational Supervision & Staff Management Portal',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                  style: TextStyle(color: textMuted, fontSize: 13),
                 ),
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.amber.shade50,
+                    color: isDark ? const Color(0xFF262013) : Colors.amber.shade50,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.amber.shade300),
+                    border: Border.all(color: isDark ? const Color(0xFF534321) : Colors.amber.shade300),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline, color: Colors.amber.shade900, size: 18),
+                      Icon(Icons.info_outline, color: isDark ? const Color(0xFFFBBF24) : Colors.amber.shade900, size: 18),
                       const SizedBox(width: 8),
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'Note: Operational staff operate under the Incharge and do not independently authenticate.',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black87),
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? const Color(0xFFFDE68A) : Colors.black87),
                         ),
                       ),
                     ],
@@ -118,20 +127,22 @@ class _InchargeLoginPageState extends State<InchargeLoginPage> {
                 const SizedBox(height: 24),
                 TextField(
                   controller: _emailController,
+                  style: TextStyle(fontSize: 14, color: textPrimary),
                   decoration: InputDecoration(
                     labelText: 'Incharge Work Email / ID',
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    prefixIcon: const Icon(Icons.person),
+                    prefixIcon: Icon(Icons.person, color: textMuted),
                   ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: _passwordController,
                   obscureText: true,
+                  style: TextStyle(fontSize: 14, color: textPrimary),
                   decoration: InputDecoration(
                     labelText: 'Password',
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    prefixIcon: const Icon(Icons.lock),
+                    prefixIcon: Icon(Icons.lock, color: textMuted),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -161,7 +172,7 @@ class _InchargeLoginPageState extends State<InchargeLoginPage> {
                 ElevatedButton(
                   onPressed: _isLoading ? null : _handleLogin,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueGrey.shade900,
+                    backgroundColor: isDark ? AppTheme.resortEmerald : const Color(0xFFFF5A36),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),

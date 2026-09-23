@@ -95,7 +95,7 @@ class _AssignAdminDialogState extends State<AssignAdminDialog> with SingleTicker
       clipBehavior: Clip.antiAlias,
       child: Container(
         constraints: const BoxConstraints(maxWidth: 540, maxHeight: 640),
-        color: Theme.of(context).cardColor,
+        color: Colors.white,
         child: Column(
           children: [
             // BookMyShow Style Header

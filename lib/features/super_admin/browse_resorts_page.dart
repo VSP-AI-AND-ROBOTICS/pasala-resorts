@@ -255,17 +255,30 @@ class _BrowseResortsPageState extends State<BrowseResortsPage> {
     final totalActiveSubs = _store.resortSubscriptions.values.where((s) => s.status.name == 'active').length;
     final totalAdmins = _store.profiles.values.where((p) => p.role == AppRole.admin).length;
 
+    final pageBg = AppTheme.pageBg(context);
+    final cardBg = AppTheme.cardBg(context);
+    final border = AppTheme.border(context);
+    final textPrimary = AppTheme.textPrimary(context);
+
     return Scaffold(
+      backgroundColor: pageBg,
       appBar: AppBar(
+        backgroundColor: cardBg,
+        foregroundColor: textPrimary,
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Divider(height: 1, color: border),
+        ),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: AppTheme.primaryTeal.withValues(alpha: 0.1),
+                color: const Color(0xFFFF5A36).withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.shield, color: AppTheme.primaryTeal, size: 20),
+              child: const Icon(Icons.shield, color: Color(0xFFFF5A36), size: 20),
             ),
             const SizedBox(width: 8),
             const Expanded(

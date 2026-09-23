@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/models/staff.dart';
 import '../../core/models/food.dart';
+import '../../core/models/salary_disbursement.dart';
 import '../../core/services/mock_data_store.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/ai_assistant_dialog.dart';
 
 class InchargeDashboardPage extends StatefulWidget {
@@ -27,7 +29,7 @@ class _InchargeDashboardPageState extends State<InchargeDashboardPage> with Sing
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
   }
 
   @override
@@ -280,30 +282,37 @@ class _InchargeDashboardPageState extends State<InchargeDashboardPage> with Sing
     final resortId = user?.resortId ?? 'resort-grand-palms';
     final resort = _store.resorts[resortId];
 
+    final isDark = AppTheme.isDark(context);
+    final cardBg = AppTheme.cardBg(context);
+    final border = AppTheme.border(context);
+    final textPrimary = AppTheme.textPrimary(context);
+    final textMuted = AppTheme.textMuted(context);
+
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F172A),
-        foregroundColor: Colors.white,
-        elevation: 2,
+        backgroundColor: cardBg,
+        foregroundColor: textPrimary,
+        elevation: 0,
+        shape: Border(bottom: BorderSide(color: border, width: 1)),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
+            Text(
               'Incharge Operations Portal',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textPrimary),
               overflow: TextOverflow.ellipsis,
             ),
             Text(
               'Resort: ${resort?.name ?? "Resort Operations"}',
-              style: const TextStyle(fontSize: 11, color: Color(0xFFFEBB02), fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 11, color: isDark ? AppTheme.resortCoral : const Color(0xFFFF5A36), fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white70),
+            icon: Icon(Icons.logout, color: textMuted),
             tooltip: 'Logout',
             onPressed: () {
               MockDataStore.instance.logout();
@@ -314,14 +323,15 @@ class _InchargeDashboardPageState extends State<InchargeDashboardPage> with Sing
         ],
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: const Color(0xFFFEBB02),
+          indicatorColor: isDark ? AppTheme.resortMintPrimary : const Color(0xFFFF5A36),
           indicatorWeight: 3,
-          labelColor: const Color(0xFFFEBB02),
-          unselectedLabelColor: Colors.white70,
+          labelColor: isDark ? AppTheme.resortMintPrimary : const Color(0xFFFF5A36),
+          unselectedLabelColor: textMuted,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
           tabs: const [
             Tab(icon: Icon(Icons.people_alt_outlined), text: 'Staff Management'),
+            Tab(icon: Icon(Icons.payments_outlined), text: 'Staff Payroll'),
             Tab(icon: Icon(Icons.task_alt_outlined), text: 'Operational Tasks'),
             Tab(icon: Icon(Icons.calendar_month_outlined), text: 'Work Schedules'),
             Tab(icon: Icon(Icons.fastfood_outlined), text: 'Food Fulfillment'),
@@ -333,6 +343,7 @@ class _InchargeDashboardPageState extends State<InchargeDashboardPage> with Sing
         controller: _tabController,
         children: [
           _buildStaffTab(resortId, user?.id ?? 'usr-incharge'),
+          _buildStaffPayrollTab(resortId, user?.id ?? 'usr-incharge'),
           _buildTasksTab(resortId, user?.id ?? 'usr-incharge', resort?.name ?? 'Resort'),
           _buildSchedulesTab(resortId),
           _buildFoodOrdersTab(resortId),
@@ -796,6 +807,655 @@ class _InchargeDashboardPageState extends State<InchargeDashboardPage> with Sing
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStaffPayrollTab(String resortId, String inchargeId) {
+    final staffList = _store.resortStaff[resortId] ?? [];
+    final payments = _store.staffSalaryPayments[resortId] ?? [];
+
+    final totalDisbursed = payments.fold(0.0, (sum, p) => sum + p.amount);
+    final paidCount = staffList.where((s) => payments.any((p) => p.staffId == s.id && p.monthYear == 'September 2026')).length;
+    final pendingCount = staffList.length - paidCount;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Payroll Overview Header
+          Row(
+            children: [
+              Expanded(
+                child: Card(
+                  color: Colors.blue.shade50,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.people, color: Colors.blue.shade800, size: 20),
+                            const SizedBox(width: 8),
+                            Text('Ground Staff', style: TextStyle(fontSize: 12, color: Colors.blue.shade800, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text('${staffList.length} Members', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 2),
+                        Text('$paidCount Paid / $pendingCount Pending', style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade600)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Card(
+                  color: Colors.green.shade50,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.payments, color: Colors.green.shade800, size: 20),
+                            const SizedBox(width: 8),
+                            Text('Wages Disbursed', style: TextStyle(fontSize: 12, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text('₹${totalDisbursed.toStringAsFixed(2)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green)),
+                        const SizedBox(height: 2),
+                        Text('${payments.length} Salary Receipts', style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade600)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Staff Payroll Funding Status & Request from Admin
+          Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.account_balance_wallet, color: AppTheme.resortCoral, size: 22),
+                          SizedBox(width: 8),
+                          Text(
+                            'Staff Payroll Funding (from Admin)',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.resortDarkText),
+                          ),
+                        ],
+                      ),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.request_quote, size: 16),
+                        label: const Text('Request Funds from Admin'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.resortCoral,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        onPressed: () => _openRequestStaffSalaryFundsDialog(resortId, staffList),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+                        child: Text(
+                          'Funds Received: ₹${_store.getTotalFundedStaffPayroll(resortId, 'September 2026').toStringAsFixed(2)}',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade900, fontSize: 13),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _store.getAvailableStaffPayrollFunds(resortId, 'September 2026') >= 0 ? Colors.green.shade50 : Colors.amber.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Available Balance: ₹${_store.getAvailableStaffPayrollFunds(resortId, 'September 2026').toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: _store.getAvailableStaffPayrollFunds(resortId, 'September 2026') >= 0 ? Colors.green.shade900 : Colors.amber.shade900,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  () {
+                    final reqs = _store.getStaffSalaryFundRequests(resortId);
+                    final latest = reqs.where((r) => r.monthYear == 'September 2026').firstOrNull;
+                    if (latest == null) return const SizedBox.shrink();
+
+                    final isPending = latest.status == StaffFundRequestStatus.pending;
+                    return Container(
+                      margin: const EdgeInsets.only(top: 12),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: isPending ? Colors.amber.shade50 : Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isPending ? Colors.amber.shade300 : Colors.green.shade300,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isPending ? Icons.hourglass_top : Icons.verified,
+                            color: isPending ? Colors.orange : Colors.green,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              isPending
+                                  ? 'Request for ₹${latest.requestedAmount.toStringAsFixed(0)} is pending Admin transfer.'
+                                  : 'Admin transferred ₹${(latest.fundedAmount ?? latest.requestedAmount).toStringAsFixed(0)} via ${latest.paymentMode ?? "Bank"} (UTR: ${latest.transactionRef ?? "Completed"}).',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: isPending ? Colors.amber.shade900 : Colors.green.shade900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }(),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Ground Staff Payroll Disbursal (Responsive header with Wrap)
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(
+                'Staff Roster & Wage Disbursal',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(12)),
+                child: const Text('Cycle: September 2026', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          if (staffList.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Center(
+                  child: Text('No operational staff registered yet. Add staff under "Staff Management".',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                ),
+              ),
+            )
+          else
+            ...staffList.map((staff) {
+              final isPaid = payments.any((p) => p.staffId == staff.id && p.monthYear == 'September 2026');
+              final paymentRecord = payments.where((p) => p.staffId == staff.id && p.monthYear == 'September 2026').firstOrNull;
+
+              double defaultWage = 15000.0;
+              if (staff.roleTitle.toLowerCase().contains('chef') || staff.roleTitle.toLowerCase().contains('cook')) {
+                defaultWage = 18000.0;
+              } else if (staff.roleTitle.toLowerCase().contains('housekeep')) {
+                defaultWage = 12000.0;
+              } else if (staff.roleTitle.toLowerCase().contains('security')) {
+                defaultWage = 14000.0;
+              } else if (staff.roleTitle.toLowerCase().contains('maintenance') || staff.roleTitle.toLowerCase().contains('electric')) {
+                defaultWage = 16000.0;
+              }
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 1.5,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            radius: 22,
+                            backgroundColor: isPaid ? Colors.green.shade100 : Colors.blueGrey.shade100,
+                            child: Icon(Icons.person, color: isPaid ? Colors.green.shade900 : Colors.blueGrey.shade800),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 4,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Text(staff.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: isPaid ? Colors.green.shade100 : Colors.amber.shade100,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        isPaid ? 'PAID (SEP)' : 'PENDING',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: isPaid ? Colors.green.shade900 : Colors.amber.shade900,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Role: ${staff.roleTitle} | Phone: ${staff.phone}',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Standard Monthly Wage: ₹${defaultWage.toStringAsFixed(0)}',
+                                  style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade700, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            isPaid ? 'Payment Status: Settled' : 'Cycle Action',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                          ),
+                          if (isPaid && paymentRecord != null)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('₹${paymentRecord.amount.toStringAsFixed(2)}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.green)),
+                                const SizedBox(width: 6),
+                                Text('(${paymentRecord.paymentMode})', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                              ],
+                            )
+                          else
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.payments_outlined, size: 16),
+                              label: const Text('Disburse Salary'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.shade700,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () => _openDisburseStaffSalaryDialog(resortId, staff, defaultWage),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+
+          const SizedBox(height: 24),
+          const Text(
+            'Staff Salary Receipts & Disbursal History',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+          ),
+          const SizedBox(height: 12),
+
+          if (payments.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Center(
+                  child: Text('No staff salary payments disbursed yet.',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                ),
+              ),
+            )
+          else
+            ...payments.map((p) => Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.green.shade50,
+                      child: const Icon(Icons.receipt_long, color: Colors.green),
+                    ),
+                    title: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${p.staffName} (${p.roleTitle})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text('₹${p.amount.toStringAsFixed(2)}',
+                            style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 15)),
+                      ],
+                    ),
+                    subtitle: Text('Cycle: ${p.monthYear} | Mode: ${p.paymentMode} | Ref: ${p.transactionRef}'),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade100,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'PAID & EXPENSED',
+                        style: TextStyle(color: Colors.green.shade900, fontWeight: FontWeight.bold, fontSize: 10),
+                      ),
+                    ),
+                  ),
+                )),
+        ],
+      ),
+    );
+  }
+
+  void _openDisburseStaffSalaryDialog(String resortId, StaffMember staff, double suggestedAmount) {
+    final monthCtrl = TextEditingController(text: 'September 2026');
+    final amountCtrl = TextEditingController(text: suggestedAmount.toStringAsFixed(2));
+    final refCtrl = TextEditingController(text: 'VOUCH-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}');
+    String paymentMode = 'UPI Transfer';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(color: Colors.green.shade50, shape: BoxShape.circle),
+                child: const Icon(Icons.payments, color: Colors.green, size: 22),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text('Disburse Wage: ${staff.name}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: MediaQuery.of(context).size.width > 500 ? 460 : double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F5F4),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFE7E5E4)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.badge, color: AppTheme.resortCharcoal, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text('Role: ${staff.roleTitle} | Phone: ${staff.phone}',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.resortDarkText)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: monthCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Payroll Cycle / Month *',
+                      prefixIcon: Icon(Icons.calendar_month),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: amountCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Wage / Salary Amount (₹) *',
+                      prefixIcon: Icon(Icons.currency_rupee),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: paymentMode,
+                    decoration: const InputDecoration(
+                      labelText: 'Disbursal Mode',
+                      prefixIcon: Icon(Icons.payment),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'UPI Transfer', child: Text('UPI Transfer')),
+                      DropdownMenuItem(value: 'Cash Voucher', child: Text('Cash Voucher')),
+                      DropdownMenuItem(value: 'Direct Bank Transfer', child: Text('Direct Bank Transfer')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setDialogState(() => paymentMode = val);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: refCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Receipt / Voucher Reference *',
+                      prefixIcon: Icon(Icons.tag),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    '⚠️ Disbursing staff wage automatically records an expense under "staff_salary" in the resort financial ledger.',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.check, size: 16),
+              label: const Text('Disburse Wage'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                final amt = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+                final month = monthCtrl.text.trim();
+                final ref = refCtrl.text.trim();
+
+                if (amt <= 0 || month.isEmpty || ref.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please fill all required fields.')),
+                  );
+                  return;
+                }
+
+                _store.disburseStaffSalary(
+                  resortId: resortId,
+                  staffId: staff.id,
+                  staffName: staff.name,
+                  roleTitle: staff.roleTitle,
+                  amount: amt,
+                  monthYear: month,
+                  paymentMode: paymentMode,
+                  transactionRef: ref,
+                );
+
+                Navigator.pop(ctx);
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Salary of ₹${amt.toStringAsFixed(2)} disbursed to ${staff.name} and logged in ledger.'),
+                    backgroundColor: Colors.green.shade800,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openRequestStaffSalaryFundsDialog(String resortId, List<StaffMember> staffList) {
+    // Calculate total standard wages needed
+    double calculatedTotal = 0;
+    for (final staff in staffList) {
+      if (staff.roleTitle.toLowerCase().contains('chef') || staff.roleTitle.toLowerCase().contains('cook')) {
+        calculatedTotal += 18000.0;
+      } else if (staff.roleTitle.toLowerCase().contains('housekeep')) {
+        calculatedTotal += 12000.0;
+      } else if (staff.roleTitle.toLowerCase().contains('security')) {
+        calculatedTotal += 14000.0;
+      } else if (staff.roleTitle.toLowerCase().contains('maintenance') || staff.roleTitle.toLowerCase().contains('electric')) {
+        calculatedTotal += 16000.0;
+      } else {
+        calculatedTotal += 15000.0;
+      }
+    }
+    if (calculatedTotal == 0) calculatedTotal = 60000.0;
+
+    final monthCtrl = TextEditingController(text: 'September 2026');
+    final amountCtrl = TextEditingController(text: calculatedTotal.toStringAsFixed(2));
+    final notesCtrl = TextEditingController(text: 'Monthly payroll for ${staffList.length} operational ground staff members.');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.request_quote, color: AppTheme.resortCoral),
+            SizedBox(width: 10),
+            Text('Request Staff Funds from Admin'),
+          ],
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width > 500 ? 460 : double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Submit your monthly ground staff wage bill to the Resort Admin. Once Admin reviews and transfers the amount, funds will be credited to your payroll pool.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: monthCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Salary Cycle Month & Year *',
+                    hintText: 'e.g. September 2026',
+                    prefixIcon: Icon(Icons.calendar_month, size: 20),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amountCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Total Salary Amount Required (₹) *',
+                    prefixIcon: Icon(Icons.currency_rupee, size: 20),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: notesCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes / Justification to Admin *',
+                    hintText: 'e.g. Wages for Chef, Housekeeping, Security',
+                    prefixIcon: Icon(Icons.note_alt_outlined, size: 20),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.resortCoral,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              final amt = double.tryParse(amountCtrl.text.trim()) ?? 0;
+              final month = monthCtrl.text.trim();
+              if (amt <= 0 || month.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter valid month and amount.')),
+                );
+                return;
+              }
+              final user = _store.currentUser;
+              _store.requestStaffSalaryFunds(
+                resortId: resortId,
+                inchargeEmail: user?.email ?? 'incharge@resorthub.com',
+                inchargeName: user?.fullName ?? 'Operations Incharge',
+                monthYear: month,
+                requestedAmount: amt,
+                staffCount: staffList.length,
+                notes: notesCtrl.text.trim(),
+              );
+              Navigator.pop(ctx);
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Staff salary fund request of ₹${amt.toStringAsFixed(2)} submitted to Admin!'),
+                  backgroundColor: Colors.blue.shade800,
+                ),
+              );
+            },
+            child: const Text('Submit Request to Admin'),
+          ),
+        ],
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
@@ -10,43 +11,63 @@ import '../../data/models/admin_profile.dart';
 import '../../data/models/app_user.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/user_admin_repository.dart';
+import 'assign_incharge_dialog.dart';
 
 String _roleLabel(UserRole role) => switch (role) {
       UserRole.customer => 'Customer',
-      UserRole.staff => 'Staff',
+      UserRole.staff => 'Staff / Incharge',
       UserRole.admin => 'Admin',
       UserRole.accountant => 'Accountant',
       UserRole.superAdmin => 'Super admin',
     };
 
-/// `/admin/users` -- the roster from `public.list_profiles()`, with a role
-/// control for a super admin and read-only role text for everyone else who
-/// can reach this screen (a plain admin).
-///
-/// There is no "Add user" button anywhere on this screen, deliberately: an
-/// `auth.users` row can only be created with the service-role key, which
-/// must never ship inside this client -- see the migration header on
-/// 0019_user_admin.sql. The only path to a new account is `/signup`,
-/// followed by a super admin promoting the resulting (always `customer`)
-/// profile from here -- [_ExplainerBanner] says so up front, so an admin
-/// who came looking for that button reads why it doesn't exist instead of
-/// guessing.
+/// `/admin/users` -- the roster from `public.list_profiles()`, with direct
+/// incharge assignment controls allowing admins to assign/change operations incharges.
 class UsersScreen extends ConsumerWidget {
   const UsersScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profilesAsync = ref.watch(adminProfilesProvider);
-    // A plain admin can reach this screen (RLS/list_profiles allow
-    // admin-or-above) but `set_user_role` is super_admin-only server-side
-    // (0019_user_admin.sql) -- a dropdown that always fails for them would
-    // be worse than no control at all, so [_ProfileTile] renders read-only
-    // text instead whenever the signed-in user isn't a super admin.
-    final canEditRoles =
-        ref.watch(currentUserProvider).value?.role == UserRole.superAdmin;
+    final currentUser = ref.watch(currentUserProvider).value;
+    final canEditRoles = currentUser?.role == UserRole.superAdmin;
+    final isAdminOrAbove = currentUser?.isAdmin ?? true;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Users')),
+      appBar: AppBar(
+        title: const Text('Users & Incharges'),
+        actions: [
+          if (isAdminOrAbove)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              child: FilledButton.icon(
+                key: const Key('assign-incharge-action-btn'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.resortCoral,
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.badge, size: 18),
+                label: const Text('Assign / Change Incharge'),
+                onPressed: () {
+                  showDialog<bool>(
+                    context: context,
+                    builder: (context) => const AssignInchargeDialog(),
+                  ).then((value) {
+                    if (value == true && context.mounted) {
+                      ref.invalidate(adminProfilesProvider);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Operations Incharge assigned successfully!'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  });
+                },
+              ),
+            ),
+        ],
+      ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -112,9 +133,7 @@ class _ExplainerBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'There is no "Add user" button here. New staff create '
-                  'their own account at Sign up, then a super admin '
-                  'promotes them to the right role below.',
+                  'Operations Incharges can be directly assigned or updated above with their dedicated work email and password provided by the Admin. Other roles are managed via profile promotion.',
                   style: Theme.of(context)
                       .textTheme
                       .bodyMedium
@@ -124,8 +143,7 @@ class _ExplainerBanner extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(top: Spacing.xs),
                     child: Text(
-                      'Only a super admin can change roles, so yours are '
-                      'shown here as read-only text.',
+                      'Super admin permissions apply to global roles; resort-level incharge credentials can be managed anytime by resort administrators.',
                       key: const Key('read-only-role-explainer'),
                       style: Theme.of(context)
                           .textTheme

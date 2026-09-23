@@ -6,6 +6,7 @@ import '../../core/models/unit.dart';
 import '../../core/models/reservation.dart';
 import '../../core/models/payment.dart';
 import '../../core/services/mock_data_store.dart';
+import '../../core/theme/app_theme.dart';
 import '../payments/payment_service.dart';
 
 class BookingFlowDialog extends StatefulWidget {
@@ -56,6 +57,7 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
   }
 
   Future<void> _selectBookingDates() async {
+    final isDark = AppTheme.isDark(context);
     final picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime.now(),
@@ -63,12 +65,13 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
       initialDateRange: DateTimeRange(start: _checkInDate, end: _checkOutDate),
       builder: (context, child) {
         return Theme(
-          data: ThemeData.light().copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF003580),
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Color(0xFF1A1A1A),
+          data: (isDark ? ThemeData.dark() : ThemeData.light()).copyWith(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: AppTheme.resortEmerald,
+              brightness: isDark ? Brightness.dark : Brightness.light,
+              primary: AppTheme.resortEmerald,
+              surface: isDark ? const Color(0xFF16221D) : Colors.white,
+              onSurface: isDark ? Colors.white : const Color(0xFF1C1917),
             ),
           ),
           child: child!,
@@ -169,20 +172,31 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
       context: context,
       barrierDismissible: false,
       builder: (dialogCtx) {
+        final isDark = AppTheme.isDark(dialogCtx);
+        final cardBg = AppTheme.cardBg(dialogCtx);
+        final border = AppTheme.border(dialogCtx);
+        final textPrimary = AppTheme.textPrimary(dialogCtx);
+        final textMuted = AppTheme.textMuted(dialogCtx);
+
         return DefaultTabController(
           length: 2,
           child: Dialog(
+            backgroundColor: cardBg,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             child: Container(
               constraints: const BoxConstraints(maxWidth: 480, maxHeight: 620),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(20),
+              ),
               child: Column(
                 children: [
                   // Top Banner Header
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF0F172A),
-                      borderRadius: BorderRadius.only(
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF14241E) : AppTheme.resortCharcoal,
+                      borderRadius: const BorderRadius.only(
                         topLeft: Radius.circular(20),
                         topRight: Radius.circular(20),
                       ),
@@ -210,13 +224,13 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
 
                   // Tab Selection Bar
                   Container(
-                    color: Colors.grey.shade100,
-                    child: const TabBar(
-                      labelColor: Color(0xFF075E54),
-                      unselectedLabelColor: Colors.grey,
-                      indicatorColor: Color(0xFF075E54),
+                    color: isDark ? const Color(0xFF192822) : Colors.grey.shade100,
+                    child: TabBar(
+                      labelColor: isDark ? AppTheme.resortMintPrimary : const Color(0xFF075E54),
+                      unselectedLabelColor: isDark ? textMuted : Colors.grey,
+                      indicatorColor: isDark ? AppTheme.resortMintPrimary : const Color(0xFF075E54),
                       indicatorWeight: 3,
-                      tabs: [
+                      tabs: const [
                         Tab(icon: Icon(Icons.chat), text: 'WhatsApp Message'),
                         Tab(icon: Icon(Icons.email), text: 'Gmail Confirmation'),
                       ],
@@ -259,8 +273,8 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                               Container(
                                 padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFE7F7E8),
-                                  border: Border.all(color: Colors.green.shade300),
+                                  color: isDark ? const Color(0xFF132820) : const Color(0xFFE7F7E8),
+                                  border: Border.all(color: isDark ? const Color(0xFF224838) : Colors.green.shade300),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Column(
@@ -268,24 +282,24 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                                   children: [
                                     Text(
                                       '🙏 Thank You Message:',
-                                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade900, fontSize: 13),
+                                      style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? const Color(0xFF6EE7B7) : Colors.green.shade900, fontSize: 13),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
                                       'Dear ${reservation.guestName}, thank you for choosing ${widget.resort.name}! We look forward to providing you with a memorable luxury stay experience.',
-                                      style: const TextStyle(fontSize: 12, height: 1.4),
+                                      style: TextStyle(fontSize: 12, height: 1.4, color: textPrimary),
                                     ),
-                                    const Divider(height: 18),
-                                    const Text('📋 Booking Summary:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                    Divider(height: 18, color: border),
+                                    Text('📋 Booking Summary:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: textPrimary)),
                                     const SizedBox(height: 6),
-                                    Text('• Reservation ID: ${reservation.id}', style: const TextStyle(fontSize: 12)),
-                                    Text('• Unit Booked: ${reservation.unitName}', style: const TextStyle(fontSize: 12)),
-                                    Text('• Check-in: ${reservation.checkIn.toString().split(' ')[0]}', style: const TextStyle(fontSize: 12)),
-                                    Text('• Check-out: ${reservation.checkOut.toString().split(' ')[0]}', style: const TextStyle(fontSize: 12)),
-                                    Text('• Paid Amount: ₹${payAmount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.teal)),
-                                    const Divider(height: 18),
-                                    const Center(
-                                      child: Text('📲 Express Check-in QR Code:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                    Text('• Reservation ID: ${reservation.id}', style: TextStyle(fontSize: 12, color: textPrimary)),
+                                    Text('• Unit Booked: ${reservation.unitName}', style: TextStyle(fontSize: 12, color: textPrimary)),
+                                    Text('• Check-in: ${reservation.checkIn.toString().split(' ')[0]}', style: TextStyle(fontSize: 12, color: textPrimary)),
+                                    Text('• Check-out: ${reservation.checkOut.toString().split(' ')[0]}', style: TextStyle(fontSize: 12, color: textPrimary)),
+                                    Text('• Paid Amount: ₹${payAmount.toStringAsFixed(2)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? const Color(0xFF34D399) : Colors.teal)),
+                                    Divider(height: 18, color: border),
+                                    Center(
+                                      child: Text('📲 Express Check-in QR Code:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: textPrimary)),
                                     ),
                                     const SizedBox(height: 8),
                                     Center(
@@ -299,15 +313,15 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                                           errorBuilder: (ctx, err, stack) => Container(
                                             width: 140,
                                             height: 140,
-                                            color: Colors.grey.shade300,
+                                            color: isDark ? const Color(0xFF263A32) : Colors.grey.shade300,
                                             child: const Icon(Icons.qr_code, size: 60),
                                           ),
                                         ),
                                       ),
                                     ),
                                     const SizedBox(height: 4),
-                                    const Center(
-                                      child: Text('Present this QR code at front desk upon arrival.', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                    Center(
+                                      child: Text('Present this QR code at front desk upon arrival.', style: TextStyle(fontSize: 10, color: textMuted)),
                                     ),
                                   ],
                                 ),
@@ -348,8 +362,8 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                               Container(
                                 padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.shade50,
-                                  border: Border.all(color: Colors.grey.shade300),
+                                  color: isDark ? const Color(0xFF1B2722) : Colors.grey.shade50,
+                                  border: Border.all(color: border),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Column(
@@ -357,26 +371,29 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                                   children: [
                                     Text(
                                       'Subject: Booking Confirmation - ${widget.resort.name} [Ref: ${reservation.id}]',
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF1E293B)),
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: textPrimary),
                                     ),
-                                    const Divider(height: 16),
-                                    Text('Dear ${reservation.guestName},', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    Divider(height: 16, color: border),
+                                    Text('Dear ${reservation.guestName},', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textPrimary)),
                                     const SizedBox(height: 6),
                                     Text(
                                       'Thank you for booking with ${widget.resort.name}! Your reservation has been successfully confirmed. Below are your official stay details and entry pass QR code.',
-                                      style: const TextStyle(fontSize: 12, height: 1.4),
+                                      style: TextStyle(fontSize: 12, height: 1.4, color: textPrimary),
                                     ),
                                     const SizedBox(height: 12),
                                     Container(
                                       padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+                                      decoration: BoxDecoration(
+                                        color: isDark ? const Color(0xFF1E2E3E) : Colors.blue.shade50,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text('• Resort: ${widget.resort.name} (${widget.resort.city})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                                          Text('• Room: ${reservation.unitName}', style: const TextStyle(fontSize: 12)),
-                                          Text('• Total Stay Amount: ₹${reservation.totalAmount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
-                                          Text('• Paid Advance: ₹${payAmount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.teal)),
+                                          Text('• Resort: ${widget.resort.name} (${widget.resort.city})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
+                                          Text('• Room: ${reservation.unitName}', style: const TextStyle(fontSize: 12, color: Colors.white)),
+                                          Text('• Total Stay Amount: ₹${reservation.totalAmount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, color: Colors.white)),
+                                          Text('• Paid Advance: ₹${payAmount.toStringAsFixed(2)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? const Color(0xFF34D399) : Colors.teal)),
                                         ],
                                       ),
                                     ),
@@ -392,15 +409,15 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                                           errorBuilder: (ctx, err, stack) => Container(
                                             width: 130,
                                             height: 130,
-                                            color: Colors.grey.shade300,
+                                            color: isDark ? const Color(0xFF263A32) : Colors.grey.shade300,
                                             child: const Icon(Icons.qr_code, size: 50),
                                           ),
                                         ),
                                       ),
                                     ),
                                     const SizedBox(height: 4),
-                                    const Center(
-                                      child: Text('Official Reservation Pass QR Code', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                    Center(
+                                      child: Text('Official Reservation Pass QR Code', style: TextStyle(fontSize: 10, color: textMuted)),
                                     ),
                                   ],
                                 ),
@@ -415,13 +432,19 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                   // Bottom Action Button
                   Container(
                     padding: const EdgeInsets.all(14),
-                    color: Colors.white,
+                    decoration: BoxDecoration(
+                      color: cardBg,
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(20),
+                        bottomRight: Radius.circular(20),
+                      ),
+                    ),
                     child: SizedBox(
                       width: double.infinity,
                       height: 46,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0F172A),
+                          backgroundColor: AppTheme.resortCoral,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
@@ -445,11 +468,22 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final cardBg = AppTheme.cardBg(context);
+    final border = AppTheme.border(context);
+    final textPrimary = AppTheme.textPrimary(context);
+    final textMuted = AppTheme.textMuted(context);
+
     return Dialog(
+      backgroundColor: cardBg,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
         constraints: const BoxConstraints(maxWidth: 480),
         padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
+        ),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -457,24 +491,25 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.beach_access, color: Colors.teal),
+                  Icon(Icons.beach_access, color: isDark ? AppTheme.resortMintPrimary : Colors.teal),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Book ${widget.unit.name}',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textPrimary),
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: Icon(Icons.close, color: textMuted),
                     onPressed: () => Navigator.pop(context),
                   )
                 ],
               ),
-              const Divider(),
+              Divider(color: border),
               const SizedBox(height: 12),
               TextField(
                 controller: _guestNameController,
+                style: TextStyle(fontSize: 14, color: textPrimary),
                 decoration: const InputDecoration(labelText: 'Guest Full Name', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 12),
@@ -483,6 +518,7 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                   Expanded(
                     child: TextField(
                       controller: _guestEmailController,
+                      style: TextStyle(fontSize: 14, color: textPrimary),
                       decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
                     ),
                   ),
@@ -490,6 +526,7 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                   Expanded(
                     child: TextField(
                       controller: _guestPhoneController,
+                      style: TextStyle(fontSize: 14, color: textPrimary),
                       decoration: const InputDecoration(labelText: 'Phone', border: OutlineInputBorder()),
                     ),
                   ),
@@ -502,28 +539,28 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
+                    color: isDark ? const Color(0xFF261D19) : const Color(0xFFFFF1EE),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF006CE4)),
+                    border: Border.all(color: isDark ? const Color(0xFF4A3026) : const Color(0xFFFFCCBF)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.date_range, color: Color(0xFF003580), size: 20),
+                      const Icon(Icons.date_range, color: Color(0xFFFF5A36), size: 20),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Dates of Stay (Tap to Change)', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold)),
+                            Text('Dates of Stay (Tap to Change)', style: TextStyle(fontSize: 11, color: textMuted, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 2),
                             Text(
                               '${_checkInDate.toString().split(' ')[0]}  ➔  ${_checkOutDate.toString().split(' ')[0]} (${_totalNights.toInt()} nights)',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF003580)),
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textPrimary),
                             ),
                           ],
                         ),
                       ),
-                      const Icon(Icons.edit_calendar, color: Color(0xFF006CE4), size: 20),
+                      const Icon(Icons.edit_calendar, color: Color(0xFFFF5A36), size: 20),
                     ],
                   ),
                 ),
@@ -571,17 +608,17 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Number of Guests:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text('Number of Guests:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textPrimary)),
                   Row(
                     children: [
                       IconButton(
                         onPressed: _guestCount > 1 ? () => setState(() => _guestCount--) : null,
-                        icon: const Icon(Icons.remove_circle_outline, color: Color(0xFF006CE4)),
+                        icon: const Icon(Icons.remove_circle_outline, color: Color(0xFFFF5A36)),
                       ),
-                      Text('$_guestCount', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      Text('$_guestCount', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: textPrimary)),
                       IconButton(
                         onPressed: _guestCount < 10 ? () => setState(() => _guestCount++) : null,
-                        icon: const Icon(Icons.add_circle_outline, color: Color(0xFF006CE4)),
+                        icon: const Icon(Icons.add_circle_outline, color: Color(0xFFFF5A36)),
                       ),
                     ],
                   ),
@@ -589,7 +626,12 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
               ),
               const SizedBox(height: 16),
               Card(
-                color: Colors.teal.shade50,
+                color: isDark ? const Color(0xFF162E25) : const Color(0xFFE6F4F1),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: isDark ? const Color(0xFF234C3E) : const Color(0xFFB2DFDB)),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Column(
@@ -597,22 +639,22 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Expanded(
-                            child: Text('Total Stay Amount:', style: TextStyle(fontSize: 13, color: Color(0xFF1E293B))),
+                          Expanded(
+                            child: Text('Total Stay Amount:', style: TextStyle(fontSize: 13, color: textPrimary)),
                           ),
                           Text('₹${_totalAmount.toStringAsFixed(2)}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: textPrimary)),
                         ],
                       ),
                       const SizedBox(height: 6),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Expanded(
-                            child: Text('Advance Required (35%):', style: TextStyle(fontSize: 13, color: Color(0xFF1E293B))),
+                          Expanded(
+                            child: Text('Advance Required (35%):', style: TextStyle(fontSize: 13, color: textPrimary)),
                           ),
                           Text('₹${_advanceAmount.toStringAsFixed(2)}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal, fontSize: 15)),
+                              style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? const Color(0xFF34D399) : const Color(0xFF0F4A40), fontSize: 15)),
                         ],
                       ),
                     ],
@@ -620,14 +662,16 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text('Payment Kind Option:', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('Payment Kind Option:', style: TextStyle(fontWeight: FontWeight.bold, color: textPrimary)),
               RadioListTile<PaymentKind>(
+                activeColor: const Color(0xFFFF5A36),
                 title: Text('Pay Advance Only (₹${_advanceAmount.toStringAsFixed(2)})'),
                 value: PaymentKind.advance,
                 groupValue: _selectedPaymentKind,
                 onChanged: (val) => setState(() => _selectedPaymentKind = val!),
               ),
               RadioListTile<PaymentKind>(
+                activeColor: const Color(0xFFFF5A36),
                 title: Text('Pay Full Amount (₹${_totalAmount.toStringAsFixed(2)})'),
                 value: PaymentKind.full,
                 groupValue: _selectedPaymentKind,
@@ -635,7 +679,7 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
               ),
               if (_statusMessage != null) ...[
                 const SizedBox(height: 8),
-                Text(_statusMessage!, style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.w600)),
+                Text(_statusMessage!, style: const TextStyle(color: Color(0xFF0F4A40), fontWeight: FontWeight.w600)),
               ],
               const SizedBox(height: 16),
               Builder(
@@ -650,9 +694,11 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                   return ElevatedButton(
                     onPressed: (_isProcessing || !isAvailable) ? null : _processBookingAndPayment,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isAvailable ? Colors.teal.shade700 : Colors.grey,
+                      backgroundColor: isAvailable ? const Color(0xFFFF5A36) : Colors.grey,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      elevation: isAvailable ? 2 : 0,
                     ),
                     child: _isProcessing
                         ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
@@ -660,7 +706,7 @@ class _BookingFlowDialogState extends State<BookingFlowDialog> {
                             isAvailable
                                 ? 'Confirm & Pay ₹${(_selectedPaymentKind == PaymentKind.advance ? _advanceAmount : _totalAmount).toStringAsFixed(2)}'
                                 : 'Selected Dates Blocked / Unavailable',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                           ),
                   );
                 },

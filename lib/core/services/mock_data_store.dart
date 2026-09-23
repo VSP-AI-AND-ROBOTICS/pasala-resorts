@@ -11,6 +11,7 @@ import '../models/staff.dart';
 import '../models/food.dart';
 import '../models/expense.dart';
 import '../models/report.dart';
+import '../models/salary_disbursement.dart';
 
 class MockDataStore {
   static final MockDataStore instance = MockDataStore._internal();
@@ -57,6 +58,16 @@ class MockDataStore {
   // Accounting & Expenses
   final Map<String, List<ResortExpense>> resortExpenses = {};
   final Map<String, List<LedgerSettlement>> resortLedgerSettlements = {};
+
+  // Salary Disbursements
+  final Map<String, List<InchargeSalaryPayment>> inchargeSalaryPayments = {};
+  final Map<String, List<StaffSalaryPayment>> staffSalaryPayments = {};
+
+  // Tier Change Requests (Admin <-> Super Admin)
+  final List<TierChangeRequest> tierChangeRequests = [];
+
+  // Staff Salary Funding Requests (Incharge -> Admin)
+  final List<StaffSalaryFundRequest> staffSalaryFundRequests = [];
 
   // Currently logged in user profile (for stateful demo mode)
   UserProfile? currentUser;
@@ -117,7 +128,7 @@ class MockDataStore {
         'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800',
         'https://images.unsplash.com/photo-1582719508461-905c673771fd?w=800',
       ],
-      amenities: const ['Private Beach', 'Infinity Pool', 'Luxury Spa', 'Gourmet Restaurant', 'Free High-Speed Wi-Fi', 'Airport Shuttle'],
+      amenities: const ['Private Beach', 'Swimming Pool', 'Luxury Spa', 'Gourmet Restaurant', 'Free Wi-Fi', 'Airport Shuttle', 'Free Parking', 'Air Conditioning'],
       rating: 4.9,
     );
 
@@ -139,7 +150,7 @@ class MockDataStore {
       imageUrls: const [
         'https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800',
       ],
-      amenities: const ['Mountain View', 'Tea Garden Walks', 'Fireplace Lounge', 'Restaurant', 'Wi-Fi'],
+      amenities: const ['Mountain View', 'Swimming Pool', 'Tea Garden Walks', 'Fireplace Lounge', 'Restaurant', 'Free Wi-Fi', 'Free Parking'],
       rating: 4.7,
     );
 
@@ -161,7 +172,7 @@ class MockDataStore {
       imageUrls: const [
         'https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=800',
       ],
-      amenities: const ['Lake View', 'Kayaking', 'Organic Dining', 'Garden'],
+      amenities: const ['Lake View', 'Swimming Pool', 'Kayaking', 'Organic Dining', 'Garden', 'Free Wi-Fi', 'Free Parking'],
       rating: 4.3,
     );
 
@@ -183,7 +194,7 @@ class MockDataStore {
       imageUrls: const [
         'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=800',
       ],
-      amenities: const ['Forest View', 'Hot Water', 'Parking', 'Bonfire'],
+      amenities: const ['Forest View', 'Hot Water', 'Free Parking', 'Bonfire', 'Free Wi-Fi', 'Restaurant'],
       rating: 4.0,
     );
 
@@ -554,7 +565,15 @@ class MockDataStore {
         subscriptionTier: item['tier'] as SubscriptionTier,
         status: 'active',
         imageUrls: [item['img'] as String],
-        amenities: const ['Wi-Fi', 'Restaurant', 'Room Service', 'Scenic View'],
+        amenities: (item['amenities'] as List<String>?) ??
+            const [
+              'Free Wi-Fi',
+              'Swimming Pool',
+              'Luxury Spa',
+              'Restaurant',
+              'Free Parking',
+              'Air Conditioning',
+            ],
         rating: item['rating'] as double,
       );
       resorts[rId] = resortObj;
@@ -699,6 +718,65 @@ class MockDataStore {
     profiles[userIncharge.email] = userIncharge;
     profiles[userAccountant.email] = userAccountant;
     profiles[userCustomer.email] = userCustomer;
+    currentUser = userCustomer;
+
+    // Dedicated Accountants for each resort
+    final accPineValley = UserProfile(
+      id: 'usr-acc-pinevalley',
+      email: 'accountant@pinevalley.com',
+      fullName: 'Anand Joshi (Pine Valley Accountant)',
+      role: AppRole.accountant,
+      resortId: pineValley.id,
+      phone: '+91 98765 44411',
+      createdAt: DateTime.now().subtract(const Duration(days: 80)),
+    );
+    final accHighlandMist = UserProfile(
+      id: 'usr-acc-highlandmist',
+      email: 'accountant@highlandmist.com',
+      fullName: 'Meera Iyer (Highland Mist Accountant)',
+      role: AppRole.accountant,
+      resortId: highlandMist.id,
+      phone: '+91 98765 44422',
+      createdAt: DateTime.now().subtract(const Duration(days: 75)),
+    );
+    final accLakesideEco = UserProfile(
+      id: 'usr-acc-lakesideeco',
+      email: 'accountant@lakesideeco.com',
+      fullName: 'Sanjay Rao (Lakeside Eco Accountant)',
+      role: AppRole.accountant,
+      resortId: lakesideEco.id,
+      phone: '+91 98765 44433',
+      createdAt: DateTime.now().subtract(const Duration(days: 70)),
+    );
+    profiles[accPineValley.email] = accPineValley;
+    profiles[accHighlandMist.email] = accHighlandMist;
+    profiles[accLakesideEco.email] = accLakesideEco;
+
+    // Separate Master Platform Accountant for ResortHub (views all subscribed resorts in the app)
+    final platformAccountant = UserProfile(
+      id: 'usr-accountant-resorthub',
+      email: 'accountant@resorthub.com',
+      fullName: 'Vikram Mehta (Platform Chief Accountant)',
+      role: AppRole.accountant,
+      resortId: null, // Full platform-wide visibility across all subscribed resorts
+      phone: '+91 98765 99000',
+      createdAt: DateTime.now().subtract(const Duration(days: 100)),
+    );
+    profiles[platformAccountant.email] = platformAccountant;
+
+    // Seed an initial staff salary funding request from incharge to admin for Grand Palms
+    staffSalaryFundRequests.add(StaffSalaryFundRequest(
+      id: 'req-fund-initial-gp',
+      resortId: grandPalms.id,
+      inchargeEmail: userIncharge.email,
+      inchargeName: userIncharge.fullName,
+      monthYear: 'September 2026',
+      requestedAmount: 60000.0,
+      staffCount: 4,
+      notes: 'Monthly ground staff wages for 4 operational team members: Chef, Housekeeper, Security, Maintenance.',
+      status: StaffFundRequestStatus.pending,
+      createdAt: DateTime.now().subtract(const Duration(hours: 8)),
+    ));
 
     // 5 Additional Pre-configured Customer Accounts
     final customer1 = UserProfile(
@@ -1141,6 +1219,66 @@ class MockDataStore {
         createdAt: DateTime.now().subtract(const Duration(days: 1)),
       ),
     ];
+
+    // 12. Incharge & Staff Salary Disbursements
+    inchargeSalaryPayments[grandPalms.id] = [
+      InchargeSalaryPayment(
+        id: 'sal-inc-gp-aug',
+        resortId: grandPalms.id,
+        inchargeEmail: userIncharge.email,
+        inchargeName: userIncharge.fullName,
+        amount: 45000.00,
+        monthYear: 'August 2026',
+        paymentMode: 'Bank Transfer (NEFT/RTGS)',
+        transactionRef: 'NEFT-8839201948',
+        notes: 'Monthly Operations Incharge salary & performance bonus',
+        disbursedAt: DateTime.now().subtract(const Duration(days: 22)),
+      ),
+    ];
+
+    staffSalaryPayments[grandPalms.id] = [
+      StaffSalaryPayment(
+        id: 'sal-stf-gp-1',
+        resortId: grandPalms.id,
+        staffId: 'staff-gp-1',
+        staffName: 'Sunita Patel',
+        roleTitle: 'Housekeeping Lead',
+        amount: 22000.00,
+        monthYear: 'August 2026',
+        paymentMode: 'UPI',
+        status: 'paid',
+        transactionRef: 'UPI-77182903',
+        paidAt: DateTime.now().subtract(const Duration(days: 20)),
+      ),
+      StaffSalaryPayment(
+        id: 'sal-stf-gp-2',
+        resortId: grandPalms.id,
+        staffId: 'staff-gp-2',
+        staffName: 'Devendra Joshi',
+        roleTitle: 'Maintenance Tech',
+        amount: 24000.00,
+        monthYear: 'August 2026',
+        paymentMode: 'Bank Transfer',
+        status: 'paid',
+        transactionRef: 'NEFT-99182301',
+        paidAt: DateTime.now().subtract(const Duration(days: 20)),
+      ),
+    ];
+
+    // 13. Sample Tier Change Requests
+    tierChangeRequests.add(
+      TierChangeRequest(
+        id: 'req-tier-1',
+        resortId: highlandMist.id,
+        resortName: highlandMist.name,
+        currentTier: SubscriptionTier.superTier,
+        requestedTier: SubscriptionTier.premium,
+        status: TierRequestStatus.awaitingAdminPayment,
+        amountDue: 299.00,
+        paymentInstructions: 'Transfer ₹299 to UPI ID: billing@resorthub.com or HDFC A/C: 50200012345678 (IFSC: HDFC0001234). Attach UTR.',
+        createdAt: DateTime.now().subtract(const Duration(days: 2)),
+      ),
+    );
   }
 
   // --- Helper Methods ---
@@ -1158,6 +1296,9 @@ class MockDataStore {
     currentUser = profiles[cleanEmail];
     return currentUser;
   }
+
+  /// Alias for authenticate.
+  UserProfile? login(String email, String password) => authenticate(email, password);
 
   /// Clears the current session.
   void logout() {
@@ -1703,5 +1844,326 @@ class MockDataStore {
       foodSalesRevenue: totalFoodRev,
       activitySalesRevenue: 0.0,
     );
+  }
+
+  // --- Salary Disbursement Methods ---
+
+  /// Disburses monthly salary to the resort's Operations Incharge by the Admin.
+  InchargeSalaryPayment disburseInchargeSalary({
+    required String resortId,
+    required String inchargeEmail,
+    required String inchargeName,
+    required double amount,
+    required String monthYear,
+    required String paymentMode,
+    required String transactionRef,
+    String? notes,
+  }) {
+    final payment = InchargeSalaryPayment(
+      id: 'sal-inc-${DateTime.now().millisecondsSinceEpoch}',
+      resortId: resortId,
+      inchargeEmail: inchargeEmail,
+      inchargeName: inchargeName,
+      amount: amount,
+      monthYear: monthYear,
+      paymentMode: paymentMode,
+      transactionRef: transactionRef,
+      notes: notes,
+      disbursedAt: DateTime.now(),
+    );
+
+    inchargeSalaryPayments.putIfAbsent(resortId, () => []).insert(0, payment);
+
+    // Auto-record in Resort Expenses under 'staff_salary'
+    final exp = ResortExpense(
+      id: 'exp-sal-${DateTime.now().millisecondsSinceEpoch}',
+      resortId: resortId,
+      category: 'staff_salary',
+      amount: amount,
+      description: 'Incharge Salary ($monthYear) paid to $inchargeName via $paymentMode (Ref: $transactionRef)',
+      expenseDate: DateTime.now(),
+      createdAt: DateTime.now(),
+    );
+    resortExpenses.putIfAbsent(resortId, () => []).insert(0, exp);
+
+    return payment;
+  }
+
+  /// Disburses wage/salary to an individual ground staff member by the Incharge.
+  StaffSalaryPayment disburseStaffSalary({
+    required String resortId,
+    required String staffId,
+    required String staffName,
+    required String roleTitle,
+    required double amount,
+    required String monthYear,
+    required String paymentMode,
+    required String transactionRef,
+  }) {
+    final payment = StaffSalaryPayment(
+      id: 'sal-stf-${DateTime.now().millisecondsSinceEpoch}',
+      resortId: resortId,
+      staffId: staffId,
+      staffName: staffName,
+      roleTitle: roleTitle,
+      amount: amount,
+      monthYear: monthYear,
+      paymentMode: paymentMode,
+      status: 'paid',
+      transactionRef: transactionRef,
+      paidAt: DateTime.now(),
+    );
+
+    staffSalaryPayments.putIfAbsent(resortId, () => []).insert(0, payment);
+
+    // Auto-record in Resort Expenses under 'staff_salary'
+    final exp = ResortExpense(
+      id: 'exp-stf-${DateTime.now().millisecondsSinceEpoch}',
+      resortId: resortId,
+      category: 'staff_salary',
+      amount: amount,
+      description: 'Staff Salary ($monthYear) paid to $staffName ($roleTitle) via $paymentMode (Ref: $transactionRef)',
+      expenseDate: DateTime.now(),
+      createdAt: DateTime.now(),
+    );
+    resortExpenses.putIfAbsent(resortId, () => []).insert(0, exp);
+
+    return payment;
+  }
+
+  // --- Tier Change Workflow Methods (Admin <-> Super Admin) ---
+
+  /// Admin submits request to change or upgrade their resort subscription tier.
+  TierChangeRequest requestTierChange({
+    required String resortId,
+    required SubscriptionTier requestedTier,
+  }) {
+    final resort = resorts[resortId];
+    final resortName = resort?.name ?? 'Resort';
+    final currentTier = resort?.subscriptionTier ?? SubscriptionTier.basic;
+
+    double price = 0.0;
+    final plan = subscriptionPlans.firstWhere(
+      (p) => p.tier == requestedTier,
+      orElse: () => subscriptionPlans.first,
+    );
+    price = plan.priceMonthly;
+
+    final request = TierChangeRequest(
+      id: 'req-tier-${DateTime.now().millisecondsSinceEpoch}',
+      resortId: resortId,
+      resortName: resortName,
+      currentTier: currentTier,
+      requestedTier: requestedTier,
+      status: TierRequestStatus.pendingPaymentDetails,
+      amountDue: price,
+      createdAt: DateTime.now(),
+    );
+
+    tierChangeRequests.insert(0, request);
+    return request;
+  }
+
+  /// Super Admin reviews request and sends payment instructions (Bank / UPI / Amount) to Admin.
+  void sendTierPaymentDetails({
+    required String requestId,
+    required String paymentInstructions,
+    double? customAmount,
+  }) {
+    final index = tierChangeRequests.indexWhere((r) => r.id == requestId);
+    if (index == -1) return;
+    final current = tierChangeRequests[index];
+    tierChangeRequests[index] = current.copyWith(
+      status: TierRequestStatus.awaitingAdminPayment,
+      paymentInstructions: paymentInstructions,
+      amountDue: customAmount ?? current.amountDue,
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  /// Admin completes payment and submits transaction reference (UTR); system updates the tier.
+  void confirmTierPayment({
+    required String requestId,
+    required String adminPaymentRef,
+  }) {
+    final index = tierChangeRequests.indexWhere((r) => r.id == requestId);
+    if (index == -1) return;
+    final req = tierChangeRequests[index];
+
+    tierChangeRequests[index] = req.copyWith(
+      status: TierRequestStatus.completed,
+      adminPaymentRef: adminPaymentRef,
+      updatedAt: DateTime.now(),
+    );
+
+    // Update resort subscription tier
+    if (resorts.containsKey(req.resortId)) {
+      final r = resorts[req.resortId]!;
+      resorts[req.resortId] = r.copyWith(subscriptionTier: req.requestedTier);
+    }
+
+    // Update or create subscription record
+    final existingSub = resortSubscriptions[req.resortId];
+    resortSubscriptions[req.resortId] = ResortSubscription(
+      id: existingSub?.id ?? 'sub-${req.resortId}',
+      resortId: req.resortId,
+      planId: 'plan-${req.requestedTier.dbValue}',
+      tier: req.requestedTier,
+      status: SubscriptionStatus.active,
+      currentPeriodStart: DateTime.now(),
+      currentPeriodEnd: DateTime.now().add(const Duration(days: 30)),
+      cancelAtPeriodEnd: false,
+    );
+
+    // Record subscription payment
+    subscriptionPayments.insert(0, SubscriptionPayment(
+      id: 'pay-sub-${DateTime.now().millisecondsSinceEpoch}',
+      subscriptionId: 'sub-${req.resortId}',
+      resortId: req.resortId,
+      amount: req.amountDue,
+      status: PaymentStatus.succeeded,
+      transactionRef: adminPaymentRef,
+      gatewayProvider: 'bank_transfer',
+      paymentMethod: 'upi_or_neft',
+      idempotencyKey: 'idem-${DateTime.now().millisecondsSinceEpoch}',
+      createdAt: DateTime.now(),
+    ));
+  }
+
+  /// Returns total salary expenses for a given resort or all resorts if resortId is null.
+  double getTotalSalaryExpenses([String? resortId]) {
+    if (resortId != null) {
+      return (resortExpenses[resortId] ?? [])
+          .where((e) => e.category == 'staff_salary')
+          .fold(0.0, (sum, e) => sum + e.amount);
+    }
+    return resortExpenses.values
+        .expand((exps) => exps)
+        .where((e) => e.category == 'staff_salary')
+        .fold(0.0, (sum, e) => sum + e.amount);
+  }
+
+  // --- Resort Accountant Management (Admin can add / assign Accountant) ---
+
+  /// Returns the assigned [UserProfile] accountant for a given resort, if any.
+  UserProfile? getAssignedAccountantForResort(String resortId) {
+    for (final p in profiles.values) {
+      if (p.role == AppRole.accountant && p.resortId == resortId) {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  /// Returns all accountants registered for a given resort.
+  List<UserProfile> getAccountantsForResort(String resortId) {
+    return profiles.values
+        .where((p) => p.role == AppRole.accountant && p.resortId == resortId)
+        .toList();
+  }
+
+  /// Admin creates a dedicated Accountant for their resort.
+  UserProfile addAccountantForResort({
+    required String resortId,
+    required String fullName,
+    required String email,
+    required String password,
+    String? phone,
+  }) {
+    final cleanEmail = email.trim().toLowerCase();
+    final newAccountant = UserProfile(
+      id: 'usr-acc-${DateTime.now().millisecondsSinceEpoch}',
+      email: cleanEmail,
+      fullName: fullName.trim(),
+      role: AppRole.accountant,
+      resortId: resortId,
+      phone: phone?.trim(),
+      createdAt: DateTime.now(),
+    );
+    profiles[cleanEmail] = newAccountant;
+    _userPasswords[cleanEmail] = password.trim();
+    return newAccountant;
+  }
+
+  // --- Staff Salary Funding Workflow (Incharge <-> Admin) ---
+
+  /// Incharge submits a request to Admin for monthly staff salary funds.
+  StaffSalaryFundRequest requestStaffSalaryFunds({
+    required String resortId,
+    required String inchargeEmail,
+    required String inchargeName,
+    required String monthYear,
+    required double requestedAmount,
+    required int staffCount,
+    String? notes,
+  }) {
+    final req = StaffSalaryFundRequest(
+      id: 'req-fund-${DateTime.now().millisecondsSinceEpoch}',
+      resortId: resortId,
+      inchargeEmail: inchargeEmail,
+      inchargeName: inchargeName,
+      monthYear: monthYear,
+      requestedAmount: requestedAmount,
+      staffCount: staffCount,
+      notes: notes,
+      status: StaffFundRequestStatus.pending,
+      createdAt: DateTime.now(),
+    );
+    staffSalaryFundRequests.insert(0, req);
+    return req;
+  }
+
+  /// Admin approves and disburses staff payroll funds to Incharge.
+  void approveAndDisburseStaffFunds({
+    required String requestId,
+    required double fundedAmount,
+    required String paymentMode,
+    required String transactionRef,
+    String? adminNotes,
+  }) {
+    final index = staffSalaryFundRequests.indexWhere((r) => r.id == requestId);
+    if (index == -1) return;
+    final current = staffSalaryFundRequests[index];
+    staffSalaryFundRequests[index] = current.copyWith(
+      status: StaffFundRequestStatus.funded,
+      fundedAmount: fundedAmount,
+      paymentMode: paymentMode,
+      transactionRef: transactionRef,
+      adminNotes: adminNotes,
+      fundedAt: DateTime.now(),
+    );
+
+    // Automatically record in resort expenses
+    final exp = ResortExpense(
+      id: 'exp-staff-fund-${DateTime.now().millisecondsSinceEpoch}',
+      resortId: current.resortId,
+      category: 'staff_salary',
+      amount: fundedAmount,
+      description: 'Staff Payroll Funds (${current.monthYear}) disbursed to Incharge ${current.inchargeName} for ${current.staffCount} staff members via $paymentMode (Ref: $transactionRef)',
+      expenseDate: DateTime.now(),
+      createdAt: DateTime.now(),
+    );
+    resortExpenses.putIfAbsent(current.resortId, () => []).insert(0, exp);
+  }
+
+  /// Returns all staff salary fund requests for a given resort.
+  List<StaffSalaryFundRequest> getStaffSalaryFundRequests(String resortId) {
+    return staffSalaryFundRequests.where((r) => r.resortId == resortId).toList();
+  }
+
+  /// Returns total funded payroll amount released by Admin for a given month or all time.
+  double getTotalFundedStaffPayroll(String resortId, [String? monthYear]) {
+    return staffSalaryFundRequests
+        .where((r) => r.resortId == resortId && r.status == StaffFundRequestStatus.funded && (monthYear == null || r.monthYear == monthYear))
+        .fold(0.0, (sum, r) => sum + (r.fundedAmount ?? r.requestedAmount));
+  }
+
+  /// Returns available payroll balance held by Incharge to disburse to staff.
+  double getAvailableStaffPayrollFunds(String resortId, [String? monthYear]) {
+    final funded = getTotalFundedStaffPayroll(resortId, monthYear);
+    final disbursed = (staffSalaryPayments[resortId] ?? [])
+        .where((p) => monthYear == null || p.monthYear == monthYear)
+        .fold(0.0, (sum, p) => sum + p.amount);
+    return funded - disbursed;
   }
 }

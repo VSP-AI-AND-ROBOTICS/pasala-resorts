@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:resorthub/core/models/reservation.dart';
-import 'package:resorthub/core/models/payment.dart';
-import 'package:resorthub/features/payments/payment_service.dart';
+import 'package:pasala/core/models/reservation.dart';
+import 'package:pasala/core/models/payment.dart';
+import 'package:pasala/features/payments/payment_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

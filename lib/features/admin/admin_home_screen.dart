@@ -12,6 +12,7 @@ import '../../data/repositories/review_repository.dart';
 import '../browse/providers.dart';
 import '../reports/providers.dart';
 import '../staff/providers.dart';
+import 'assign_incharge_dialog.dart';
 
 /// The soonest not-yet-arrived confirmed booking -- "not yet arrived" means
 /// its start is today or later, so a confirmed booking whose dates already
@@ -485,6 +486,13 @@ class _QuickActions extends ConsumerWidget {
       (
         (icon: Icons.receipt_long_outlined, label: 'Add Expense', color: scheme.primary),
         () => context.push('/owner/expenses'),
+      ),
+      (
+        (icon: Icons.badge_outlined, label: 'Incharge', color: Colors.teal),
+        () => showDialog(
+          context: context,
+          builder: (context) => const AssignInchargeDialog(),
+        ),
       ),
     ];
 

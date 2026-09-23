@@ -6,6 +6,7 @@ import '../models/unit.dart';
 import '../models/reservation.dart';
 import '../models/payment.dart';
 import '../models/staff.dart';
+import '../models/expense.dart';
 import 'mock_data_store.dart';
 
 class SupabaseRepository {
@@ -185,39 +186,18 @@ class SupabaseRepository {
     _mockStore.resortTasks[task.resortId] = list;
   }
 
-  // --- Realtime Streams ---
-  Stream<List<Reservation>> getReservationsStream(String resortId) {
+  // --- Expenses ---
+  Future<List<ResortExpense>> fetchExpenses(String resortId) async {
     if (_isLiveAvailable) {
       try {
-        return _client
-            .from('reservations')
-            .stream(primaryKey: ['id'])
-            .eq('resort_id', resortId)
-            .map((list) => list.map((json) => Reservation.fromJson(json)).toList());
+        final List<dynamic> data = await _client.from('expenses').select().eq('resort_id', resortId);
+        if (data.isNotEmpty) {
+          return data.map((json) => ResortExpense.fromJson(json as Map<String, dynamic>)).toList();
+        }
       } catch (e) {
-        if (kDebugMode) print('Realtime stream exception: $e');
+        if (kDebugMode) print('Live DB expenses fetch exception: $e');
       }
     }
-    return Stream.value(
-      _mockStore.reservations.where((r) => r.resortId == resortId).toList(),
-    );
-  }
-
-  Stream<List<StaffTask>> getTasksStream(String resortId) {
-    if (_isLiveAvailable) {
-      try {
-        return _client
-            .from('staff_tasks')
-            .stream(primaryKey: ['id'])
-            .eq('resort_id', resortId)
-            .map((list) => list.map((json) => StaffTask.fromJson(json)).toList());
-      } catch (e) {
-        if (kDebugMode) print('Realtime tasks stream exception: $e');
-      }
-    }
-    return Stream.value(
-      _mockStore.resortTasks[resortId] ?? [],
-    );
+    return _mockStore.resortExpenses[resortId] ?? [];
   }
 }
-

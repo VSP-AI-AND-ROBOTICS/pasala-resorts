@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:resorthub/core/models/resort.dart';
-import 'package:resorthub/features/discovery/services/location_service.dart';
+import 'package:pasala/core/models/resort.dart';
+import 'package:pasala/features/discovery/services/location_service.dart';
 
 void main() {
   group('Customer Resort Discovery Sorting Tests (BR-05 & BR-06)', () {

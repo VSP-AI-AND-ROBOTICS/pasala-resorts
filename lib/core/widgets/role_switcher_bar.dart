@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 import '../models/user_profile.dart';
 import '../services/mock_data_store.dart';
 import '../services/supabase_service.dart';
-import '../theme/app_theme.dart';
 import 'supabase_config_dialog.dart';
 
 class RoleSwitcherBar extends StatelessWidget {
@@ -47,38 +46,6 @@ class RoleSwitcherBar extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            ValueListenableBuilder<ThemeMode>(
-              valueListenable: AppTheme.themeNotifier,
-              builder: (ctx, currentMode, _) {
-                final isDark = currentMode == ThemeMode.dark;
-                return InkWell(
-                  onTap: AppTheme.toggleTheme,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF334155) : const Color(0xFFFEBB02),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(isDark ? Icons.dark_mode : Icons.light_mode, color: isDark ? Colors.amber : const Color(0xFF003580), size: 14),
-                        const SizedBox(width: 4),
-                        Text(
-                          isDark ? 'DARK MODE' : 'LIGHT MODE',
-                          style: TextStyle(
-                            color: isDark ? Colors.white : const Color(0xFF003580),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
             const SizedBox(width: 12),
             const Icon(Icons.swap_horiz, color: Colors.cyanAccent, size: 18),
             const SizedBox(width: 6),
@@ -117,10 +84,19 @@ class RoleSwitcherBar extends StatelessWidget {
             _buildRoleChip(
               context,
               role: AppRole.accountant,
-              label: 'Accountant',
+              label: 'Accountant (All Resorts)',
+              email: 'accountant@resorthub.com',
+              route: '/accountant',
+              isSelected: currentRole == AppRole.accountant && store.currentUser?.resortId == null,
+            ),
+            const SizedBox(width: 8),
+            _buildRoleChip(
+              context,
+              role: AppRole.accountant,
+              label: 'Resort Accountant (Grand Palms)',
               email: 'accountant@grandpalms.com',
               route: '/accountant',
-              isSelected: currentRole == AppRole.accountant,
+              isSelected: currentRole == AppRole.accountant && store.currentUser?.resortId != null,
             ),
             const SizedBox(width: 8),
             _buildRoleChip(

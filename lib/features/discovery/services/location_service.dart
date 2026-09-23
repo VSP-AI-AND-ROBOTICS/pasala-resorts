@@ -1,5 +1,5 @@
 import 'dart:math';
-import 'package:resorthub/core/models/resort.dart';
+import '../../../core/models/resort.dart';
 
 class UserCoordinates {
   final double latitude;
