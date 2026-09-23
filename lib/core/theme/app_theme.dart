@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'tokens.dart';
 
 ThemeData buildTheme(Brightness brightness) {
+  final isLight = brightness == Brightness.light;
   final scheme = ColorScheme.fromSeed(
     seedColor: PasalaTokens.seed,
     brightness: brightness,
+    surface: isLight ? PasalaTokens.mintBackgroundLight : PasalaTokens.darkCanvas,
   );
 
   final base = ThemeData(
@@ -16,7 +18,7 @@ ThemeData buildTheme(Brightness brightness) {
   );
 
   return base.copyWith(
-    scaffoldBackgroundColor: scheme.surface,
+    scaffoldBackgroundColor: isLight ? PasalaTokens.mintBackgroundLight : PasalaTokens.darkCanvas,
     textTheme: base.textTheme.copyWith(
       headlineMedium: base.textTheme.headlineMedium?.copyWith(
         fontWeight: PasalaTokens.displayWeight,
@@ -33,7 +35,7 @@ ThemeData buildTheme(Brightness brightness) {
       elevation: 0,
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
-      color: scheme.surfaceContainerLow,
+      color: isLight ? Colors.white : scheme.surfaceContainerLow,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(PasalaTokens.radiusMd),
         side: BorderSide(color: scheme.outlineVariant),

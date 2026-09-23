@@ -155,4 +155,60 @@ void main() {
       expect(find.text('Pasala Farm House'), findsNothing);
     },
   );
+
+  testWidgets('filters properties when an amenity chip is selected', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const propertiesWithAmenities = [
+      Property(
+        id: 'p1',
+        name: 'Pasala Pool Villa',
+        slug: 'pool-villa',
+        description: null,
+        address: null,
+        images: [],
+        amenities: ['Pool', 'Wi-Fi'],
+        checkInTime: '14:00',
+        checkOutTime: '11:00',
+        isActive: true,
+      ),
+      Property(
+        id: 'p2',
+        name: 'Pasala Mountain Cabin',
+        slug: 'mountain-cabin',
+        description: null,
+        address: null,
+        images: [],
+        amenities: ['Wi-Fi'],
+        checkInTime: '14:00',
+        checkOutTime: '11:00',
+        isActive: true,
+      ),
+    ];
+
+    await tester.pumpWidget(_appFor(propertiesWithAmenities));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pasala Pool Villa'), findsOneWidget);
+    expect(find.text('Pasala Mountain Cabin'), findsOneWidget);
+    expect(find.text('Pool'), findsWidgets);
+
+    // Tap the 'Pool' filter chip
+    await tester.tap(find.widgetWithText(FilterChip, 'Pool'));
+    await tester.pumpAndSettle();
+
+    // Now only Pasala Pool Villa is shown
+    expect(find.text('Pasala Pool Villa'), findsOneWidget);
+    expect(find.text('Pasala Mountain Cabin'), findsNothing);
+
+    // Tap 'All' chip to reset
+    await tester.tap(find.widgetWithText(FilterChip, 'All'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pasala Pool Villa'), findsOneWidget);
+    expect(find.text('Pasala Mountain Cabin'), findsOneWidget);
+  });
 }

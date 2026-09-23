@@ -17,7 +17,7 @@ import '../../data/models/unit.dart';
 import '../../data/repositories/booking_repository.dart';
 import '../../data/repositories/stay_repository.dart' show currentStayProvider;
 import '../account/providers.dart' show myBookingsProvider;
-import '../browse/providers.dart' show slotTypesProvider;
+import '../browse/providers.dart' show propertyProvider, slotTypesProvider;
 import '../calendar/availability_calendar.dart';
 import '../calendar/providers.dart' show unitReservationsProvider;
 import 'payment_gateway.dart';
@@ -704,11 +704,22 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
           // playing. Never force-unwrap here.
           final quote = _quote;
           if (quote == null) return const SizedBox.shrink();
+          // The owner's `properties.advance_pct` (Payment Settings), which
+          // `confirm_booking` enforces as the minimum payment. Until the
+          // property has loaded, fall back to 100 -- full payment is always
+          // accepted, a guessed smaller share might not be.
+          final unit = ref.read(unitByIdProvider(widget.unitId)).value;
+          final advancePct = unit == null
+              ? 100
+              : ref.read(propertyProvider(unit.propertyId)).value?.advancePct ??
+                  100;
           return SafeArea(
             child: QuoteSheet(
               quote: quote,
               busy: _busy,
+              advancePct: advancePct,
               onPay: _pay,
+              onPaySplit: (amount, _) => _pay(amountToPay: amount),
               onApplyCoupon: _applyCoupon,
               couponBusy: _couponBusy,
               couponError: _couponError,
@@ -752,7 +763,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     });
   }
 
-  Future<void> _pay() async {
+  Future<void> _pay({num? amountToPay}) async {
     // Finding 3: without this, two rapid taps can both enter `_pay` before
     // `setState`'s rebuild (next frame, not synchronous) has a chance to
     // disable the button. Harmless against today's mock gateway, but Phase 2
@@ -762,6 +773,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     final from = _from, to = _to, quote = _quote;
     if (from == null || to == null || quote == null) return;
 
+    final payAmount = amountToPay ?? quote.total;
     _setBusy(true);
     try {
       final actions = ref.read(bookingActionsProvider);
@@ -796,7 +808,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
 
       final payment = await ref
           .read(paymentGatewayProvider)
-          .charge(reservationId: hold.id, amount: quote.total);
+          .charge(reservationId: hold.id, amount: payAmount);
       if (!payment.succeeded) {
         throw InvalidState(payment.failureMessage ?? 'Payment failed');
       }
@@ -804,7 +816,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       final confirmed = await actions.confirm(
         reservationId: hold.id,
         paymentRef: payment.reference,
-        amount: quote.total,
+        amount: payAmount,
       );
       _ticker?.cancel();
       // Both are plain (non-autoDispose) providers that may already have a
@@ -925,6 +937,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   }
 
   Widget _buildBody(BuildContext context, Unit unit) {
+    // Warm the property so its `advancePct` is ready by the time the quote
+    // sheet opens (read there, not watched).
+    ref.watch(propertyProvider(unit.propertyId));
     Widget slotSelector = const SizedBox.shrink();
     if (unit.supportsSlots) {
       final slotTypesAsync = ref.watch(slotTypesProvider(unit.propertyId));
