@@ -30,9 +30,6 @@ insert into auth.users (id, email)
 values ('cccc0000-0000-0000-0000-000000000001','repcust@example.com'),
        ('cccc0000-0000-0000-0000-000000000002','repstaff@example.com');
 
-update public.profiles set role = 'staff'
-  where id = 'cccc0000-0000-0000-0000-000000000002';
-
 -- This test no longer depends on the app's real seeded properties (see
 -- docs/superpowers/specs/2026-08-13-single-property-onboarding-design.md
 -- section 3.3) -- it proves report_revenue/report_occupancy don't leak

@@ -18,7 +18,7 @@ insert into public.properties (id, name, slug) values
   ('dddddddd-0000-4000-8000-000000000001','Resort D','resort-d');
 insert into public.resort_members (property_id, user_id, role) values
   ('dddddddd-0000-4000-8000-000000000001','d0000000-0000-0000-0000-000000000001','owner');
-update public.profiles set platform_role = 'platform_admin'
+update public.profiles set role = 'platform_admin'
   where id = 'd0000000-0000-0000-0000-000000000004';
 
 -- Further fixtures for the sections after the brief's eleven assertions:

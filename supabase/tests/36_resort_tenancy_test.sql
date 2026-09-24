@@ -1,5 +1,5 @@
 begin;
-select plan(18);
+select plan(20);
 
 select enum_has_labels('public','resort_role',
   array['owner','admin','staff','accountant']);
@@ -79,13 +79,11 @@ select throws_ok(
      where id = 'aaaaaaaa-3333-0000-0000-000000000001'$$,
   'P0021', null, 'moving a reservation to another resort''s unit is refused');
 
-select is(
-  (select count(*)::int from public.resort_members m
-     join public.profiles p on p.id = m.user_id
-    where p.role <> 'customer'
-      and m.role::text <> case p.role::text when 'super_admin' then 'owner'
-                                             else p.role::text end),
-  0, 'every migrated membership matches the old global role');
+-- 0046 retired the global business roles: resort roles live only in
+-- resort_members, and profiles.role is the platform role.
+select hasnt_function('public','is_admin', 'is_admin() is gone');
+select hasnt_function('public','is_staff_or_above', 'is_staff_or_above() is gone');
+select col_type_is('public','profiles','role','platform_role', 'profiles.role is platform_role');
 
 select * from finish();
 rollback;

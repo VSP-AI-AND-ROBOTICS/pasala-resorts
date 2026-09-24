@@ -30,8 +30,6 @@ insert into auth.users (id, email) values
   ('c1111111-1111-1111-1111-111111111111', 'refundcust1@example.com'),
   ('c2222222-2222-2222-2222-222222222222', 'refundadmin@example.com'),
   ('c3333333-3333-3333-3333-333333333333', 'refundcust2@example.com');
-update public.profiles set role = 'admin'
-  where id = 'c2222222-2222-2222-2222-222222222222';
 
 -- P1: the default ladder, exercised at 10/5/1 days out.
 insert into public.properties (id, name, slug)

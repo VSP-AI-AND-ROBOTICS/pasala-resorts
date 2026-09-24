@@ -60,10 +60,6 @@ insert into auth.users (id, email) values
   ('e5000000-0000-0000-0000-000000000012', 'icalstaff@example.com');
 update public.profiles set full_name = 'Priya Guestperson'
   where id = 'e5000000-0000-0000-0000-000000000010';
-update public.profiles set role = 'admin'
-  where id = 'e5000000-0000-0000-0000-000000000011';
-update public.profiles set role = 'staff'
-  where id = 'e5000000-0000-0000-0000-000000000012';
 
 insert into public.resort_members (property_id, user_id, role) values
   ('e5000000-0000-0000-0000-000000000001','e5000000-0000-0000-0000-000000000011','admin'),

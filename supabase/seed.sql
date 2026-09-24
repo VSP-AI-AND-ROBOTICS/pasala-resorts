@@ -38,16 +38,6 @@ from (values
   ('10000000-0000-0000-0000-000000000006'::uuid,'meera@example.com')
 ) as u(id, email);
 
--- The signup trigger created customer profiles; promote the staff accounts.
-update public.profiles set role = 'super_admin'
-  where id = '10000000-0000-0000-0000-000000000001';
-update public.profiles set role = 'admin'
-  where id = '10000000-0000-0000-0000-000000000002';
-update public.profiles set role = 'staff'
-  where id = '10000000-0000-0000-0000-000000000003';
-update public.profiles set role = 'accountant'
-  where id = '10000000-0000-0000-0000-000000000004';
-
 insert into public.properties
   (id, name, slug, description, address, check_in_time, check_out_time, amenities)
 values

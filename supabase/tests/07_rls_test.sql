@@ -3,9 +3,10 @@
 -- rate_rules, reservations, payments, audit_log) plus the availability view.
 --
 -- Coverage already proven elsewhere is deliberately NOT repeated here:
---   01_profiles_test.sql  - role-escalation guard, admin/super_admin role-
---                            change authority, admin insert/delete on
---                            profiles, customer self-delete filtered by RLS.
+--   01_profiles_test.sql  - role-escalation guard, platform admin / owner
+--                            role-change authority, platform admin
+--                            insert/delete on profiles, customer
+--                            self-delete filtered by RLS.
 --   02_properties_test.sql - anon can read active properties.
 --   03_quote_test.sql      - anon can read rate_rules; anon cannot write
 --                            rate_rules (throws 42501).
@@ -28,13 +29,6 @@ insert into auth.users (id, email) values
   ('33333333-3333-3333-3333-333333333333','staff@example.com'),
   ('44444444-4444-4444-4444-444444444444','admin@example.com'),
   ('55555555-5555-5555-5555-555555555555','acct@example.com');
-
-update public.profiles set role = 'staff'
-  where id = '33333333-3333-3333-3333-333333333333';
-update public.profiles set role = 'admin'
-  where id = '44444444-4444-4444-4444-444444444444';
-update public.profiles set role = 'accountant'
-  where id = '55555555-5555-5555-5555-555555555555';
 
 insert into public.properties (id, name, slug)
 values ('aaaaaaaa-0000-0000-0000-000000000001','P1','p1');
@@ -114,8 +108,6 @@ set local role postgres;
 
 insert into auth.users (id, email)
 values ('66666666-6666-6666-6666-666666666666','superadmin@example.com');
-update public.profiles set role = 'super_admin'
-  where id = '66666666-6666-6666-6666-666666666666';
 
 insert into public.resort_members (property_id, user_id, role) values
   ('aaaaaaaa-0000-0000-0000-000000000001','66666666-6666-6666-6666-666666666666','owner');
@@ -177,9 +169,9 @@ select throws_ok(
   $$insert into public.properties (name, slug) values ('Acct Prop','acct-p')$$,
   '42501', null, 'accountant cannot reach the properties admin surface');
 
--- an admin-only UPDATE that matches no policy is filtered, not an error
+-- an UPDATE of another profile matches no policy: filtered, not an error
 select lives_ok(
-  $$update public.profiles set role = 'admin'
+  $$update public.profiles set role = 'platform_admin'
       where id = '11111111-1111-1111-1111-111111111111'$$,
   'accountant role-change attempt raises no error (RLS-filtered)');
 
@@ -187,7 +179,7 @@ set local role postgres;
 select is(
   (select role from public.profiles
     where id = '11111111-1111-1111-1111-111111111111'),
-  'customer'::public.user_role,
+  'customer'::public.platform_role,
   'accountant role-change attempt changed no rows');
 
 -- === super_admin: full access where admin has it ===========================

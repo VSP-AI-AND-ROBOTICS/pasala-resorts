@@ -120,14 +120,14 @@ select throws_ok($$update public.properties set status = 'suspended'
   'P0008', null, 'A owner: cannot change own resort status');
 -- A platform admin who is also A's admin passes both RLS and the guard.
 reset role;
-update public.profiles set platform_role = 'platform_admin' where id = 'a0000000-0000-0000-0000-00000000000b';
+update public.profiles set role = 'platform_admin' where id = 'a0000000-0000-0000-0000-00000000000b';
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
 select is(pg_temp.rows_affected($$update public.properties set status = 'suspended'
   where id = 'aaaaaaaa-0000-4000-8000-000000000001'$$),
   1, 'platform admin: can change resort status');
 reset role;
-update public.profiles set platform_role = 'customer' where id = 'a0000000-0000-0000-0000-00000000000b';
+update public.profiles set role = 'customer' where id = 'a0000000-0000-0000-0000-00000000000b';
 -- `reset role` keeps the JWT claims; clear them so the next statements run
 -- with no authenticated caller, as migrations and admin SQL do.
 set local request.jwt.claims to '';
@@ -150,7 +150,7 @@ select is((select count(*)::int from public.reservations), 1, 'suspended: guest 
 
 -- Platform admin sees no resort rows.
 reset role;
-update public.profiles set platform_role = 'platform_admin' where id = 'b0000000-0000-0000-0000-00000000000a';
+update public.profiles set role = 'platform_admin' where id = 'b0000000-0000-0000-0000-00000000000a';
 delete from public.resort_members where user_id = 'b0000000-0000-0000-0000-00000000000a';
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"b0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
@@ -377,10 +377,7 @@ select is(
         -- check of its own, but it only ever fires on a row the reviews_insert
         -- policy already restricted to customer_id = auth.uid(), so it just
         -- re-reads the inserting guest's own profile.
-        'properties_guard_status','reviews_set_author_name',
-        -- Legacy helpers still present until Task 12 (migration 0046) drops
-        -- them; remove this block when that task lands.
-        'current_role','is_staff_or_above','is_admin','is_super_admin','assert_staff'])),
+        'properties_guard_status','reviews_set_author_name'])),
   null, 'every security definer function is on the reviewed allow-list');
 
 select * from finish();
