@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/format.dart';
 import '../../core/greeting.dart';
 import '../../core/theme/app_assets.dart';
@@ -100,14 +101,14 @@ String relativeTime(DateTime from, DateTime now) {
   return 'Just now';
 }
 
-/// This app has exactly one property -- every screen that needs "the"
-/// property/unit (booking, browse, this dashboard) already assumes as much.
-/// Resolves to `null` while loading or if the catalog is ever empty, so
-/// callers degrade to a disabled action rather than crashing.
+/// This screen shows exactly one resort -- the signed-in admin's current
+/// one (`currentResortProvider`), which by Task 14's redirect always exists
+/// by the time `/admin` is reachable. Resolves to `null` while loading or if
+/// that resort has no units yet, so callers degrade to a disabled action
+/// rather than crashing.
 final _primaryUnitIdProvider = FutureProvider<String?>((ref) async {
-  final properties = await ref.watch(propertiesProvider.future);
-  if (properties.isEmpty) return null;
-  final units = await ref.watch(unitsProvider(properties.first.id).future);
+  final propertyId = ref.watch(currentResortProvider)!.propertyId;
+  final units = await ref.watch(unitsProvider(propertyId).future);
   return units.isEmpty ? null : units.first.id;
 });
 
@@ -197,8 +198,9 @@ class _FarmhouseStatusCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final property = ref.watch(propertiesProvider).value?.firstOrNull;
-    final bookings = ref.watch(allBookingsProvider).value ?? const [];
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final property = ref.watch(propertyProvider(propertyId)).value;
+    final bookings = ref.watch(allBookingsProvider(propertyId)).value ?? const [];
     final unitId = ref.watch(_primaryUnitIdProvider).value;
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -306,7 +308,8 @@ class _TodaysFocus extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bookings = ref.watch(allBookingsProvider).value ?? const [];
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final bookings = ref.watch(allBookingsProvider(propertyId)).value ?? const [];
     final arrival = nextArrival(bookings, DateTime.now());
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -447,14 +450,12 @@ class _QuickActions extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final unitId = ref.watch(_primaryUnitIdProvider).value;
-    final propertyId = ref.watch(propertiesProvider).value?.firstOrNull?.id;
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
 
     final actions = <(_QuickAction, VoidCallback)>[
       (
         (icon: Icons.add_circle_outline, label: 'New Booking', color: scheme.primary),
-        propertyId == null
-            ? () => _comingSoon(context, 'New Booking')
-            : () => context.push('/property/$propertyId'),
+        () => context.push('/property/$propertyId'),
       ),
       (
         (icon: Icons.event_busy_outlined, label: 'Block Date', color: Colors.indigo),
@@ -701,8 +702,9 @@ class _BusinessSnapshotCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
     final summaryAsync = ref.watch(dashboardSummaryProvider);
-    final bookings = ref.watch(allBookingsProvider).value ?? const [];
+    final bookings = ref.watch(allBookingsProvider(propertyId)).value ?? const [];
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
@@ -763,8 +765,4 @@ class _BusinessSnapshotCard extends ConsumerWidget {
       ),
     );
   }
-}
-
-extension _FirstOrNull<T> on List<T> {
-  T? get firstOrNull => isEmpty ? null : first;
 }

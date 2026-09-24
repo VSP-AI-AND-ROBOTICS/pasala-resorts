@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/quote.dart';
 import 'package:pasala/data/models/report.dart';
 import 'package:pasala/data/models/reservation.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/review.dart';
 import 'package:pasala/data/models/unit.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
@@ -15,6 +17,19 @@ import 'package:pasala/features/admin/admin_home_screen.dart';
 import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/reports/providers.dart';
 import 'package:pasala/features/staff/providers.dart';
+
+/// Resolves `currentResortProvider` to a fixed membership synchronously, on
+/// the very first build -- unlike overriding `currentUserProvider` with a
+/// `Stream`, which stays in its `loading` state until at least one microtask
+/// has run, and `AdminHomeScreen` `!`-asserts a non-null current resort on
+/// every build per the tenancy design (a screen reached without one is
+/// impossible once the router's redirect is in place).
+class _FixedCurrentResort extends CurrentResort {
+  _FixedCurrentResort(this._value);
+  final ResortMembership _value;
+  @override
+  ResortMembership? build() => _value;
+}
 
 Reservation _booking(
   String id, {
@@ -237,10 +252,16 @@ void main() {
       isActive: true,
     );
 
+    const membership = ResortMembership(
+      propertyId: 'p1',
+      resortName: 'Pasala Farm House',
+      role: ResortRole.admin,
+    );
     const admin = AppUser(
       id: 'admin-1',
       email: 'admin@pasala.test',
       fullName: 'Asha Admin',
+      memberships: [membership],
     );
 
     Widget app({List<Reservation> bookings = const [], List<Review> reviews = const []}) {
@@ -274,9 +295,11 @@ void main() {
       return ProviderScope(
         overrides: [
           currentUserProvider.overrideWith((ref) => Stream.value(admin)),
-          propertiesProvider.overrideWith((ref) async => [property]),
+          currentResortProvider.overrideWith(() => _FixedCurrentResort(membership)),
+          propertyProvider(property.id).overrideWith((ref) async => property),
           unitsProvider(property.id).overrideWith((ref) async => [unit]),
-          allBookingsProvider.overrideWith((ref) async => bookings),
+          allBookingsProvider.overrideWith(
+              (ref, propertyId) async => propertyId == property.id ? bookings : []),
           allReviewsProvider.overrideWith((ref) async => reviews),
           dashboardSummaryProvider.overrideWith((ref) async => DashboardSummary(
                 todayRevenue: 0,

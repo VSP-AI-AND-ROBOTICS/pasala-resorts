@@ -3,12 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../data/models/reservation.dart';
-import '../browse/providers.dart' show propertiesProvider;
 import '../staff/providers.dart';
 
 /// The mockup's four guest-facing states, plus [blocks] -- the pre-existing
@@ -113,20 +113,11 @@ class _AdminBookingsScreenState extends ConsumerState<AdminBookingsScreen> {
     super.dispose();
   }
 
-  void _newBookingComingSoon() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Creating a booking from here is coming soon.'),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final bookingsAsync = ref.watch(allBookingsProvider);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final bookingsAsync = ref.watch(allBookingsProvider(propertyId));
     final scheme = Theme.of(context).colorScheme;
-    final properties = ref.watch(propertiesProvider).value ?? const [];
-    final propertyId = properties.isEmpty ? null : properties.first.id;
 
     return Scaffold(
       appBar: AppBar(
@@ -135,9 +126,7 @@ class _AdminBookingsScreenState extends ConsumerState<AdminBookingsScreen> {
           Padding(
             padding: const EdgeInsets.only(right: Spacing.md),
             child: FilledButton.icon(
-              onPressed: propertyId == null
-                  ? _newBookingComingSoon
-                  : () => context.push('/property/$propertyId'),
+              onPressed: () => context.push('/property/$propertyId'),
               icon: const Icon(Icons.add, size: 18),
               label: const Text('New Booking'),
             ),
@@ -185,7 +174,7 @@ class _AdminBookingsScreenState extends ConsumerState<AdminBookingsScreen> {
           Expanded(
             child: AsyncView(
               value: bookingsAsync,
-              onRetry: () => ref.invalidate(allBookingsProvider),
+              onRetry: () => ref.invalidate(allBookingsProvider(propertyId)),
               data: (all) {
                 final bookings = filterBookings(all, _filter)
                     .where((r) => bookingMatchesSearch(r, _search))
