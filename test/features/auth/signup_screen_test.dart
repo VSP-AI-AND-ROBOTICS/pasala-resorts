@@ -32,9 +32,12 @@ void main() {
     expect(find.text('Use at least 8 characters'), findsOneWidget);
   });
 
-  testWidgets('shows the brand mark above the heading', (tester) async {
+  testWidgets('shows the ResortHub name, not the Pasala logo or name',
+      (tester) async {
     await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
 
-    expect(find.byType(BrandMark), findsOneWidget);
+    expect(find.text('ResortHub'), findsOneWidget);
+    expect(find.text('Pasala Resorts'), findsNothing);
+    expect(find.byType(BrandMark), findsNothing);
   });
 }

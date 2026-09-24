@@ -7,7 +7,6 @@ import '../../core/errors.dart';
 import '../../core/router.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/tokens.dart';
-import '../../core/widgets/brand_mark.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../core/widgets/hero_backdrop.dart';
 import '../../data/repositories/auth_repository.dart';
@@ -88,13 +87,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const BrandMark(
-                            size: BrandMarkSize.splash,
-                            showWordmark: false,
-                          ),
-                          const SizedBox(height: Spacing.md),
                           Text(
-                            'Pasala Resorts',
+                            'ResortHub',
                             style: textTheme.headlineMedium,
                             textAlign: TextAlign.center,
                           ),
