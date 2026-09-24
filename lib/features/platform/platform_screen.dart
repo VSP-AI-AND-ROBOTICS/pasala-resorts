@@ -16,7 +16,8 @@ String _statusLabel(String status) =>
 
 /// `/platform` -- the platform admin's minimal console: every resort's
 /// status, owners and booking/revenue summary from `platform_resorts()`,
-/// a Suspend/Reactivate action per row, and a New resort form. The
+/// a Suspend (active) or Reactivate (suspended) action per row -- none for
+/// an archived resort -- and a New resort form. The
 /// platform admin has no membership at any resort and no row access to
 /// any resort-owned table (see the tenancy design spec), so this screen
 /// reads and writes exclusively through [PlatformSource]'s three
@@ -94,6 +95,9 @@ class _ResortCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final suspended = resort.status == 'suspended';
+    // Archived resorts are neither suspended nor active: they get no
+    // status action here (Suspend would pretend they were active).
+    final archived = resort.status == 'archived';
 
     return Card(
       key: Key('resort-row-${resort.propertyId}'),
@@ -112,7 +116,9 @@ class _ResortCard extends ConsumerWidget {
                   label: Text(_statusLabel(resort.status)),
                   backgroundColor: suspended
                       ? scheme.errorContainer
-                      : scheme.secondaryContainer,
+                      : archived
+                          ? scheme.surfaceContainerHighest
+                          : scheme.secondaryContainer,
                   side: BorderSide.none,
                 ),
               ],
@@ -140,15 +146,17 @@ class _ResortCard extends ConsumerWidget {
                   .bodySmall
                   ?.copyWith(color: scheme.onSurfaceVariant),
             ),
-            const SizedBox(height: Spacing.sm),
-            Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton(
-                key: Key('resort-status-btn-${resort.propertyId}'),
-                onPressed: () => _confirmAndSetStatus(context, ref),
-                child: Text(suspended ? 'Reactivate' : 'Suspend'),
+            if (!archived) ...[
+              const SizedBox(height: Spacing.sm),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton(
+                  key: Key('resort-status-btn-${resort.propertyId}'),
+                  onPressed: () => _confirmAndSetStatus(context, ref),
+                  child: Text(suspended ? 'Reactivate' : 'Suspend'),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

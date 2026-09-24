@@ -80,6 +80,18 @@ final _resortB = ResortSummary(
   revenue365d: 20000,
 );
 
+final _resortC = ResortSummary(
+  propertyId: 'p3',
+  name: 'Resort C',
+  status: 'archived',
+  ownerEmails: const ['ownerc@x.com'],
+  createdAt: DateTime(2024, 3, 1),
+  bookings30d: 0,
+  revenue30d: 0,
+  bookings365d: 0,
+  revenue365d: 0,
+);
+
 Widget _appFor(FakePlatformRepository repo) => ProviderScope(
       overrides: [platformSourceProvider.overrideWithValue(repo)],
       child: const MaterialApp(home: PlatformScreen()),
@@ -134,5 +146,34 @@ void main() {
 
     expect(repo.createCalls, [('Resort E', 'owner@x.com')]);
     expect(find.text('Resort E'), findsOneWidget);
+  });
+
+  testWidgets('a suspended resort offers Reactivate, which sets it active',
+      (tester) async {
+    final repo = FakePlatformRepository()..store = [_resortB];
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(OutlinedButton, 'Reactivate'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('resort-status-btn-p2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Reactivate'));
+    await tester.pumpAndSettle();
+
+    expect(repo.statusCalls, [('p2', 'active')]);
+  });
+
+  // Final review F3: an archived resort is not active, so it must not offer
+  // "Suspend" as if it were; it shows its status and no action at all.
+  testWidgets('an archived resort shows its status and no status action',
+      (tester) async {
+    final repo = FakePlatformRepository()..store = [_resortC];
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Archived'), findsOneWidget);
+    expect(find.byKey(const Key('resort-status-btn-p3')), findsNothing);
+    expect(find.text('Suspend'), findsNothing);
+    expect(find.text('Reactivate'), findsNothing);
   });
 }
