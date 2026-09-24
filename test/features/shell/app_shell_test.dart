@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
+import 'package:pasala/core/theme/theme_toggle_button.dart';
 import 'package:pasala/core/widgets/brand_mark.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/features/shell/app_shell.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const _adminM =
     ResortMembership(propertyId: 'r1', resortName: 'R1', role: ResortRole.admin);
@@ -74,6 +76,10 @@ Widget _appFor(AppUser user) {
 }
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('shows the Dashboard, Bookings, and More destinations for '
       'an admin user', (tester) async {
     await tester.pumpWidget(_appFor(_admin));
@@ -211,5 +217,48 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(BrandMark), findsOneWidget);
+  });
+
+  testWidgets('shows the theme toggle in an admin app bar', (tester) async {
+    await tester.pumpWidget(_appFor(_admin));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ThemeToggleButton), findsOneWidget);
+  });
+
+  testWidgets('shows the theme toggle in an owner app bar', (tester) async {
+    await tester.pumpWidget(_appFor(_owner));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ThemeToggleButton), findsOneWidget);
+  });
+
+  testWidgets('shows the theme toggle in a staff app bar', (tester) async {
+    await tester.pumpWidget(_appFor(_staff));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ThemeToggleButton), findsOneWidget);
+  });
+
+  testWidgets('shows the theme toggle in an accountant app bar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_appFor(_accountant));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ThemeToggleButton), findsOneWidget);
+  });
+
+  // The guest/customer top bar is out of scope here -- the merge step
+  // places the toggle in the guest browse hero instead (see
+  // `browse_screen.dart`), so `AppShell` must not duplicate it for a
+  // signed-out/customer user.
+  testWidgets('does not show the theme toggle in the customer app bar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_appFor(_customer));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ThemeToggleButton), findsNothing);
   });
 }

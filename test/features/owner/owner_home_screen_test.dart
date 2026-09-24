@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
+import 'package:pasala/core/theme/app_theme.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/report.dart';
 import 'package:pasala/data/models/resort_membership.dart';
@@ -37,6 +38,7 @@ Widget _appFor({
     activeHolds: 0,
     netProfitMonth: 45000,
   ),
+  ThemeMode themeMode = ThemeMode.light,
 }) {
   final router = GoRouter(
     initialLocation: '/owner',
@@ -52,7 +54,12 @@ Widget _appFor({
       currentResortProvider.overrideWith(() => _FixedResort(_ownerM)),
       dashboardSummaryProvider.overrideWith((ref, propertyId) async => summary),
     ],
-    child: MaterialApp.router(routerConfig: router),
+    child: MaterialApp.router(
+      theme: buildTheme(Brightness.light),
+      darkTheme: buildTheme(Brightness.dark),
+      themeMode: themeMode,
+      routerConfig: router,
+    ),
   );
 }
 
@@ -115,5 +122,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Bookings screen'), findsOneWidget);
+  });
+
+  testWidgets('renders in ThemeMode.dark without throwing', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_appFor(themeMode: ThemeMode.dark));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('Priya'), findsOneWidget);
   });
 }

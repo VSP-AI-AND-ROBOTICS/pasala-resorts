@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/errors.dart';
 import '../../core/format.dart';
 import '../../core/theme/spacing.dart';
+import '../../core/theme/theme_toggle_button.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
@@ -37,6 +38,7 @@ class PlatformScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Platform'),
         actions: [
+          const ThemeToggleButton(),
           IconButton(
             tooltip: 'Sign out',
             icon: const Icon(Icons.logout),

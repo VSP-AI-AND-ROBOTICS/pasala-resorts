@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/format.dart';
+import 'package:pasala/core/theme/app_theme.dart';
+import 'package:pasala/core/theme/theme_toggle_button.dart';
 import 'package:pasala/data/repositories/platform_repository.dart';
 import 'package:pasala/features/platform/platform_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class FakePlatformRepository implements PlatformSource {
   List<ResortSummary> store = [];
@@ -92,12 +95,22 @@ final _resortC = ResortSummary(
   revenue365d: 0,
 );
 
-Widget _appFor(FakePlatformRepository repo) => ProviderScope(
+Widget _appFor(FakePlatformRepository repo, {ThemeMode themeMode = ThemeMode.light}) =>
+    ProviderScope(
       overrides: [platformSourceProvider.overrideWithValue(repo)],
-      child: const MaterialApp(home: PlatformScreen()),
+      child: MaterialApp(
+        theme: buildTheme(Brightness.light),
+        darkTheme: buildTheme(Brightness.dark),
+        themeMode: themeMode,
+        home: const PlatformScreen(),
+      ),
     );
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('renders two resorts from a fake', (tester) async {
     final repo = FakePlatformRepository()..store = [_resortA, _resortB];
     await tester.pumpWidget(_appFor(repo));
@@ -175,5 +188,24 @@ void main() {
     expect(find.byKey(const Key('resort-status-btn-p3')), findsNothing);
     expect(find.text('Suspend'), findsNothing);
     expect(find.text('Reactivate'), findsNothing);
+  });
+
+  testWidgets('shows the theme toggle in the platform app bar', (
+    tester,
+  ) async {
+    final repo = FakePlatformRepository()..store = [_resortA];
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ThemeToggleButton), findsOneWidget);
+  });
+
+  testWidgets('renders in ThemeMode.dark without throwing', (tester) async {
+    final repo = FakePlatformRepository()..store = [_resortA, _resortB, _resortC];
+    await tester.pumpWidget(_appFor(repo, themeMode: ThemeMode.dark));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Resort A'), findsOneWidget);
   });
 }

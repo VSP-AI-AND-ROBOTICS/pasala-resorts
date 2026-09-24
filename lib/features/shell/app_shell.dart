@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/current_resort.dart';
 import '../../core/errors.dart';
+import '../../core/theme/theme_toggle_button.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/brand_mark.dart';
 import '../../core/widgets/failure_view.dart';
@@ -125,12 +126,17 @@ class AppShell extends ConsumerWidget {
               // sheet (name/email/role + sign out) -- rather than a bare
               // logout icon with no identity shown at all.
               ..._adminActions(context, ref)
-            else
+            else ...[
+              // Owner/staff/accountant: no bell or profile avatar yet (see
+              // `_adminActions`'s own comment), but they get the same
+              // theme toggle as admin.
+              const ThemeToggleButton(),
               IconButton(
                 tooltip: 'Sign out',
                 icon: const Icon(Icons.logout),
                 onPressed: () => _signOut(context, ref),
               ),
+            ],
           ],
         ],
       ),
@@ -195,6 +201,7 @@ class AppShell extends ConsumerWidget {
       ];
 
   List<Widget> _adminActions(BuildContext context, WidgetRef ref) => [
+        const ThemeToggleButton(),
         IconButton(
           tooltip: 'Notifications',
           icon: const Icon(Icons.notifications_outlined),

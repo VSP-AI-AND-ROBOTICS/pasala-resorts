@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
+import 'package:pasala/core/theme/app_theme.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/quote.dart';
@@ -264,7 +265,11 @@ void main() {
       memberships: [membership],
     );
 
-    Widget app({List<Reservation> bookings = const [], List<Review> reviews = const []}) {
+    Widget app({
+      List<Reservation> bookings = const [],
+      List<Review> reviews = const [],
+      ThemeMode themeMode = ThemeMode.light,
+    }) {
       final router = GoRouter(
         initialLocation: '/admin',
         routes: [
@@ -328,7 +333,12 @@ void main() {
                 activeHolds: 0,
               )),
         ],
-        child: MaterialApp.router(routerConfig: router),
+        child: MaterialApp.router(
+          theme: buildTheme(Brightness.light),
+          darkTheme: buildTheme(Brightness.dark),
+          themeMode: themeMode,
+          routerConfig: router,
+        ),
       );
     }
 
@@ -467,6 +477,15 @@ void main() {
       expect(find.text('No reviews yet'), findsOneWidget);
       expect(find.text('1.0'), findsNothing);
       expect(find.textContaining('Review of another resort'), findsNothing);
+    });
+
+    testWidgets('renders in ThemeMode.dark without throwing', (tester) async {
+      await useTallSurface(tester);
+      await tester.pumpWidget(app(themeMode: ThemeMode.dark));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('Asha'), findsOneWidget);
     });
   });
 }
