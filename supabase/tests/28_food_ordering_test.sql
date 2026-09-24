@@ -9,6 +9,14 @@ select has_function('public', 'place_food_order', 'place_food_order exists');
 
 insert into public.properties (id, name, slug)
 values ('aaaaaaaa-0000-0000-0000-000000000028','P28','p28');
+
+-- The seed users' roles are memberships at the seed resort only; give them
+-- the same roles at this file's property.
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000028','10000000-0000-0000-0000-000000000001','owner'),
+  ('aaaaaaaa-0000-0000-0000-000000000028','10000000-0000-0000-0000-000000000002','admin'),
+  ('aaaaaaaa-0000-0000-0000-000000000028','10000000-0000-0000-0000-000000000003','staff'),
+  ('aaaaaaaa-0000-0000-0000-000000000028','10000000-0000-0000-0000-000000000004','accountant');
 insert into public.units (id, property_id, name, capacity_base, capacity_max)
 values ('bbbbbbbb-0000-0000-0000-000000000028',
         'aaaaaaaa-0000-0000-0000-000000000028','U28', 4, 6);

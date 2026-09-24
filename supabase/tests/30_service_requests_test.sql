@@ -4,11 +4,31 @@
 begin;
 select plan(10);
 
+-- Rows a statement changed, run as the current role: an RLS-filtered
+-- write changes 0 rows without raising.
+create function pg_temp.rows_affected(p_sql text) returns int
+language plpgsql as $f$
+declare n int;
+begin
+  execute p_sql;
+  get diagnostics n = row_count;
+  return n;
+end;
+$f$;
+
 select has_table('public', 'service_requests', 'service_requests table exists');
 select has_function('public', 'create_service_request', 'create_service_request exists');
 
 insert into public.properties (id, name, slug)
 values ('aaaaaaaa-0000-0000-0000-000000000030','P30','p30');
+
+-- The seed users' roles are memberships at the seed resort only; give them
+-- the same roles at this file's property.
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000030','10000000-0000-0000-0000-000000000001','owner'),
+  ('aaaaaaaa-0000-0000-0000-000000000030','10000000-0000-0000-0000-000000000002','admin'),
+  ('aaaaaaaa-0000-0000-0000-000000000030','10000000-0000-0000-0000-000000000003','staff'),
+  ('aaaaaaaa-0000-0000-0000-000000000030','10000000-0000-0000-0000-000000000004','accountant');
 insert into public.units (id, property_id, name, capacity_base, capacity_max)
 values ('bbbbbbbb-0000-0000-0000-000000000030',
         'aaaaaaaa-0000-0000-0000-000000000030','U30', 4, 6);
@@ -34,14 +54,13 @@ select is(
   'a new request starts as requested with no assignee'
 );
 
--- The customer cannot self-assign or edit their own request. RLS's own
--- USING stays permissive (`using (true)`, matching tasks_update's own
--- reasoning) -- it's the trigger, not RLS, that raises this explicit error
--- rather than silently affecting zero rows.
-select throws_ok(
+-- The customer cannot self-assign or edit their own request. Since 0044
+-- service_requests_update is scoped to the resort's staff, so RLS filters
+-- the customer's update: no error, no row changed.
+select is(pg_temp.rows_affected(
   $$update public.service_requests set description = 'changed'
-    where reservation_id = '97600000-0000-0000-0000-000000000001'$$,
-  '42501', null,
+    where reservation_id = '97600000-0000-0000-0000-000000000001'$$),
+  0,
   'the requesting customer cannot edit their own request'
 );
 

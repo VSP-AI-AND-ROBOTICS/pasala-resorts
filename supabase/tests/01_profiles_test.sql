@@ -1,5 +1,5 @@
 begin;
-select plan(18);
+select plan(21);
 
 select has_table('public','profiles','profiles table exists');
 select has_function('public','current_role','current_role() exists');
@@ -36,7 +36,24 @@ select throws_ok(
   'customer cannot escalate own role'
 );
 
--- role-change authority: admin vs super_admin
+select throws_ok(
+  $$update public.profiles set platform_role = 'platform_admin'
+      where id = '11111111-1111-1111-1111-111111111111'$$,
+  '42501',
+  null,
+  'customer cannot make itself a platform admin'
+);
+
+select lives_ok(
+  $$update public.profiles set full_name = 'Aa Renamed'
+      where id = '11111111-1111-1111-1111-111111111111'$$,
+  'customer can still edit own profile fields'
+);
+
+-- Role changes on other profiles are no longer direct table writes (the
+-- global admin policies were dropped in 0044; resort roles live in
+-- resort_members and are managed through functions). Direct updates by an
+-- admin or super_admin are RLS-filtered: no error, no row changed.
 reset role;
 
 insert into auth.users (id, email)
@@ -65,12 +82,10 @@ select throws_ok(
   'admin cannot promote itself to super_admin'
 );
 
-select throws_ok(
+select lives_ok(
   $$update public.profiles set role = 'admin'
       where id = '44444444-4444-4444-4444-444444444444'$$,
-  '42501',
-  null,
-  'admin cannot change another profile role'
+  'admin role change on another profile raises no error (RLS-filtered)'
 );
 
 set local request.jwt.claims to
@@ -79,17 +94,17 @@ set local request.jwt.claims to
 select lives_ok(
   $$update public.profiles set role = 'staff'
       where id = '44444444-4444-4444-4444-444444444444'$$,
-  'super_admin can change a role'
+  'super_admin role change on another profile raises no error (RLS-filtered)'
 );
 
--- admin can delete a profile (policy reachable, not blocked at grant layer)
---
--- A dedicated customer-role fixture is used here rather than
--- '44444444-...', which by this point in the file has been changed to
--- 'staff' by the "super_admin can change a role" assertion just above --
--- since the C1 fix, deleting a NON-customer profile is super_admin-only
--- (see 07_rls_test.sql for that role-gate coverage), so reusing 44444444
--- here would prove the wrong thing.
+set local role postgres;
+select is(
+  (select role from public.profiles
+    where id = '44444444-4444-4444-4444-444444444444'),
+  'customer'::public.user_role,
+  'neither admin nor super_admin changed another profile''s role directly');
+
+-- Direct profile deletes are RLS-filtered for an admin too.
 set local role postgres;
 insert into auth.users (id, email)
 values ('dddddddd-4444-4444-4444-444444444444','del-victim@example.com');
@@ -110,14 +125,14 @@ set local request.jwt.claims to
 select lives_ok(
   $$delete from public.profiles
       where id = 'dddddddd-4444-4444-4444-444444444444'$$,
-  'admin can delete a customer profile');
+  'admin delete of a customer profile raises no error (RLS-filtered)');
 
 set local role postgres;
 select is(
   (select count(*)::int from public.profiles
     where id = 'dddddddd-4444-4444-4444-444444444444'),
-  0,
-  'admin delete removed the row');
+  1,
+  'admin delete removed no rows -- no direct profile delete policy');
 
 -- A customer's DELETE is filtered by RLS: no error, and no row removed.
 set local role authenticated;
@@ -136,8 +151,8 @@ select is(
   1,
   'customer delete removed no rows — RLS filtered it');
 
--- profiles_admin_insert: an admin may create a customer profile, but only a
--- super_admin may create a privileged one.
+-- There is no insert policy on profiles any more: profiles are created by
+-- the signup trigger only.
 set local role postgres;
 insert into auth.users (id, email)
 values ('55555555-5555-5555-5555-555555555555','newcust@example.com'),
@@ -153,10 +168,10 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
 
-select lives_ok(
+select throws_ok(
   $$insert into public.profiles (id, full_name, role)
     values ('55555555-5555-5555-5555-555555555555','New Customer','customer')$$,
-  'admin can insert a customer profile');
+  '42501', null, 'admin cannot insert a profile directly');
 
 select throws_ok(
   $$insert into public.profiles (id, full_name, role)

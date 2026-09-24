@@ -34,24 +34,24 @@ update public.profiles set role = 'admin'
 insert into public.resort_members (property_id, user_id, role) values
   ('aaaaaaaa-0000-0000-0000-000000000001','44444444-4444-4444-4444-444444444444','admin');
 
-insert into public.coupons (code, kind, value) values
-  ('SAVE10', 'percent', 10),
-  ('FLAT2000', 'fixed', 2000),
-  ('HUGE', 'fixed', 999999);
-insert into public.coupons (code, kind, value, valid_to) values
-  ('EXPIRED10', 'percent', 10, now() - interval '1 day');
+insert into public.coupons (property_id, code, kind, value) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'SAVE10', 'percent', 10),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'FLAT2000', 'fixed', 2000),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'HUGE', 'fixed', 999999);
+insert into public.coupons (property_id, code, kind, value, valid_to) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'EXPIRED10', 'percent', 10, now() - interval '1 day');
 insert into public.coupons
-  (code, kind, value, max_redemptions, redeemed_count) values
-  ('MAXED', 'percent', 10, 1, 1);
-insert into public.coupons (code, kind, value, min_booking_value) values
-  ('BIGONLY', 'percent', 10, 50000);
-insert into public.coupons (code, kind, value, is_active) values
-  ('INACTIVE', 'percent', 10, false);
-insert into public.coupons (code, kind, value, customer_id) values
-  ('MINE', 'percent', 10, '22222222-2222-2222-2222-222222222222');
+  (property_id, code, kind, value, max_redemptions, redeemed_count) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'MAXED', 'percent', 10, 1, 1);
+insert into public.coupons (property_id, code, kind, value, min_booking_value) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'BIGONLY', 'percent', 10, 50000);
+insert into public.coupons (property_id, code, kind, value, is_active) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'INACTIVE', 'percent', 10, false);
+insert into public.coupons (property_id, code, kind, value, customer_id) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'MINE', 'percent', 10, '22222222-2222-2222-2222-222222222222');
 insert into public.coupons
-  (code, kind, value, max_redemptions) values
-  ('LASTONE', 'percent', 10, 1);
+  (property_id, code, kind, value, max_redemptions) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'LASTONE', 'percent', 10, 1);
 
 set local role authenticated;
 set local request.jwt.claims to
@@ -313,7 +313,7 @@ select throws_ok(
   'code-guessing oracle its four distinct SQLSTATEs used to leave open');
 
 select throws_ok(
-  $$insert into public.coupons (code, kind, value) values ('HACK','fixed',1)$$,
+  $$insert into public.coupons (property_id, code, kind, value) values ('aaaaaaaa-0000-0000-0000-000000000001', 'HACK','fixed',1)$$,
   '42501', null, 'anon cannot create coupons');
 reset role;
 
@@ -335,7 +335,7 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 select throws_ok(
-  $$insert into public.coupons (code, kind, value) values ('HACK2','fixed',1)$$,
+  $$insert into public.coupons (property_id, code, kind, value) values ('aaaaaaaa-0000-0000-0000-000000000001', 'HACK2','fixed',1)$$,
   '42501', null, 'a customer cannot create coupons');
 -- Customer 1 made both redemptions earlier in this file (SAVE10 and
 -- LASTONE); customer 2 made none. Comparing customer 2's count against
@@ -352,7 +352,7 @@ select is(
 set local request.jwt.claims to
   '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}';
 select lives_ok(
-  $$insert into public.coupons (code, kind, value) values ('ADMINMADE','percent',5)$$,
+  $$insert into public.coupons (property_id, code, kind, value) values ('aaaaaaaa-0000-0000-0000-000000000001', 'ADMINMADE','percent',5)$$,
   'an admin can create a coupon');
 reset role;
 
@@ -415,8 +415,8 @@ begin
       ('c0000000-0000-0000-0000-0000000000f1','racecust1@example.com'),
       ('c0000000-0000-0000-0000-0000000000f2','racecust2@example.com')$F$);
   perform dblink_exec(v_conn, $F$
-    insert into public.coupons (code, kind, value, max_redemptions)
-    values ('RACE10','percent',10,1)$F$);
+    insert into public.coupons (property_id, code, kind, value, max_redemptions)
+    values ('a0000000-0000-0000-0000-0000000000f1','RACE10','percent',10,1)$F$);
 
   perform dblink_connect('race_a', v_conn);
   perform dblink_connect('race_b', v_conn);
@@ -530,10 +530,10 @@ select is(
 -- reservation must not decrement a second time) and reuse (once released,
 -- a DIFFERENT customer can redeem the same slot).
 
-insert into public.coupons (code, kind, value, max_redemptions) values
-  ('RELEASE1', 'percent', 10, 1),
-  ('RELEASE2', 'percent', 10, 1),
-  ('RELEASE3', 'percent', 10, 1);
+insert into public.coupons (property_id, code, kind, value, max_redemptions) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'RELEASE1', 'percent', 10, 1),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'RELEASE2', 'percent', 10, 1),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'RELEASE3', 'percent', 10, 1);
 
 set local role authenticated;
 set local request.jwt.claims to

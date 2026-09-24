@@ -13,6 +13,12 @@ select has_function('public', 'attendance_records_enforce_own_checkout',
 select has_function('public', 'check_out_attendance',
   'the checkout RPC exists');
 
+-- The two fresh check-in fixtures further down (users ...05 and ...06) need
+-- a resort role to write attendance at the seed resort.
+insert into public.resort_members (property_id, user_id, role) values
+  ('a0000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000005','staff'),
+  ('a0000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000006','staff');
+
 -- === insert: staff can check themselves in today, nothing else ============
 
 set local role authenticated;
@@ -20,30 +26,30 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
 select lives_ok(
-  $$insert into public.attendance_records (id, staff_id, work_date)
-    values ('99111111-1111-1111-1111-111111111111',
+  $$insert into public.attendance_records (property_id, id, staff_id, work_date)
+    values ('a0000000-0000-0000-0000-000000000001', '99111111-1111-1111-1111-111111111111',
             '10000000-0000-0000-0000-000000000003',
             (now() at time zone 'Asia/Kolkata')::date)$$,
   'staff can check themselves in today');
 
 select throws_ok(
-  $$insert into public.attendance_records (staff_id, work_date)
-    values ('10000000-0000-0000-0000-000000000004', current_date + 10)$$,
+  $$insert into public.attendance_records (property_id, staff_id, work_date)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004', current_date + 10)$$,
   '42501', null, 'staff cannot check in on behalf of someone else');
 
 select throws_ok(
-  $$insert into public.attendance_records (staff_id, work_date)
-    values ('10000000-0000-0000-0000-000000000003', current_date - 10)$$,
+  $$insert into public.attendance_records (property_id, staff_id, work_date)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', current_date - 10)$$,
   '42501', null, 'staff cannot back-date a check-in to a different day');
 
 select throws_ok(
-  $$insert into public.attendance_records (staff_id, work_date, check_out_at)
-    values ('10000000-0000-0000-0000-000000000003', current_date + 11, now())$$,
+  $$insert into public.attendance_records (property_id, staff_id, work_date, check_out_at)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', current_date + 11, now())$$,
   '42501', null, 'a check-in cannot arrive already checked out');
 
 select throws_ok(
-  $$insert into public.attendance_records (staff_id, work_date)
-    values ('10000000-0000-0000-0000-000000000003',
+  $$insert into public.attendance_records (property_id, staff_id, work_date)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003',
             (now() at time zone 'Asia/Kolkata')::date)$$,
   '23505', null, 'a second check-in the same day is rejected by the unique constraint');
 
@@ -58,8 +64,8 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000004","role":"authenticated"}';
 
 select lives_ok(
-  $$insert into public.attendance_records (id, staff_id, work_date)
-    values ('99222222-2222-2222-2222-222222222222',
+  $$insert into public.attendance_records (property_id, id, staff_id, work_date)
+    values ('a0000000-0000-0000-0000-000000000001', '99222222-2222-2222-2222-222222222222',
             '10000000-0000-0000-0000-000000000004',
             (now() at time zone 'Asia/Kolkata')::date)$$,
   'an accountant can also check themselves in');
@@ -122,8 +128,8 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000005","role":"authenticated"}';
 
 select lives_ok(
-  $$insert into public.attendance_records (id, staff_id, work_date)
-    values ('99555555-5555-5555-5555-555555555555',
+  $$insert into public.attendance_records (property_id, id, staff_id, work_date)
+    values ('a0000000-0000-0000-0000-000000000001', '99555555-5555-5555-5555-555555555555',
             '10000000-0000-0000-0000-000000000005',
             (now() at time zone 'Asia/Kolkata')::date)$$,
   'staff can check in using the resort''s IST calendar date '
@@ -135,8 +141,8 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000006","role":"authenticated"}';
 
 select lives_ok(
-  $$insert into public.attendance_records (id, staff_id, work_date, check_in_at)
-    values ('99666666-6666-6666-6666-666666666666',
+  $$insert into public.attendance_records (property_id, id, staff_id, work_date, check_in_at)
+    values ('a0000000-0000-0000-0000-000000000001', '99666666-6666-6666-6666-666666666666',
             '10000000-0000-0000-0000-000000000006',
             (now() at time zone 'Asia/Kolkata')::date,
             now() - interval '3 hours')$$,
@@ -161,8 +167,8 @@ select throws_ok(
   '42501', null, 'anon cannot select attendance_records');
 
 select throws_ok(
-  $$insert into public.attendance_records (staff_id, work_date)
-    values ('10000000-0000-0000-0000-000000000003', current_date)$$,
+  $$insert into public.attendance_records (property_id, staff_id, work_date)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', current_date)$$,
   '42501', null, 'anon cannot insert into attendance_records');
 
 select * from finish();

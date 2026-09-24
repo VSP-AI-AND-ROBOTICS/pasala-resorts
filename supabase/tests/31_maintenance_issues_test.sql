@@ -4,11 +4,31 @@
 begin;
 select plan(9);
 
+-- Rows a statement changed, run as the current role: an RLS-filtered
+-- write changes 0 rows without raising.
+create function pg_temp.rows_affected(p_sql text) returns int
+language plpgsql as $f$
+declare n int;
+begin
+  execute p_sql;
+  get diagnostics n = row_count;
+  return n;
+end;
+$f$;
+
 select has_table('public', 'maintenance_issues', 'maintenance_issues table exists');
 select has_function('public', 'report_maintenance_issue', 'report_maintenance_issue exists');
 
 insert into public.properties (id, name, slug)
 values ('aaaaaaaa-0000-0000-0000-000000000031','P31','p31');
+
+-- The seed users' roles are memberships at the seed resort only; give them
+-- the same roles at this file's property.
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000031','10000000-0000-0000-0000-000000000001','owner'),
+  ('aaaaaaaa-0000-0000-0000-000000000031','10000000-0000-0000-0000-000000000002','admin'),
+  ('aaaaaaaa-0000-0000-0000-000000000031','10000000-0000-0000-0000-000000000003','staff'),
+  ('aaaaaaaa-0000-0000-0000-000000000031','10000000-0000-0000-0000-000000000004','accountant');
 insert into public.units (id, property_id, name, capacity_base, capacity_max)
 values ('bbbbbbbb-0000-0000-0000-000000000031',
         'aaaaaaaa-0000-0000-0000-000000000031','U31', 4, 6);
@@ -34,13 +54,12 @@ select is(
   'a new issue starts as reported with no assignee'
 );
 
--- RLS's own USING stays permissive (`using (true)`) -- it's the trigger,
--- not RLS, that raises this explicit error rather than silently affecting
--- zero rows, same reasoning as service_requests_update.
-select throws_ok(
+-- Since 0044 maintenance_issues_update is scoped to the resort's staff,
+-- so RLS filters the customer's update: no error, no row changed.
+select is(pg_temp.rows_affected(
   $$update public.maintenance_issues set priority = 'low'
-    where reservation_id = '97700000-0000-0000-0000-000000000001'$$,
-  '42501', null,
+    where reservation_id = '97700000-0000-0000-0000-000000000001'$$),
+  0,
   'the reporting customer cannot edit their own issue'
 );
 

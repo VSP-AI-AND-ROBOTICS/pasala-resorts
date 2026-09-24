@@ -6,6 +6,18 @@
 begin;
 select plan(20);
 
+-- Rows a statement changed, run as the current role: an RLS-filtered
+-- write changes 0 rows without raising.
+create function pg_temp.rows_affected(p_sql text) returns int
+language plpgsql as $f$
+declare n int;
+begin
+  execute p_sql;
+  get diagnostics n = row_count;
+  return n;
+end;
+$f$;
+
 select has_table('public', 'staff_shifts', 'staff_shifts table exists');
 select has_function('public', 'list_staff_shifts', 'list_staff_shifts() exists');
 
@@ -17,8 +29,8 @@ set local request.jwt.claims to
 
 select throws_ok(
   $$insert into public.staff_shifts
-      (staff_id, shift_date, start_time, end_time, created_by)
-    values ('10000000-0000-0000-0000-000000000003','2026-09-01','09:00','17:00',
+      (property_id, staff_id, shift_date, start_time, end_time, created_by)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003','2026-09-01','09:00','17:00',
             '10000000-0000-0000-0000-000000000003')$$,
   '42501', null, 'a staff member cannot insert their own shift');
 
@@ -27,16 +39,16 @@ set local request.jwt.claims to
 
 select lives_ok(
   $$insert into public.staff_shifts
-      (id, staff_id, shift_date, start_time, end_time, created_by)
-    values ('97111111-1111-1111-1111-111111111111',
+      (property_id, id, staff_id, shift_date, start_time, end_time, created_by)
+    values ('a0000000-0000-0000-0000-000000000001', '97111111-1111-1111-1111-111111111111',
             '10000000-0000-0000-0000-000000000003','2026-09-01','09:00','17:00',
             '10000000-0000-0000-0000-000000000002')$$,
   'admin can insert a shift for a staff member');
 
 select lives_ok(
   $$insert into public.staff_shifts
-      (id, staff_id, shift_date, start_time, end_time, created_by)
-    values ('97222222-2222-2222-2222-222222222222',
+      (property_id, id, staff_id, shift_date, start_time, end_time, created_by)
+    values ('a0000000-0000-0000-0000-000000000001', '97222222-2222-2222-2222-222222222222',
             '10000000-0000-0000-0000-000000000004','2026-09-02','10:00','18:00',
             '10000000-0000-0000-0000-000000000002')$$,
   'admin can insert a shift for an accountant');
@@ -57,23 +69,25 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
-select throws_ok(
+-- RLS (staff_shifts_update/_delete are admin-only) filters these: no
+-- error, no row changed.
+select is(pg_temp.rows_affected(
   $$update public.staff_shifts set notes = 'nope'
-    where id = '97111111-1111-1111-1111-111111111111'$$,
-  '42501', null, 'a staff member cannot update their own shift row');
+    where id = '97111111-1111-1111-1111-111111111111'$$),
+  0, 'a staff member cannot update their own shift row');
 
-select throws_ok(
+select is(pg_temp.rows_affected(
   $$delete from public.staff_shifts
-    where id = '97111111-1111-1111-1111-111111111111'$$,
-  '42501', null, 'a staff member cannot delete their own shift row');
+    where id = '97111111-1111-1111-1111-111111111111'$$),
+  0, 'a staff member cannot delete their own shift row');
 
 -- === the time-order check constraint ========================================
 
 reset role;
 select throws_like(
   $$insert into public.staff_shifts
-      (staff_id, shift_date, start_time, end_time, created_by)
-    values ('10000000-0000-0000-0000-000000000003','2026-09-03','17:00','09:00',
+      (property_id, staff_id, shift_date, start_time, end_time, created_by)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003','2026-09-03','17:00','09:00',
             '10000000-0000-0000-0000-000000000002')$$,
   '%staff_shifts_time_order%',
   'a shift with end_time before start_time is rejected');
@@ -147,8 +161,8 @@ select is(
 
 select lives_ok(
   $$insert into public.staff_shifts
-      (staff_id, shift_date, start_time, end_time, notes)
-    values ('10000000-0000-0000-0000-000000000003','2026-09-04','09:00','17:00',
+      (property_id, staff_id, shift_date, start_time, end_time, notes)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003','2026-09-04','09:00','17:00',
             'fixture-97333333-3333-3333-3333-333333333333')$$,
   'admin can insert a shift omitting id and created_by, matching the real '
   'payload the Dart repository sends');

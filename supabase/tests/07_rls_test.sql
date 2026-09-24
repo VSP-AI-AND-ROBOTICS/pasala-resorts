@@ -205,20 +205,18 @@ select is(
   2,
   'super_admin sees all reservations');
 
+-- Resorts are created through create_resort, never by a direct insert, so
+-- the owner's direct write access is shown on a resort-owned table.
 select lives_ok(
-  $$insert into public.properties (name, slug) values ('SA Prop','sa-p')$$,
-  'super_admin has the same direct write access as admin');
+  $$insert into public.units (property_id, name, capacity_base, capacity_max)
+    values ('aaaaaaaa-0000-0000-0000-000000000001','SA-unit',2,2)$$,
+  'super_admin (resort owner) has the same direct write access as admin');
 
--- === C1: profiles_admin_delete's role gate ==================================
--- `profiles_admin_delete` used to be bare `using (is_admin())`, with no role
--- check at all -- so a plain admin could DELETE a super_admin's row (RLS
--- -permitted) and then INSERT it back with role='customer' (also permitted,
--- since profiles_admin_insert lets any admin insert a 'customer' row),
--- round-tripping a super_admin down to customer and defeating the "role
--- changes are super-admin only" invariant `profiles_admin_update` and
--- `profiles_admin_insert` otherwise enforce. The fix gates DELETE the same
--- way INSERT already is: `is_admin() and (role = 'customer' or
--- is_super_admin())`.
+-- === C1: no direct profile deletes ==========================================
+-- `profiles_admin_delete` once let a plain admin delete a super_admin's row
+-- and re-insert it as a customer. 0044 drops every admin policy on profiles
+-- (profiles are global; resort roles live in resort_members), so no direct
+-- DELETE on profiles is permitted for anyone.
 
 set local role authenticated;
 set local request.jwt.claims to
@@ -244,14 +242,14 @@ set local request.jwt.claims to
 select lives_ok(
   $$delete from public.profiles
       where id = '44444444-4444-4444-4444-444444444444'$$,
-  'a super_admin can delete another admin''s (non-customer) profile');
+  'a super_admin''s DELETE of another profile raises no error (RLS-filtered)');
 
 set local role postgres;
 select is(
   (select count(*)::int from public.profiles
     where id = '44444444-4444-4444-4444-444444444444'),
-  0,
-  'C1: a super_admin''s delete of a privileged profile actually removed it');
+  1,
+  'C1: a super_admin''s delete of another profile removed nothing');
 
 -- === payments: a customer sees only their own ==============================
 

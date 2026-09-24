@@ -22,12 +22,12 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000002","role":"authenticated"}';
 
-insert into public.tasks (id, assignee_id, title, status) values
-  ('97300000-0000-0000-0000-000000000001',
+insert into public.tasks (property_id, id, assignee_id, title, status) values
+  ('a0000000-0000-0000-0000-000000000001', '97300000-0000-0000-0000-000000000001',
    '10000000-0000-0000-0000-000000000003', 'Task A', 'todo'),
-  ('97300000-0000-0000-0000-000000000002',
+  ('a0000000-0000-0000-0000-000000000001', '97300000-0000-0000-0000-000000000002',
    '10000000-0000-0000-0000-000000000003', 'Task B', 'todo'),
-  ('97300000-0000-0000-0000-000000000003',
+  ('a0000000-0000-0000-0000-000000000001', '97300000-0000-0000-0000-000000000003',
    '10000000-0000-0000-0000-000000000003', 'Task C', 'todo');
 
 update public.tasks set status = 'done'
@@ -50,8 +50,8 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
 select lives_ok(
-  $$insert into public.attendance_records (staff_id, work_date)
-    values ('10000000-0000-0000-0000-000000000003',
+  $$insert into public.attendance_records (property_id, staff_id, work_date)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003',
             (now() at time zone 'Asia/Kolkata')::date)$$,
   'staff checks themselves in for today'
 );
@@ -60,15 +60,15 @@ select lives_ok(
 -- === delay average is comfortably positive ===================================
 
 reset role;
-insert into public.staff_shifts (staff_id, shift_date, start_time, end_time)
-values ('10000000-0000-0000-0000-000000000003',
+insert into public.staff_shifts (property_id, staff_id, shift_date, start_time, end_time)
+values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003',
         (now() at time zone 'Asia/Kolkata')::date, '00:00', '23:59');
 
 -- === fixture: a 3-day approved leave request, fully inside the window ======
 
 insert into public.leave_requests
-  (staff_id, start_date, end_date, status, decided_by, decided_at)
-values ('10000000-0000-0000-0000-000000000003',
+  (property_id, staff_id, start_date, end_date, status, decided_by, decided_at)
+values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003',
         current_date, current_date + 2, 'approved',
         '10000000-0000-0000-0000-000000000002', now());
 
