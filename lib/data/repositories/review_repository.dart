@@ -55,17 +55,20 @@ class ReviewRepository {
         return row == null ? null : Review.fromJson(row);
       });
 
-  /// Every review the caller may read, newest first -- `reviews_read`
+  /// One resort's reviews, newest first. `reviews_read`
   /// (0044_resort_policies.sql) shows reviews of active resorts to every
   /// signed-in user, since reviews are social proof shown on the property
-  /// page. Each row carries its own `author_name`, so no `profiles` embed is
-  /// needed (guest profiles are not readable across resorts). Backs the
-  /// admin dashboard's Guest Experience card, the customer property page's
-  /// reviews section, and both standalone Reviews screens.
-  Future<List<Review>> all() => _guard(() async {
+  /// page -- so the resort filter here is what keeps each resort's pages to
+  /// its own reviews. Each row carries its own `author_name`, so no
+  /// `profiles` embed is needed (guest profiles are not readable across
+  /// resorts). Backs the admin dashboard's Guest Experience card and
+  /// `/admin/reviews` (current resort), and the property page's reviews
+  /// section and `/property/:id/reviews` (that property).
+  Future<List<Review>> forProperty(String propertyId) => _guard(() async {
         final rows = await _db
             .from('reviews')
             .select()
+            .eq('property_id', propertyId)
             .order('created_at', ascending: false);
         return rows.map(Review.fromJson).toList();
       });
@@ -80,6 +83,7 @@ final reviewForReservationProvider = FutureProvider.family<Review?, String>(
       ref.watch(reviewRepositoryProvider).forReservation(reservationId),
 );
 
-final allReviewsProvider = FutureProvider<List<Review>>(
-  (ref) => ref.watch(reviewRepositoryProvider).all(),
+final propertyReviewsProvider = FutureProvider.family<List<Review>, String>(
+  (ref, propertyId) =>
+      ref.watch(reviewRepositoryProvider).forProperty(propertyId),
 );

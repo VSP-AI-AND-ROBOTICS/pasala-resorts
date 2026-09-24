@@ -298,7 +298,7 @@ class PropertyScreen extends ConsumerWidget {
                       const SizedBox(height: Spacing.lg),
                       _LocationSection(property: p),
                       const SizedBox(height: Spacing.lg),
-                      const _ReviewsSection(),
+                      _ReviewsSection(propertyId: p.id),
                     ],
                   );
                 },
@@ -526,17 +526,18 @@ class _LocationSection extends StatelessWidget {
 /// The average overall rating plus the 2 most recent reviews -- social
 /// proof shown near the bottom of the page, right where a customer who has
 /// already read About/Location and is deciding whether to book would look
-/// for it. "View All Reviews" opens the full list at `/reviews`.
-/// `allReviewsProvider` is shared with the admin dashboard's Guest
-/// Experience card; `reviews_read` (0044_resort_policies.sql) is
-/// what makes every guest's review visible here, not just the customer's
-/// own.
+/// for it. "View All Reviews" opens this property's full list at
+/// `/property/:id/reviews`. `reviews_read` (0044_resort_policies.sql) is
+/// what makes every guest's review of this property visible here, not just
+/// the customer's own.
 class _ReviewsSection extends ConsumerWidget {
-  const _ReviewsSection();
+  const _ReviewsSection({required this.propertyId});
+
+  final String propertyId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reviewsAsync = ref.watch(allReviewsProvider);
+    final reviewsAsync = ref.watch(propertyReviewsProvider(propertyId));
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
@@ -591,7 +592,7 @@ class _ReviewsSection extends ConsumerWidget {
                 ],
                 OutlinedButton(
                   key: const Key('view-all-reviews-button'),
-                  onPressed: () => context.push('/reviews'),
+                  onPressed: () => context.push('/property/$propertyId/reviews'),
                   child: const Text('View All Reviews'),
                 ),
               ],

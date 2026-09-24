@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pasala/core/theme/app_assets.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/reservation.dart';
@@ -51,6 +52,19 @@ class _NoOccupancyCalendarSource implements UnitCalendarSource {
   Future<List<Reservation>> fetchUnit(String unitId) async => const [];
 }
 
+const _otherResortReview = Review(
+  id: 'other',
+  reservationId: 'res-other',
+  customerId: 'c-other',
+  farmhouseRating: 1,
+  cleanlinessRating: 1,
+  foodRating: 1,
+  serviceRating: 1,
+  activitiesRating: 1,
+  overallRating: 1,
+  feedback: 'Review of another resort',
+);
+
 Widget _appFor({List<Review> reviews = const []}) => ProviderScope(
       overrides: [
         propertyProvider('p1').overrideWith((ref) => Future.value(_property)),
@@ -58,7 +72,10 @@ Widget _appFor({List<Review> reviews = const []}) => ProviderScope(
         unitByIdProvider('u1').overrideWith((ref) => Future.value(_unit)),
         unitCalendarSourceProvider
             .overrideWithValue(_NoOccupancyCalendarSource()),
-        allReviewsProvider.overrideWith((ref) => Future.value(reviews)),
+        // Only p1's reviews belong on p1's page; any other resort's review
+        // must never show up here.
+        propertyReviewsProvider.overrideWith((ref, propertyId) async =>
+            propertyId == 'p1' ? reviews : [_otherResortReview]),
       ],
       child: const MaterialApp(
         home: Scaffold(body: PropertyScreen(propertyId: 'p1')),
@@ -204,7 +221,7 @@ void main() {
           unitsProvider('p1').overrideWith((ref) => Future.value(_units)),
           unitByIdProvider('u1').overrideWith((ref) => Future.value(_unit)),
           unitCalendarSourceProvider.overrideWithValue(_NoOccupancyCalendarSource()),
-          allReviewsProvider.overrideWith((ref) => Future.value([])),
+          propertyReviewsProvider.overrideWith((ref, propertyId) async => []),
         ],
         child: const MaterialApp(
           home: Scaffold(body: PropertyScreen(propertyId: 'p1')),
@@ -216,4 +233,66 @@ void main() {
     expect(find.text('Near Kanakapura Road, Bengaluru'), findsOneWidget);
     expect(find.byIcon(Icons.open_in_new), findsOneWidget);
   });
+
+  testWidgets(
+    "shows only this property's reviews, and View All Reviews opens this "
+    "property's review list",
+    (tester) async {
+      final router = GoRouter(
+        initialLocation: '/property/p1',
+        routes: [
+          GoRoute(
+            path: '/property/:id',
+            builder: (_, state) => Scaffold(
+              body: PropertyScreen(propertyId: state.pathParameters['id']!),
+            ),
+          ),
+          GoRoute(
+            path: '/property/:id/reviews',
+            builder: (_, state) =>
+                Text('REVIEWS OF ${state.pathParameters['id']}'),
+          ),
+        ],
+      );
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          propertyProvider('p1').overrideWith((ref) => Future.value(_property)),
+          unitsProvider('p1').overrideWith((ref) => Future.value(_units)),
+          unitByIdProvider('u1').overrideWith((ref) => Future.value(_unit)),
+          unitCalendarSourceProvider
+              .overrideWithValue(_NoOccupancyCalendarSource()),
+          propertyReviewsProvider.overrideWith((ref, propertyId) async =>
+              propertyId == 'p1'
+                  ? [
+                      const Review(
+                        id: 'r1',
+                        reservationId: 'res-1',
+                        customerId: 'c1',
+                        farmhouseRating: 5,
+                        cleanlinessRating: 5,
+                        foodRating: 5,
+                        serviceRating: 5,
+                        activitiesRating: 5,
+                        overallRating: 5,
+                        feedback: 'Wonderful stay!',
+                      ),
+                    ]
+                  : [_otherResortReview]),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Wonderful stay!'), findsOneWidget);
+      expect(find.text('Review of another resort'), findsNothing);
+
+      final button = find.byKey(const Key('view-all-reviews-button'));
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+
+      expect(find.text('REVIEWS OF p1'), findsOneWidget);
+    },
+  );
 }

@@ -309,9 +309,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                 fadeSlidePage(const MyBookingsScreen(), state),
           ),
           GoRoute(
-            path: '/reviews',
-            pageBuilder: (_, state) =>
-                fadeSlidePage(const CustomerReviewsScreen(), state),
+            path: '/property/:id/reviews',
+            pageBuilder: (_, state) => fadeSlidePage(
+              CustomerReviewsScreen(propertyId: state.pathParameters['id']!),
+              state,
+            ),
           ),
           GoRoute(
             path: '/booking-detail/:id',

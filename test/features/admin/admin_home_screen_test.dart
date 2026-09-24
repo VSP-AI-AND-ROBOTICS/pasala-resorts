@@ -300,7 +300,25 @@ void main() {
           unitsProvider(property.id).overrideWith((ref) async => [unit]),
           allBookingsProvider.overrideWith(
               (ref, propertyId) async => propertyId == property.id ? bookings : []),
-          allReviewsProvider.overrideWith((ref) async => reviews),
+          // Another resort's 1-star review must never reach this resort's
+          // Guest Experience card.
+          propertyReviewsProvider.overrideWith((ref, propertyId) async =>
+              propertyId == property.id
+                  ? reviews
+                  : [
+                      const Review(
+                        id: 'other',
+                        reservationId: 'res-other',
+                        customerId: 'c-other',
+                        farmhouseRating: 1,
+                        cleanlinessRating: 1,
+                        foodRating: 1,
+                        serviceRating: 1,
+                        activitiesRating: 1,
+                        overallRating: 1,
+                        feedback: 'Review of another resort',
+                      ),
+                    ]),
           dashboardSummaryProvider.overrideWith((ref, propertyId) async => DashboardSummary(
                 todayRevenue: 0,
                 monthRevenue: 52900,
@@ -438,6 +456,17 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('4.5'), findsOneWidget);
+    });
+
+    testWidgets("the Guest Experience card only counts the current resort's "
+        'reviews', (tester) async {
+      await useTallSurface(tester);
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+
+      expect(find.text('No reviews yet'), findsOneWidget);
+      expect(find.text('1.0'), findsNothing);
+      expect(find.textContaining('Review of another resort'), findsNothing);
     });
   });
 }

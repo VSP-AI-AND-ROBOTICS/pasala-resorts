@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -8,20 +9,20 @@ import '../../core/widgets/empty_state.dart';
 import '../../data/models/review.dart';
 import '../../data/repositories/review_repository.dart';
 
-/// `/admin/reviews` -- every guest review, newest first. Reachable by
-/// admin/staff, matching `reviews_read`'s `is_staff_or_above()` grant.
+/// `/admin/reviews` -- the current resort's guest reviews, newest first.
 class AdminReviewsScreen extends ConsumerWidget {
   const AdminReviewsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reviewsAsync = ref.watch(allReviewsProvider);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final reviewsAsync = ref.watch(propertyReviewsProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Reviews')),
       body: AsyncView(
         value: reviewsAsync,
-        onRetry: () => ref.invalidate(allReviewsProvider),
+        onRetry: () => ref.invalidate(propertyReviewsProvider(propertyId)),
         empty: () => const EmptyState(
           icon: Icons.star_outline,
           title: 'No reviews yet',

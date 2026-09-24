@@ -8,23 +8,25 @@ import '../../core/widgets/empty_state.dart';
 import '../../data/models/review.dart';
 import '../../data/repositories/review_repository.dart';
 
-/// `/reviews` -- every guest review, newest first, reachable by any
-/// signed-in customer (not just admin/staff) now that `reviews_read`
-/// (0044_resort_policies.sql) makes active resorts' reviews public in the
-/// app. The property page's own Reviews section links here for the full
-/// list.
+/// `/property/:id/reviews` -- one property's guest reviews, newest first,
+/// reachable by any signed-in customer (not just admin/staff) now that
+/// `reviews_read` (0044_resort_policies.sql) makes active resorts' reviews
+/// public in the app. The property page's own Reviews section links here
+/// for the full list.
 class CustomerReviewsScreen extends ConsumerWidget {
-  const CustomerReviewsScreen({super.key});
+  const CustomerReviewsScreen({super.key, required this.propertyId});
+
+  final String propertyId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reviewsAsync = ref.watch(allReviewsProvider);
+    final reviewsAsync = ref.watch(propertyReviewsProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Guest Reviews')),
       body: AsyncView(
         value: reviewsAsync,
-        onRetry: () => ref.invalidate(allReviewsProvider),
+        onRetry: () => ref.invalidate(propertyReviewsProvider(propertyId)),
         empty: () => const EmptyState(
           icon: Icons.star_outline,
           title: 'No reviews yet',

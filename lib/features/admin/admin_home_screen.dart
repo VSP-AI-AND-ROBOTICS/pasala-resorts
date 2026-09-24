@@ -622,15 +622,16 @@ class _FarmhouseReadinessCard extends StatelessWidget {
   }
 }
 
-/// The real average rating and most recent review, from every review ever
-/// submitted -- see [ReviewRepository.all]. "View Reviews" opens the
-/// standalone list.
+/// The real average rating and most recent review, from every review of
+/// the current resort -- see [ReviewRepository.forProperty]. "View
+/// Reviews" opens the standalone list.
 class _GuestExperienceCard extends ConsumerWidget {
   const _GuestExperienceCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reviewsAsync = ref.watch(allReviewsProvider);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final reviewsAsync = ref.watch(propertyReviewsProvider(propertyId));
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final reviews = reviewsAsync.value ?? const [];
