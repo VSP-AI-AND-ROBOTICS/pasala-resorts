@@ -18,7 +18,7 @@
 --   P8 suspended resort, Starter active   -> active, in MRR
 --   P9 no subscription row                -> "No plan", counts for nothing
 begin;
-select plan(38);
+select plan(62);
 
 -- "Today" as the subscription functions see it.
 create function pg_temp.today() returns date
@@ -246,6 +246,89 @@ select throws_ok($$select * from public.my_resort_subscription('f1000000-0000-40
   'P0020', null, 'the platform admin reads plans through platform_resorts, not as a member');
 reset role;
 set local request.jwt.claims to '';
+
+-- === Task 3: creating resorts, changing plans and prices ===================
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select lives_ok($$select public.create_resort('Sub New Trial', 'sub-other-owner@example.com')$$,
+  'create_resort with only a name and an owner still works');
+select is((select plan_tier::text || '|' || plan_status::text || '|' || (trial_ends_on - pg_temp.today())::text
+             from public.platform_resorts() where name = 'Sub New Trial'),
+  'starter|trial|30', 'by default a new resort starts a 30-day Starter trial');
+select lives_ok($$select public.create_resort('Sub New Paid', 'sub-other-owner@example.com', 'pro', 0)$$,
+  'create_resort with no trial');
+select is((select plan_tier::text || '|' || plan_status::text || '|' || coalesce(paid_through::text, 'none')
+             from public.platform_resorts() where name = 'Sub New Paid'),
+  'pro|active|none', 'with no trial a new resort starts active with no end date');
+select throws_ok($$select public.create_resort('Sub Bad', 'sub-other-owner@example.com', 'pro', -1)$$,
+  'P0005', null, 'negative trial days are refused');
+select throws_ok($$select public.create_resort('Sub Bad', 'sub-other-owner@example.com', 'pro', 366)$$,
+  'P0005', null, 'a trial longer than a year is refused');
+select throws_ok($$select public.create_resort('Sub Bad', 'sub-other-owner@example.com', null, 30)$$,
+  'P0005', null, 'a new resort needs a tier');
+
+-- P9 has no plan yet: set_resort_subscription creates the row.
+select lives_ok($$select public.set_resort_subscription('f1000000-0000-4000-8000-000000000009',
+  'enterprise', 'trial', pg_temp.today() + 14, pg_temp.today() + 99, '   ')$$,
+  'set_resort_subscription gives a plan-less resort a plan');
+select is((select plan_tier::text || '|' || plan_status::text || '|' || (trial_ends_on - pg_temp.today())::text
+                  || '|' || coalesce(paid_through::text, 'none') || '|' || coalesce(plan_notes, 'none')
+             from public.platform_resorts()
+            where property_id = 'f1000000-0000-4000-8000-000000000009'),
+  'enterprise|trial|14|none|none', 'a trial keeps only its end date, and blank notes are dropped');
+-- P4's trial lapsed yesterday: the admin records a payment.
+select lives_ok($$select public.set_resort_subscription('f1000000-0000-4000-8000-000000000004',
+  'pro', 'active', pg_temp.today() + 3, pg_temp.today() + 30, 'Paid by UPI')$$,
+  'the platform admin converts a lapsed trial into a paid plan');
+select is((select plan_tier::text || '|' || plan_status::text || '|' || lapsed::text || '|'
+                  || coalesce(trial_ends_on::text, 'none') || '|'
+                  || (paid_through - pg_temp.today())::text || '|' || plan_notes
+             from public.platform_resorts()
+            where property_id = 'f1000000-0000-4000-8000-000000000004'),
+  'pro|active|false|none|30|Paid by UPI', 'the paid plan runs 30 days, drops the trial date and is no longer lapsed');
+select throws_ok($$select public.set_resort_subscription('f1000000-0000-4000-8000-000000000003', 'pro', 'trial')$$,
+  'P0005', null, 'a trial needs an end date');
+select throws_ok($$select public.set_resort_subscription('f1000000-0000-4000-8000-000000000003', null, 'active')$$,
+  'P0005', null, 'a plan needs a tier');
+select throws_ok($$select public.set_resort_subscription('00000000-0000-4000-8000-000000000000', 'pro', 'active')$$,
+  'P0002', null, 'an unknown resort is not found');
+
+select lives_ok($$select public.set_plan_price('pro', 8999)$$, 'the platform admin changes the Pro price');
+select is((select array[subscribed_count, active_count, trial_count] from public.platform_summary()),
+  array[9, 8, 3], 'the two new resorts and the plans set above are counted');
+select is((select mrr_inr from public.platform_summary()), 49995::numeric,
+  'MRR follows the new Pro price: three Pro at 8999 + Enterprise 19999 + Starter 2999');
+select throws_ok($$select public.set_plan_price('pro', -1)$$,
+  'P0005', null, 'a negative price is refused');
+select throws_ok($$update public.resort_subscriptions set status = 'cancelled'$$,
+  '42501', null, 'the platform admin writes subscriptions only through the functions');
+
+-- The owner of P1 cannot touch plans or prices.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$select public.set_resort_subscription('f1000000-0000-4000-8000-000000000001', 'enterprise', 'active')$$,
+  'P0008', null, 'an owner cannot change their own plan');
+select throws_ok($$select public.set_plan_price('starter', 1)$$,
+  'P0008', null, 'an owner cannot change prices');
+reset role;
+set local request.jwt.claims to '';
+
+select is((select count(*)::int from public.audit_log
+            where entity = 'subscription'
+              and entity_id = 'f1000000-0000-4000-8000-000000000004'
+              and property_id = 'f1000000-0000-4000-8000-000000000004'
+              and before ->> 'status' = 'trial' and after ->> 'status' = 'active'),
+  1, 'set_resort_subscription writes an audit row with before and after');
+select is((select count(*)::int from public.audit_log a
+             join public.properties p on p.id = a.entity_id
+            where a.entity = 'subscription' and a.action = 'subscription:create'
+              and p.name in ('Sub New Trial', 'Sub New Paid')),
+  2, 'create_resort audits the subscription it starts');
+select is((select count(*)::int from public.audit_log
+            where entity = 'subscription_plan' and property_id is null
+              and action = 'price:7999.00->8999.00'),
+  1, 'set_plan_price writes a platform audit row');
 
 select * from finish();
 rollback;

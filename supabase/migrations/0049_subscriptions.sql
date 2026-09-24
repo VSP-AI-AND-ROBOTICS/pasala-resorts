@@ -247,9 +247,10 @@ begin
 end;
 $$;
 
--- Adds a tier and trial days. Dropping the two-argument version keeps
--- PostgREST and SQL callers from ever hitting an ambiguous overload. Until
--- Task 3 the body is 0045's and ignores the new parameters.
+-- 0045's create_resort, plus the resort's subscription in the same
+-- transaction: a trial of p_trial_days on p_tier, or active with no end
+-- date when p_trial_days is 0. Dropping the two-argument version keeps
+-- PostgREST and SQL callers from ever hitting an ambiguous overload.
 drop function public.create_resort(text, text);
 
 create function public.create_resort(
@@ -268,6 +269,7 @@ declare
   v_slug  text;
   v_n     int := 1;
   v_id    uuid;
+  v_sub   public.resort_subscriptions;
 begin
   if not public.is_platform_admin() then
     raise exception 'not permitted' using errcode = 'P0008';
@@ -275,6 +277,14 @@ begin
 
   if coalesce(trim(p_name), '') = '' then
     raise exception 'name is required' using errcode = 'P0005';
+  end if;
+
+  if p_tier is null then
+    raise exception 'Choose a plan.' using errcode = 'P0005';
+  end if;
+
+  if p_trial_days is null or p_trial_days < 0 or p_trial_days > 365 then
+    raise exception 'A trial is 0 to 365 days.' using errcode = 'P0005';
   end if;
 
   select id into v_owner from auth.users
@@ -300,10 +310,26 @@ begin
   insert into public.resort_members (property_id, user_id, role)
   values (v_id, v_owner, 'owner');
 
+  insert into public.resort_subscriptions (property_id, tier, status, trial_ends_on)
+  values (v_id,
+          p_tier,
+          (case when p_trial_days > 0 then 'trial' else 'active' end)::public.subscription_status,
+          case when p_trial_days > 0
+               then (now() at time zone 'Asia/Kolkata')::date + p_trial_days end)
+  returning * into v_sub;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values (auth.uid(), 'subscription', v_id, 'subscription:create',
+          null, to_jsonb(v_sub), v_id);
+
   return v_id;
 end;
 $$;
 
+-- The platform admin sets a resort's plan by hand (spec decision 3). An
+-- upsert, so it also gives a "No plan" resort its first plan. Only the
+-- date the status needs is kept: trial_ends_on for a trial, paid_through
+-- (null = no end date) otherwise.
 create function public.set_resort_subscription(
   p_property      uuid,
   p_tier          public.subscription_tier,
@@ -316,11 +342,65 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_old public.resort_subscriptions;
+  v_new public.resort_subscriptions;
 begin
-  raise exception 'set_resort_subscription is not implemented yet' using errcode = '0A000';
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  if p_tier is null or p_status is null then
+    raise exception 'Choose a plan and a status.' using errcode = 'P0005';
+  end if;
+
+  if p_status = 'trial' and p_trial_ends_on is null then
+    raise exception 'A trial needs an end date.' using errcode = 'P0005';
+  end if;
+
+  perform 1 from public.properties where id = p_property;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+
+  -- Lock the current row, if any, so two saves at once apply one after
+  -- the other and each audits what it actually replaced.
+  select * into v_old from public.resort_subscriptions
+   where property_id = p_property
+   for update;
+
+  insert into public.resort_subscriptions as s
+    (property_id, tier, status, trial_ends_on, paid_through, notes, updated_at, updated_by)
+  values
+    (p_property, p_tier, p_status,
+     case when p_status = 'trial' then p_trial_ends_on end,
+     case when p_status <> 'trial' then p_paid_through end,
+     nullif(btrim(p_notes), ''),
+     now(), auth.uid())
+  on conflict (property_id) do update
+    set tier          = excluded.tier,
+        status        = excluded.status,
+        trial_ends_on = excluded.trial_ends_on,
+        paid_through  = excluded.paid_through,
+        notes         = excluded.notes,
+        updated_at    = excluded.updated_at,
+        updated_by    = excluded.updated_by
+  returning * into v_new;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values (auth.uid(), 'subscription', p_property,
+          'subscription:'
+            || coalesce(v_old.tier::text || '/' || v_old.status::text, 'none')
+            || '->' || p_tier::text || '/' || p_status::text,
+          case when v_old.property_id is null then null else to_jsonb(v_old) end,
+          to_jsonb(v_new),
+          p_property);
 end;
 $$;
 
+-- The platform admin edits a monthly price (spec decision 11). It applies
+-- to every resort on the tier at once, so MRR moves with it. A platform
+-- event: the audit row has no property_id.
 create function public.set_plan_price(
   p_tier              public.subscription_tier,
   p_monthly_price_inr numeric
@@ -329,8 +409,40 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_old public.subscription_plans;
+  v_new public.subscription_plans;
 begin
-  raise exception 'set_plan_price is not implemented yet' using errcode = '0A000';
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  if p_tier is null or p_monthly_price_inr is null
+     or p_monthly_price_inr < 0 or p_monthly_price_inr > 10000000 then
+    raise exception 'Enter a monthly price from 0 to 1,00,00,000.' using errcode = 'P0005';
+  end if;
+
+  select * into v_old from public.subscription_plans where tier = p_tier for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+
+  if round(p_monthly_price_inr, 2) = v_old.monthly_price_inr then
+    return;
+  end if;
+
+  update public.subscription_plans
+     set monthly_price_inr = round(p_monthly_price_inr, 2),
+         updated_at = now()
+   where tier = p_tier
+  returning * into v_new;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values (auth.uid(), 'subscription_plan', v_new.id,
+          'price:' || v_old.monthly_price_inr::text || '->' || v_new.monthly_price_inr::text,
+          jsonb_build_object('monthly_price_inr', v_old.monthly_price_inr),
+          jsonb_build_object('monthly_price_inr', v_new.monthly_price_inr),
+          null);
 end;
 $$;
 
