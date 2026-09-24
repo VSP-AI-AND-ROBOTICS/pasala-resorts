@@ -230,4 +230,196 @@ void main() {
 
     expect(source.boardCalls.length, greaterThan(before));
   });
+
+  group('room actions', () {
+    Future<void> openSheet(WidgetTester tester, String unitId) async {
+      await tester.tap(find.byKey(Key('room-tile-$unitId')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('tapping a tile opens the sheet with every action',
+        (tester) async {
+      await _pump(tester, FakeRoomBoardSource()..entries = [boardEntry()]);
+      await openSheet(tester, 'u1');
+
+      for (final key in [
+        'room-action-occupied',
+        'room-action-available',
+        'room-action-dirty',
+        'room-action-maintenance',
+        'room-action-dispatch',
+        'room-link-check-in',
+        'room-link-check-out',
+      ]) {
+        expect(find.byKey(Key(key)), findsOneWidget, reason: key);
+      }
+    });
+
+    testWidgets('Needs cleaning sets the room dirty and refetches the board',
+        (tester) async {
+      final source = FakeRoomBoardSource()..entries = [boardEntry()];
+      await _pump(tester, source);
+      final before = source.boardCalls.length;
+      await openSheet(tester, 'u1');
+
+      await tester.tap(find.byKey(const Key('room-action-dirty')));
+      await tester.pumpAndSettle();
+
+      expect(source.setStatusCalls, [('u1', RoomState.dirty, null)]);
+      expect(source.boardCalls.length, greaterThan(before));
+      expect(find.text('Cottage 1 updated'), findsOneWidget);
+    });
+
+    testWidgets('Maintenance asks for a reason and refuses a blank one',
+        (tester) async {
+      final source = FakeRoomBoardSource()..entries = [boardEntry()];
+      await _pump(tester, source);
+      await openSheet(tester, 'u1');
+
+      await tester.tap(find.byKey(const Key('room-action-maintenance')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('maintenance-reason')), '   ');
+      await tester.tap(find.byKey(const Key('maintenance-submit')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Enter a reason'), findsOneWidget);
+      expect(source.setStatusCalls, isEmpty);
+
+      await tester.enterText(
+          find.byKey(const Key('maintenance-reason')), 'AC broken');
+      await tester.tap(find.byKey(const Key('maintenance-submit')));
+      await tester.pumpAndSettle();
+
+      expect(source.setStatusCalls, [('u1', RoomState.outOfOrder, 'AC broken')]);
+    });
+
+    testWidgets('Send housekeeping picks a staff member and passes the note',
+        (tester) async {
+      final source = FakeRoomBoardSource()
+        ..entries = [boardEntry()]
+        ..staff = const [
+          DispatchableStaff(userId: 's1', fullName: 'Hari Housekeeper'),
+          DispatchableStaff(userId: 's2', fullName: 'Indu Incharge'),
+        ];
+      await _pump(tester, source);
+      await openSheet(tester, 'u1');
+
+      await tester.tap(find.byKey(const Key('room-action-dispatch')));
+      await tester.pumpAndSettle();
+      expect(source.staffCalls, ['p1']);
+
+      await tester.tap(find.byKey(const Key('dispatch-assignee')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Hari Housekeeper').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('dispatch-note')), 'Fresh towels');
+      await tester.tap(find.byKey(const Key('dispatch-submit')));
+      await tester.pumpAndSettle();
+
+      expect(source.dispatchCalls, [('u1', 's1', 'Fresh towels')]);
+      expect(find.text('Housekeeping sent to Cottage 1'), findsOneWidget);
+    });
+
+    testWidgets('Send stays disabled until a housekeeper is picked',
+        (tester) async {
+      final source = FakeRoomBoardSource()
+        ..entries = [boardEntry()]
+        ..staff = const [DispatchableStaff(userId: 's1', fullName: 'Hari Housekeeper')];
+      await _pump(tester, source);
+      await openSheet(tester, 'u1');
+      await tester.tap(find.byKey(const Key('room-action-dispatch')));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<FilledButton>(find.byKey(const Key('dispatch-submit'))).onPressed,
+        isNull,
+      );
+    });
+
+    testWidgets('with no staff members the dialog explains how to add one',
+        (tester) async {
+      await _pump(tester, FakeRoomBoardSource()..entries = [boardEntry()]);
+      await openSheet(tester, 'u1');
+      await tester.tap(find.byKey(const Key('room-action-dispatch')));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('No Staff / Incharge members yet. An owner can add one in Team.'),
+          findsOneWidget);
+    });
+
+    testWidgets('an open housekeeping task disables Send housekeeping',
+        (tester) async {
+      await _pump(
+        tester,
+        FakeRoomBoardSource()
+          ..entries = [
+            boardEntry(
+              status: RoomStatus.cleaning,
+              state: RoomState.dirty,
+              housekeepingTaskId: 't1',
+              housekeeperName: 'Hari Housekeeper',
+              housekeepingDispatchedAt: _now,
+            ),
+          ],
+      );
+      await openSheet(tester, 'u1');
+
+      expect(
+        tester.widget<ListTile>(find.byKey(const Key('room-action-dispatch'))).enabled,
+        isFalse,
+      );
+      expect(find.text('Already sent to Hari Housekeeper'), findsOneWidget);
+    });
+
+    testWidgets('a dispatch refused as already sent shows the readable message',
+        (tester) async {
+      final source = FakeRoomBoardSource()
+        ..entries = [boardEntry()]
+        ..staff = const [DispatchableStaff(userId: 's1', fullName: 'Hari Housekeeper')]
+        ..dispatchError = const AlreadyDispatched();
+      await _pump(tester, source);
+      await openSheet(tester, 'u1');
+      await tester.tap(find.byKey(const Key('room-action-dispatch')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('dispatch-assignee')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Hari Housekeeper').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('dispatch-submit')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Housekeeping is already on its way to this room.'),
+          findsOneWidget);
+    });
+
+    testWidgets('Occupied is shown but not settable; the sheet links to '
+        'check-out', (tester) async {
+      await _pump(
+        tester,
+        FakeRoomBoardSource()
+          ..entries = [boardEntry(status: RoomStatus.occupied, guestFirstName: 'Gita')],
+      );
+      await openSheet(tester, 'u1');
+
+      expect(
+        tester.widget<ListTile>(find.byKey(const Key('room-action-occupied'))).enabled,
+        isFalse,
+      );
+
+      await tester.tap(find.byKey(const Key('room-link-check-out')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHECK-OUT SCREEN'), findsOneWidget);
+    });
+
+    testWidgets('an accountant sees the grid but no actions', (tester) async {
+      await _pump(tester, FakeRoomBoardSource()..entries = [boardEntry()],
+          resort: _accountantM);
+      await openSheet(tester, 'u1');
+
+      expect(find.byKey(const Key('room-action-available')), findsNothing);
+      expect(find.text('Cottage 1'), findsOneWidget);
+    });
+  });
 }

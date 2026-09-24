@@ -63,6 +63,20 @@ class NoAccountFound extends BookingFailure {
 /// [AuthException.message], which -- unlike [PostgrestException.message] --
 /// is already written for an end user (e.g. "Invalid login credentials",
 /// "User already registered"), so it is safe to show verbatim.
+/// P0030 -- `set_room_status` refused Maintenance without a reason. The
+/// room sheet asks for one first, so this is a backstop.
+class ReasonRequired extends BookingFailure {
+  const ReasonRequired()
+      : super('Enter a reason to mark a room as Maintenance.');
+}
+
+/// P0031 -- `dispatch_housekeeping` found an open housekeeping task for the
+/// room (someone else sent housekeeping a moment ago).
+class AlreadyDispatched extends BookingFailure {
+  const AlreadyDispatched()
+      : super('Housekeeping is already on its way to this room.');
+}
+
 class InvalidCredentials extends BookingFailure {
   const InvalidCredentials(super.message);
 }
@@ -161,6 +175,10 @@ BookingFailure mapPostgrestError(Object error) {
     'P0021' => InvalidState(message),
     'P0022' => const ResortSuspended(),
     'P0023' => InvalidState(message),
+    // P0030/P0031: room status (0047). The server sends bare codes
+    // (`reason_required`, `already_dispatched`), so the copy lives here.
+    'P0030' => const ReasonRequired(),
+    'P0031' => const AlreadyDispatched(),
     '23514' => InvalidState(message),
     '23505' => const DuplicateValue(),
     _ => UnknownFailure(message),

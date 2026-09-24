@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/current_resort.dart';
+import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/failure_view.dart';
+import '../../data/models/resort_membership.dart';
 import '../../data/models/room_status.dart';
 import '../../data/repositories/room_status_repository.dart';
+import 'room_actions_sheet.dart';
 import 'room_tile.dart';
 
 /// How many rooms have each [RoomStatus]. Every status is present (zero
@@ -23,7 +28,9 @@ int roomGridColumns(double width) =>
 
 /// `/staff/rooms` -- the room status grid (REQ-06) of the current resort:
 /// summary chips that count and filter, then one tile per active unit.
-/// Every member of the resort can open it; pull to refresh.
+/// Every member of the resort can open it; owners, admins and staff tap a
+/// tile for its actions, while accountants see the grid read-only. Pull to
+/// refresh; the board is also refetched after every action.
 class RoomStatusScreen extends ConsumerStatefulWidget {
   const RoomStatusScreen({super.key, this.clock = DateTime.now});
 
@@ -48,6 +55,7 @@ class _RoomStatusScreenState extends ConsumerState<RoomStatusScreen> {
     }
     final propertyId = resort.propertyId;
     final boardAsync = ref.watch(roomBoardProvider(propertyId));
+    final canAct = resort.role != ResortRole.accountant;
 
     Future<void> refresh() => ref.refresh(roomBoardProvider(propertyId).future);
 
@@ -91,13 +99,39 @@ class _RoomStatusScreenState extends ConsumerState<RoomStatusScreen> {
                     ? ''
                     : 'No ${_filter!.label} rooms right now.',
                 now: widget.clock(),
-                onTap: null,
+                onTap: canAct ? (entry) => _openActions(entry, propertyId) : null,
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _openActions(RoomBoardEntry entry, String propertyId) async {
+    final action = await showRoomActionsSheet(context,
+        entry: entry, propertyId: propertyId);
+    if (action == null || !mounted) return;
+    final source = ref.read(roomBoardSourceProvider);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      switch (action) {
+        case SetRoomStateAction(:final state, :final reason):
+          await source.setStatus(entry.unitId, state, reason: reason);
+          messenger.showSnackBar(
+              SnackBar(content: Text('${entry.name} updated')));
+        case DispatchAction(:final assigneeId, :final note):
+          await source.dispatch(entry.unitId, assigneeId, note: note);
+          messenger.showSnackBar(
+              SnackBar(content: Text('Housekeeping sent to ${entry.name}')));
+        case OpenPathAction(:final path):
+          await context.push(path);
+      }
+    } on BookingFailure catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text(FailureView.messageFor(e))));
+    }
+    if (mounted) ref.invalidate(roomBoardProvider(propertyId));
   }
 }
 
