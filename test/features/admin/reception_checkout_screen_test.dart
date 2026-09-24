@@ -8,6 +8,7 @@ import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/room_status_repository.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
 import 'package:pasala/features/admin/reception_checkout_screen.dart';
+import 'package:pasala/features/stay/checkout_screen.dart';
 
 import '../../support/fake_room_board_source.dart';
 
@@ -152,5 +153,37 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(board.boardCalls.length, greaterThan(before));
+  });
+
+  testWidgets('Check Out opens the desk checkout for that booking', (tester) async {
+    Object? extra;
+    final router = GoRouter(
+      initialLocation: '/admin/check-out',
+      routes: [
+        GoRoute(
+            path: '/admin/check-out',
+            builder: (_, _) => const ReceptionCheckoutScreen()),
+        GoRoute(
+            path: '/my-stay/checkout',
+            builder: (_, state) {
+              extra = state.extra;
+              return const Text('CHECKOUT SCREEN');
+            }),
+      ],
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        checkedInProvider.overrideWith(
+            (ref, propertyId) async => [_checkedIn('r1', customerName: 'Ravi Kumar')]),
+        currentResortProvider.overrideWith(_FixedResort.new),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Check Out'));
+    await tester.pumpAndSettle();
+
+    expect(extra, isA<DeskCheckoutArgs>().having((a) => a.reservationId, 'reservationId', 'r1'));
   });
 }

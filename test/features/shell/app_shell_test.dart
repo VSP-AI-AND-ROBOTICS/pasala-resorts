@@ -59,6 +59,7 @@ Widget _appFor(AppUser user) {
           GoRoute(path: '/admin/bookings', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/admin/more', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/staff/rooms', builder: (_, _) => const SizedBox()),
+          GoRoute(path: '/finance', builder: (_, _) => const SizedBox()),
         ],
       ),
     ],
@@ -291,5 +292,37 @@ void main() {
 
     final router = GoRouter.of(tester.element(find.text('Rooms')));
     expect(router.routerDelegate.currentConfiguration.uri.path, '/staff/rooms');
+  });
+
+  testWidgets("an accountant's destinations are Finance, Rooms, Dashboard, "
+      'Reports, in that order, with no Today', (tester) async {
+    await tester.pumpWidget(_appFor(_accountant));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Today'), findsNothing);
+    final xs = [
+      for (final label in ['Finance', 'Rooms', 'Dashboard', 'Reports'])
+        tester.getCenter(find.text(label)).dx,
+    ];
+    expect(xs, [...xs]..sort());
+  });
+
+  testWidgets("an accountant's Finance destination opens /finance", (tester) async {
+    await tester.pumpWidget(_appFor(_accountant));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Finance'));
+    await tester.pumpAndSettle();
+
+    final router = GoRouter.of(tester.element(find.text('Finance')));
+    expect(router.routerDelegate.currentConfiguration.uri.path, '/finance');
+  });
+
+  testWidgets('staff keep Today and get no Finance', (tester) async {
+    await tester.pumpWidget(_appFor(_staff));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Finance'), findsNothing);
   });
 }

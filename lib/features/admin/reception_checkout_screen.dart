@@ -10,6 +10,7 @@ import '../../core/widgets/empty_state.dart';
 import '../../data/repositories/room_status_repository.dart';
 import '../../data/repositories/stay_repository.dart';
 import '../staff/providers.dart' show allBookingsProvider;
+import '../stay/checkout_screen.dart' show DeskCheckoutArgs;
 
 /// `/admin/check-out` -- every `checked_in` guest, one tap through to the
 /// same [CheckoutScreen] (`/my-stay/checkout`) a customer's own self-checkout
@@ -48,7 +49,10 @@ class ReceptionCheckoutScreen extends ConsumerWidget {
                 ),
                 trailing: FilledButton(
                   onPressed: () async {
-                    await context.push('/my-stay/checkout', extra: g.id);
+                    // Desk checkout: reception records the method and
+                    // reference instead of charging the guest's gateway.
+                    await context.push('/my-stay/checkout',
+                        extra: DeskCheckoutArgs(g.id));
                     if (context.mounted) {
                       ref.invalidate(checkedInProvider(propertyId));
                       // See the matching comment in reception_checkin_screen.dart

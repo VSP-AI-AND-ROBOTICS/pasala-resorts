@@ -84,6 +84,23 @@ class AppShell extends ConsumerWidget {
     ),
   ];
 
+  // Accountants land on Finance (REQ-07) and keep Rooms (read-only),
+  // Dashboard and Reports. No Today: they have no shift tasks.
+  static const _accountantDestinations = [
+    (path: '/finance', icon: Icons.account_balance_outlined, label: 'Finance'),
+    (path: '/staff/rooms', icon: Icons.meeting_room_outlined, label: 'Rooms'),
+    (
+      path: '/staff/dashboard',
+      icon: Icons.dashboard_outlined,
+      label: 'Dashboard',
+    ),
+    (
+      path: '/admin/reports',
+      icon: Icons.summarize_outlined,
+      label: 'Reports',
+    ),
+  ];
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider).value;
@@ -91,7 +108,8 @@ class AppShell extends ConsumerWidget {
     final destinations = switch (resort?.role) {
       ResortRole.owner => _ownerDestinations,
       ResortRole.admin => _adminDestinations,
-      ResortRole.staff || ResortRole.accountant => _staffDestinations,
+      ResortRole.staff => _staffDestinations,
+      ResortRole.accountant => _accountantDestinations,
       null => _customerDestinations,
     };
 

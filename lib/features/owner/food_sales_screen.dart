@@ -9,8 +9,10 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/food_sale.dart';
+import '../../data/models/payment_method.dart';
 import '../../data/models/resort_membership.dart';
 import '../../data/repositories/food_sale_repository.dart';
+import '../finance/providers.dart';
 
 String _categoryLabel(SaleCategory c) => switch (c) {
       SaleCategory.food => 'Food',
@@ -137,6 +139,7 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
                           title: Text(sale.itemName),
                           subtitle: Text(
                             '${_categoryLabel(sale.category)} · '
+                            '${sale.paymentMethod.label} · '
                             '${formatDate(sale.saleDate)} · '
                             '${sale.quantity} × ${formatInr(sale.unitPrice)}',
                           ),
@@ -224,6 +227,7 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
     try {
       await ref.read(foodSaleRepositoryProvider).delete(sale.id);
       ref.invalidate(foodSalesProvider(filter));
+      invalidateFinance(ref);
     } on BookingFailure catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
@@ -252,6 +256,7 @@ class _FoodSaleFormScreenState extends ConsumerState<FoodSaleFormScreen> {
   late final TextEditingController _unitPrice;
   late final TextEditingController _notes;
   late SaleCategory _category;
+  late PaymentMethod _method;
   late DateTime _saleDate;
   String? _error;
   bool _busy = false;
@@ -265,6 +270,8 @@ class _FoodSaleFormScreenState extends ConsumerState<FoodSaleFormScreen> {
     _unitPrice = TextEditingController(text: '${existing?.unitPrice ?? ''}');
     _notes = TextEditingController(text: existing?.notes ?? '');
     _category = existing?.category ?? SaleCategory.food;
+    // An edit keeps the method the sale already has (Review Focus 3).
+    _method = existing?.paymentMethod ?? PaymentMethod.cash;
     _saleDate = existing?.saleDate ?? DateTime.now();
   }
 
@@ -312,6 +319,7 @@ class _FoodSaleFormScreenState extends ConsumerState<FoodSaleFormScreen> {
         quantity: quantity,
         unitPrice: unitPrice,
         amount: unitPrice * quantity,
+        paymentMethod: _method,
         notes: notes.isEmpty ? null : notes,
       );
       final repo = ref.read(foodSaleRepositoryProvider);
@@ -321,6 +329,7 @@ class _FoodSaleFormScreenState extends ConsumerState<FoodSaleFormScreen> {
         await repo.update(widget.existing!.id, sale);
       }
       ref.invalidate(foodSalesProvider);
+      invalidateFinance(ref);
       if (mounted) Navigator.of(context).pop();
     } on BookingFailure catch (e) {
       if (mounted) {
@@ -349,16 +358,38 @@ class _FoodSaleFormScreenState extends ConsumerState<FoodSaleFormScreen> {
                     padding: const EdgeInsets.all(Spacing.md),
                     child: Column(
                       children: [
-                        DropdownButtonFormField<SaleCategory>(
-                          key: const Key('sale-form-category'),
-                          initialValue: _category,
-                          decoration: const InputDecoration(labelText: 'Category'),
-                          items: [
-                            for (final c in SaleCategory.values)
-                              DropdownMenuItem(value: c, child: Text(_categoryLabel(c))),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<SaleCategory>(
+                                key: const Key('sale-form-category'),
+                                initialValue: _category,
+                                isExpanded: true,
+                                decoration: const InputDecoration(labelText: 'Category'),
+                                items: [
+                                  for (final c in SaleCategory.values)
+                                    DropdownMenuItem(value: c, child: Text(_categoryLabel(c))),
+                                ],
+                                onChanged: (value) =>
+                                    setState(() => _category = value ?? SaleCategory.food),
+                              ),
+                            ),
+                            const SizedBox(width: Spacing.sm),
+                            Expanded(
+                              child: DropdownButtonFormField<PaymentMethod>(
+                                key: const Key('sale-form-method'),
+                                initialValue: _method,
+                                isExpanded: true,
+                                decoration: const InputDecoration(labelText: 'Payment method'),
+                                items: [
+                                  for (final m in PaymentMethod.desk)
+                                    DropdownMenuItem(value: m, child: Text(m.label)),
+                                ],
+                                onChanged: (value) =>
+                                    setState(() => _method = value ?? PaymentMethod.cash),
+                              ),
+                            ),
                           ],
-                          onChanged: (value) =>
-                              setState(() => _category = value ?? SaleCategory.food),
                         ),
                         const SizedBox(height: Spacing.sm),
                         TextField(

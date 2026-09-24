@@ -5,8 +5,13 @@ import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/food_sale.dart';
 import 'package:pasala/data/models/resort_membership.dart';
+import 'package:pasala/data/models/payment_method.dart';
+import 'package:pasala/data/repositories/finance_repository.dart';
 import 'package:pasala/data/repositories/food_sale_repository.dart';
+import 'package:pasala/features/finance/providers.dart';
 import 'package:pasala/features/owner/food_sales_screen.dart';
+
+import '../../support/fake_finance_source.dart';
 
 class _FixedResort extends CurrentResort {
   _FixedResort(this._value);
@@ -114,15 +119,35 @@ Widget _appFor(
   FakeFoodSaleRepository repo, {
   AppUser user = _admin,
   ResortMembership? resort,
+  FakeFinanceSource? finance,
 }) =>
     ProviderScope(
       overrides: [
         foodSaleRepositoryProvider.overrideWithValue(repo),
         currentResortProvider.overrideWith(
             () => _FixedResort(resort ?? user.memberships.first)),
+        financeSourceProvider.overrideWithValue(finance ?? FakeFinanceSource()),
       ],
-      child: const MaterialApp(home: FoodSalesScreen()),
+      child: MaterialApp(
+        home: const FoodSalesScreen(),
+        // Stands in for an open Finance screen, which keeps its summary alive.
+        builder: (context, child) => Stack(children: [
+          child!,
+          Consumer(builder: (_, ref, _) {
+            ref.watch(financeSummaryProvider('p1'));
+            return const SizedBox.shrink();
+          }),
+        ]),
+      ),
     );
+
+Future<void> _fillNewSale(WidgetTester tester) async {
+  await tester.tap(find.byType(FloatingActionButton));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const Key('sale-form-item-name')), 'Breakfast platter');
+  await tester.enterText(find.byKey(const Key('sale-form-quantity')), '2');
+  await tester.enterText(find.byKey(const Key('sale-form-unit-price')), '300');
+}
 
 void main() {
   // I7: food_activity_sales_read/_insert (0026_food_activity_sales.sql)
@@ -256,5 +281,111 @@ void main() {
 
     expect(repo.deletedIds, ['s1']);
     expect(find.text('Breakfast platter'), findsNothing);
+  });
+
+  group('payment method', () {
+    testWidgets('a new sale is Cash unless another method is picked', (tester) async {
+      final repo = FakeFoodSaleRepository();
+      await tester.pumpWidget(_appFor(repo));
+      await tester.pumpAndSettle();
+
+      await _fillNewSale(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(repo.store.single.paymentMethod, PaymentMethod.cash);
+    });
+
+    testWidgets('the form records the method picked', (tester) async {
+      final repo = FakeFoodSaleRepository();
+      await tester.pumpWidget(_appFor(repo));
+      await tester.pumpAndSettle();
+
+      await _fillNewSale(tester);
+      await tester.tap(find.byKey(const Key('sale-form-method')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('UPI').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(repo.store.single.paymentMethod, PaymentMethod.upi);
+    });
+
+    testWidgets('the method list offers the five desk methods and never Online',
+        (tester) async {
+      await tester.pumpWidget(_appFor(FakeFoodSaleRepository()));
+      await tester.pumpAndSettle();
+
+      await _fillNewSale(tester);
+      await tester.tap(find.byKey(const Key('sale-form-method')));
+      await tester.pumpAndSettle();
+
+      for (final m in PaymentMethod.desk) {
+        expect(find.text(m.label), findsWidgets, reason: m.label);
+      }
+      expect(find.text('Online'), findsNothing);
+    });
+
+    testWidgets('each sale shows its method in the list', (tester) async {
+      final repo = FakeFoodSaleRepository()
+        ..store.add(FoodSale(
+          id: 's1',
+          propertyId: 'p1',
+          saleDate: DateTime.now(),
+          category: SaleCategory.activity,
+          itemName: 'Pool pass',
+          quantity: 1,
+          unitPrice: 300,
+          amount: 300,
+          paymentMethod: PaymentMethod.upi,
+        ));
+      await tester.pumpWidget(_appFor(repo));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Activity · UPI · '), findsOneWidget);
+    });
+
+    // Review Focus 3.
+    testWidgets('editing a sale keeps its payment method', (tester) async {
+      final repo = FakeFoodSaleRepository()
+        ..store.add(FoodSale(
+          id: 's1',
+          propertyId: 'p1',
+          saleDate: DateTime.now(),
+          category: SaleCategory.food,
+          itemName: 'Breakfast platter',
+          quantity: 2,
+          unitPrice: 300,
+          amount: 600,
+          paymentMethod: PaymentMethod.bankTransfer,
+        ));
+      await tester.pumpWidget(_appFor(repo));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('sale-form-quantity')), '3');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(repo.store.single.quantity, 3);
+      expect(repo.store.single.paymentMethod, PaymentMethod.bankTransfer);
+    });
+
+    testWidgets('saving a sale refetches the finance figures', (tester) async {
+      final finance = FakeFinanceSource();
+      await tester.pumpWidget(_appFor(FakeFoodSaleRepository(), finance: finance));
+      await tester.pumpAndSettle();
+      final before = finance.summaryCalls.length;
+
+      await _fillNewSale(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(finance.summaryCalls.length, greaterThan(before));
+    });
   });
 }

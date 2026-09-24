@@ -1,5 +1,5 @@
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/core/router.dart';
@@ -86,8 +86,8 @@ void main() {
       expect(landingPathFor(_staff, _staffM), '/staff');
     });
 
-    test('accountant lands on /staff/dashboard', () {
-      expect(landingPathFor(_accountant, _accountantM), '/staff/dashboard');
+    test('accountant lands on /finance', () {
+      expect(landingPathFor(_accountant, _accountantM), '/finance');
     });
 
     test('admin lands on /admin', () {
@@ -98,12 +98,12 @@ void main() {
       expect(landingPathFor(_superAdmin, _ownerM), '/owner');
     });
 
-    test('owner lands on /owner, staff on /staff, accountant on dashboard', () {
+    test('owner lands on /owner, staff on /staff, accountant on /finance', () {
       for (final (role, path) in [
         (ResortRole.owner, '/owner'),
         (ResortRole.admin, '/admin'),
         (ResortRole.staff, '/staff'),
-        (ResortRole.accountant, '/staff/dashboard'),
+        (ResortRole.accountant, '/finance'),
       ]) {
         final m = ResortMembership(propertyId: 'a', resortName: 'A', role: role);
         final u = AppUser(id: 'u', email: 'e', memberships: [m]);
@@ -145,8 +145,8 @@ void main() {
       expect(loginRedirect(_staff, _staffM), '/staff');
     });
 
-    test('accountant -> /staff/dashboard', () {
-      expect(loginRedirect(_accountant, _accountantM), '/staff/dashboard');
+    test('accountant -> /finance', () {
+      expect(loginRedirect(_accountant, _accountantM), '/finance');
     });
 
     test('admin -> /admin', () {
@@ -412,6 +412,49 @@ void main() {
 
     test('/staff/rooms is closed to customers', () {
       expect(_to(_customer, null, '/staff/rooms'), '/404');
+    });
+  });
+
+  group('finance', () {
+    test('owner, admin and accountant open /finance', () {
+      expect(_to(_superAdmin, _ownerM, '/finance'), null);
+      expect(_to(_admin, _adminM, '/finance'), null);
+      expect(_to(_accountant, _accountantM, '/finance'), null);
+    });
+
+    test('staff and customers are refused /finance', () {
+      expect(_to(_staff, _staffM, '/finance'), '/404');
+      expect(_to(_customer, null, '/finance'), '/404');
+    });
+
+    test('two memberships and no pick go to /choose-resort first', () {
+      const u = AppUser(id: 'u', email: 'e', memberships: [
+        ResortMembership(propertyId: 'a', resortName: 'A', role: ResortRole.accountant),
+        ResortMembership(propertyId: 'b', resortName: 'B', role: ResortRole.staff),
+      ]);
+      expect(_to(u, null, '/finance'), '/choose-resort');
+    });
+
+    test('an accountant who picked a resort they are only staff at is refused', () {
+      const u = AppUser(id: 'u', email: 'e', memberships: [
+        ResortMembership(propertyId: 'a', resortName: 'A', role: ResortRole.accountant),
+        ResortMembership(propertyId: 'b', resortName: 'B', role: ResortRole.staff),
+      ]);
+      expect(_to(u, u.memberships.last, '/finance'), '/404');
+      expect(_to(u, u.memberships.first, '/finance'), null);
+    });
+
+    test('the app router registers /finance', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(null)),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      final router = container.read(routerProvider);
+
+      expect(_paths(router.configuration.routes), contains('/finance'));
     });
   });
 }

@@ -7,18 +7,41 @@ import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/failure_view.dart';
+import '../../data/models/payment_method.dart';
 import '../../data/repositories/stay_repository.dart';
 import '../booking/payment_gateway.dart';
+import '../finance/providers.dart';
 
-/// The final bill, settled through the same mock [PaymentGateway] seam
-/// `booking_screen.dart`'s own `_pay` already uses -- `checkout_booking`
-/// never trusts a client-supplied amount, so this screen exists only to
-/// show the balance and drive the same charge->confirm flow customers
-/// already know from booking.
-class CheckoutScreen extends ConsumerStatefulWidget {
-  const CheckoutScreen({super.key, required this.reservationId});
+/// The `extra` reception passes to `/my-stay/checkout` to settle a guest's
+/// bill at the desk. A guest's own checkout passes the plain reservation id.
+class DeskCheckoutArgs {
+  const DeskCheckoutArgs(this.reservationId);
 
   final String reservationId;
+}
+
+/// Builds `/my-stay/checkout` from its route `extra`: a reservation id is
+/// the guest's own checkout, [DeskCheckoutArgs] is reception's.
+Widget checkoutScreenFor(Object? extra) => switch (extra) {
+      DeskCheckoutArgs(:final reservationId) =>
+        CheckoutScreen(reservationId: reservationId, desk: true),
+      final String reservationId => CheckoutScreen(reservationId: reservationId),
+      _ => throw ArgumentError.value(extra, 'extra', 'checkout needs a reservation id'),
+    };
+
+/// The final bill. A guest settles it through the same mock
+/// [PaymentGateway] seam `booking_screen.dart`'s own `_pay` uses. At the
+/// desk ([desk]) reception records how the guest paid -- the method and an
+/// optional receipt or UTR number -- and the gateway is never called.
+/// `checkout_booking` never trusts a client-supplied amount, and refuses a
+/// desk method from anyone who is not staff at the booking's resort.
+class CheckoutScreen extends ConsumerStatefulWidget {
+  const CheckoutScreen({super.key, required this.reservationId, this.desk = false});
+
+  final String reservationId;
+
+  /// Reception's desk checkout rather than the guest's own.
+  final bool desk;
 
   @override
   ConsumerState<CheckoutScreen> createState() => _CheckoutScreenState();
@@ -26,26 +49,46 @@ class CheckoutScreen extends ConsumerStatefulWidget {
 
 class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   bool _busy = false;
+  PaymentMethod _method = PaymentMethod.cash;
+  final _reference = TextEditingController();
+
+  @override
+  void dispose() {
+    _reference.dispose();
+    super.dispose();
+  }
 
   Future<void> _checkout(double balance) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      String? paymentRef;
-      if (balance > 0) {
-        final payment = await ref
-            .read(paymentGatewayProvider)
-            .charge(reservationId: widget.reservationId, amount: balance);
-        if (!payment.succeeded) {
-          throw InvalidState(payment.failureMessage ?? 'Payment failed');
+      final stay = ref.read(stayRepositoryProvider);
+      if (widget.desk) {
+        final reference = _reference.text.trim();
+        await stay.checkout(
+          reservationId: widget.reservationId,
+          paymentRef: balance > 0 && reference.isNotEmpty ? reference : null,
+          amount: balance,
+          // Nothing due writes no payment, so there is no method to record.
+          method: balance > 0 ? _method : PaymentMethod.gateway,
+        );
+      } else {
+        String? paymentRef;
+        if (balance > 0) {
+          final payment = await ref
+              .read(paymentGatewayProvider)
+              .charge(reservationId: widget.reservationId, amount: balance);
+          if (!payment.succeeded) {
+            throw InvalidState(payment.failureMessage ?? 'Payment failed');
+          }
+          paymentRef = payment.reference;
         }
-        paymentRef = payment.reference;
+        await stay.checkout(
+          reservationId: widget.reservationId,
+          paymentRef: paymentRef ?? 'no-balance-due',
+          amount: balance,
+        );
       }
-      await ref.read(stayRepositoryProvider).checkout(
-            reservationId: widget.reservationId,
-            paymentRef: paymentRef ?? 'no-balance-due',
-            amount: balance,
-          );
       if (!mounted) return;
       ref.invalidate(currentStayProvider);
       // The final invoice re-reads current_charges for this exact
@@ -53,6 +96,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       // cached pre-payment figures (paid ₹0, balance still due) instead of
       // the balance payment `checkout_booking` just recorded.
       ref.invalidate(currentChargesProvider(widget.reservationId));
+      // Collections, settlements and today's figures include this payment.
+      invalidateFinance(ref);
       context.go('/my-stay/invoice/${widget.reservationId}');
     } on BookingFailure catch (e) {
       if (!mounted) return;
@@ -62,6 +107,52 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  String _buttonLabel(double balance) {
+    if (_busy) return 'Processing…';
+    if (balance <= 0) return 'Check out';
+    return widget.desk
+        ? 'Record ${formatInr(balance)} and check out'
+        : 'Pay ${formatInr(balance)} and check out';
+  }
+
+  Widget _deskPayment(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Payment method', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: Spacing.sm),
+              Wrap(
+                spacing: Spacing.sm,
+                runSpacing: Spacing.sm,
+                children: [
+                  for (final m in PaymentMethod.desk)
+                    ChoiceChip(
+                      key: Key('desk-method-${m.wire}'),
+                      avatar: Icon(m.icon, size: 18),
+                      label: Text(m.label),
+                      selected: _method == m,
+                      onSelected: _busy ? null : (_) => setState(() => _method = m),
+                    ),
+                ],
+              ),
+              const SizedBox(height: Spacing.md),
+              TextField(
+                key: const Key('desk-reference'),
+                controller: _reference,
+                enabled: !_busy,
+                maxLength: 64,
+                decoration: const InputDecoration(
+                  labelText: 'Reference (optional)',
+                  helperText: 'Receipt, card slip or UTR number',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -106,14 +197,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 ),
               ),
             ),
+            if (widget.desk && charges.balance > 0) ...[
+              const SizedBox(height: Spacing.md),
+              _deskPayment(context),
+            ],
             const SizedBox(height: Spacing.lg),
             FilledButton(
               onPressed: _busy ? null : () => _checkout(charges.balance),
-              child: Text(_busy
-                  ? 'Processing…'
-                  : charges.balance > 0
-                      ? 'Pay ${formatInr(charges.balance)} and check out'
-                      : 'Check out'),
+              child: Text(_buttonLabel(charges.balance)),
             ),
           ],
         ),
