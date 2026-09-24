@@ -8,6 +8,7 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/resort_membership.dart';
+import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/resort_member_repository.dart';
 
 /// `/owner/team` -- owner-only (via `redirectFor`'s blanket `/owner/*`
@@ -131,6 +132,16 @@ class _MemberTile extends ConsumerStatefulWidget {
 class _MemberTileState extends ConsumerState<_MemberTile> {
   bool _busy = false;
 
+  /// After a change to the signed-in owner's OWN membership, refetch the
+  /// user so the router and the resort switcher stop acting on the old
+  /// role (or on a resort they were just removed from).
+  void _refreshSelfIfChanged() {
+    final me = ref.read(currentUserProvider).value?.id;
+    if (me != null && me == widget.member.userId) {
+      ref.invalidate(currentUserProvider);
+    }
+  }
+
   Future<void> _changeRole(ResortRole role) async {
     if (role == widget.member.role) return;
     setState(() => _busy = true);
@@ -148,6 +159,7 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
       // read straight off [widget.member], untouched below) is exactly
       // what a rejected change should look like.
       ref.invalidate(resortMembersProvider(widget.propertyId));
+      _refreshSelfIfChanged();
     } on BookingFailure catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -187,6 +199,7 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
           .read(resortMemberSourceProvider)
           .remove(widget.propertyId, member.userId);
       ref.invalidate(resortMembersProvider(widget.propertyId));
+      _refreshSelfIfChanged();
     } on BookingFailure catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)

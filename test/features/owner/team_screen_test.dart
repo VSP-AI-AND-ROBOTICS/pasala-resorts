@@ -68,18 +68,32 @@ const _owner = AppUser(
     id: 'owner-1', email: 'owner@pasala.test', memberships: [_resortA]);
 
 void main() {
+  /// How many times `currentUserProvider` has been built in the current
+  /// test -- a rebuild after the first means someone invalidated it.
+  var userBuilds = 0;
+
   Future<void> pump(
     WidgetTester tester, {
     required FakeResortMemberSource source,
   }) async {
     SharedPreferences.setMockInitialValues({});
+    userBuilds = 0;
     await tester.pumpWidget(ProviderScope(
       overrides: [
         resortMemberSourceProvider.overrideWithValue(source),
-        currentUserProvider.overrideWith((ref) => Stream.value(_owner)),
+        currentUserProvider.overrideWith((ref) {
+          userBuilds++;
+          return Stream.value(_owner);
+        }),
         currentResortProvider.overrideWith(() => _FixedResort(_resortA)),
       ],
-      child: const MaterialApp(home: TeamScreen()),
+      // Keeps the signed-in user listened to, as the router does in the app.
+      child: MaterialApp(
+        home: Consumer(builder: (context, ref, _) {
+          ref.watch(currentUserProvider);
+          return const TeamScreen();
+        }),
+      ),
     ));
     await tester.pumpAndSettle();
   }
@@ -162,6 +176,65 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(source.removeCalls, [('resort-a', 'u1')]);
+  });
+
+  // Final review F4: changing or removing your OWN membership must refetch
+  // the signed-in user, so the stale role (and resort) don't linger in the
+  // router and the resort switcher.
+  Future<int> settledUserBuilds(WidgetTester tester) async {
+    await tester.pumpAndSettle();
+    return userBuilds;
+  }
+
+  testWidgets('changing your own role refetches the signed-in user',
+      (tester) async {
+    final source = FakeResortMemberSource()
+      ..rows = [
+        _member(userId: 'owner-1', role: ResortRole.owner),
+        _member(userId: 'u2', email: 'co@example.com', role: ResortRole.owner),
+      ];
+    await pump(tester, source: source);
+    final before = await settledUserBuilds(tester);
+
+    await tester.tap(find.byKey(const Key('role-dropdown-owner-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Admin').last);
+    await tester.pumpAndSettle();
+
+    expect(source.setRoleCalls, [('resort-a', 'owner-1', ResortRole.admin)]);
+    expect(await settledUserBuilds(tester), greaterThan(before));
+  });
+
+  testWidgets('removing yourself refetches the signed-in user',
+      (tester) async {
+    final source = FakeResortMemberSource()
+      ..rows = [_member(userId: 'owner-1', role: ResortRole.owner)];
+    await pump(tester, source: source);
+    final before = await settledUserBuilds(tester);
+
+    await tester.tap(find.byKey(const Key('remove-member-owner-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove'));
+    await tester.pumpAndSettle();
+
+    expect(source.removeCalls, [('resort-a', 'owner-1')]);
+    expect(await settledUserBuilds(tester), greaterThan(before));
+  });
+
+  testWidgets("changing someone else's role leaves the signed-in user alone",
+      (tester) async {
+    final source = FakeResortMemberSource()
+      ..rows = [_member(userId: 'u1', role: ResortRole.staff)];
+    await pump(tester, source: source);
+    final before = await settledUserBuilds(tester);
+
+    await tester.tap(find.byKey(const Key('role-dropdown-u1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Admin').last);
+    await tester.pumpAndSettle();
+
+    expect(source.setRoleCalls, [('resort-a', 'u1', ResortRole.admin)]);
+    expect(await settledUserBuilds(tester), before);
   });
 }
 
