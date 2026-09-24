@@ -498,6 +498,9 @@ begin
     delete from public.units where id in
       ('b0000000-0000-0000-0000-0000000000f1',
        'b0000000-0000-0000-0000-0000000000f2')$F$);
+  -- Reservation audit rows carry the resort (0045), so they go first.
+  perform dblink_exec(v_conn, $F$
+    delete from public.audit_log where property_id = 'a0000000-0000-0000-0000-0000000000f1'$F$);
   perform dblink_exec(v_conn, $F$
     delete from public.properties where id = 'a0000000-0000-0000-0000-0000000000f1'$F$);
   perform dblink_exec(v_conn, $F$

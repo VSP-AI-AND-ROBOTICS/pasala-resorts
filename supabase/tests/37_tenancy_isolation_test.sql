@@ -1,5 +1,5 @@
 begin;
-select plan(46);
+select plan(64);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -235,6 +235,97 @@ select throws_ok($$select public.dashboard_summary('bbbbbbbb-0000-4000-8000-0000
   'P0020', null, 'A accountant cannot read B dashboard');
 select throws_ok($$select * from public.report_expenses('2027-01-01','2027-12-31','bbbbbbbb-0000-4000-8000-000000000001')$$,
   'P0020', null, 'A accountant cannot read B expenses report');
+
+-- Staff-ops triggers, outbox, audit, iCal and maintenance photos (0045).
+-- Fixtures as the superuser with no authenticated caller (`reset role`
+-- keeps the JWT claims, so clear them).
+reset role;
+set local request.jwt.claims to '';
+-- Each resort's own message template (distinct events: (event, channel)
+-- is unique across all templates).
+insert into public.outbox_templates (name, event, channel, body_template, property_id) values
+  ('iso_a_note','iso_a_note','email','Hello from A','aaaaaaaa-0000-4000-8000-000000000001'),
+  ('iso_b_note','iso_b_note','email','Hello from B','bbbbbbbb-0000-4000-8000-000000000001');
+-- An inactive feed at B, so no poll ever fetches anything.
+insert into public.ical_feeds (id, unit_id, url, is_active) values
+  ('bbbbbbbb-0000-4000-8000-000000000031','bbbbbbbb-0000-4000-8000-000000000011',
+   'https://example.com/b.ics', false);
+-- Maintenance photos live at `{guest uid}/{file}` and are linked to an issue
+-- through maintenance_issues.photo_url.
+insert into storage.buckets (id, name) values ('maintenance-photos','maintenance-photos')
+  on conflict (id) do nothing;
+insert into storage.objects (bucket_id, name) values
+  ('maintenance-photos','c0000000-0000-0000-0000-00000000000a/1_a.jpg'),
+  ('maintenance-photos','c0000000-0000-0000-0000-00000000000b/1_b.jpg');
+insert into public.maintenance_issues (reservation_id, category, photo_url) values
+  ('aaaaaaaa-0000-4000-8000-000000000021','ac','c0000000-0000-0000-0000-00000000000a/1_a.jpg'),
+  ('bbbbbbbb-0000-4000-8000-000000000021','ac','c0000000-0000-0000-0000-00000000000b/1_b.jpg');
+insert into public.attendance_records (id, property_id, staff_id, work_date) values
+  ('aaaaaaaa-0000-4000-8000-000000000041','aaaaaaaa-0000-4000-8000-000000000001',
+   'a0000000-0000-0000-0000-00000000000c', (now() at time zone 'Asia/Kolkata')::date);
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+select throws_ok($$select public.rotate_ical_token('bbbbbbbb-0000-4000-8000-000000000011')$$,
+  'P0020', null, 'A admin cannot rotate B iCal token');
+select throws_ok($$select public.enqueue_outbox_message('bbbbbbbb-0000-4000-8000-000000000021','booking_confirmed')$$,
+  'P0020', null, 'A admin cannot send B guest messages');
+select throws_ok($$select public.ical_export('bbbbbbbb-0000-4000-8000-000000000011')$$,
+  'P0020', null, 'A admin cannot export B unit calendar');
+select throws_ok($$select public.ical_poll_feed('bbbbbbbb-0000-4000-8000-000000000031')$$,
+  'P0020', null, 'A admin cannot poll B iCal feed');
+
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000c","role":"authenticated"}';
+select lives_ok($$select public.enqueue_outbox_message('aaaaaaaa-0000-4000-8000-000000000021','iso_a_note')$$,
+  'A staff can queue a message from A''s template');
+select lives_ok($$select public.enqueue_outbox_message('aaaaaaaa-0000-4000-8000-000000000021','iso_b_note')$$,
+  'A staff asking for B''s template is a silent no-op');
+select is((select count(*)::int from storage.objects
+            where name = 'c0000000-0000-0000-0000-00000000000b/1_b.jpg'), 0,
+  'A staff cannot read a maintenance photo from a B stay');
+select is((select count(*)::int from storage.objects
+            where name = 'c0000000-0000-0000-0000-00000000000a/1_a.jpg'), 1,
+  'A staff can read a maintenance photo from an A stay');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+select is((select count(*)::int from storage.objects
+            where name = 'c0000000-0000-0000-0000-00000000000b/1_b.jpg'), 1,
+  'guest B still reads own uploaded photo');
+
+reset role;
+set local request.jwt.claims to '';
+select is((select count(*)::int from public.outbox where property_id is null), 0,
+  'every outbox row carries a resort');
+select is((select count(*)::int from public.audit_log a
+             join public.reservations r on r.id = a.entity_id
+            where a.property_id is distinct from r.property_id), 0,
+  'audit rows for reservations carry the reservation''s resort');
+select is((select count(*)::int from public.outbox
+            where template = 'iso_a_note' and property_id = 'aaaaaaaa-0000-4000-8000-000000000001'), 1,
+  'A template queued for the A booking, tagged with resort A');
+select is((select count(*)::int from public.outbox where template = 'iso_b_note'), 0,
+  'B template never used for an A booking');
+select is((select count(*)::int from information_schema.columns
+            where table_schema = 'public' and column_name = 'property_id' and is_nullable = 'YES'
+              and table_name in ('coupons','outbox','staff_shifts','leave_requests',
+                                 'attendance_records','tasks')), 0,
+  'coupons, outbox and staff-ops rows always carry a resort');
+select lives_ok($$insert into public.coupons (property_id, code, kind, value) values
+  ('aaaaaaaa-0000-4000-8000-000000000001','SAME','fixed',100),
+  ('bbbbbbbb-0000-4000-8000-000000000001','SAME','fixed',100)$$,
+  'two resorts can each have coupon code SAME');
+select throws_ok($$insert into public.coupons (property_id, code, kind, value)
+  values ('aaaaaaaa-0000-4000-8000-000000000001','SAME','fixed',50)$$,
+  '23505', null, 'a coupon code is still unique within one resort');
+
+update public.properties set status = 'suspended'
+ where id in ('aaaaaaaa-0000-4000-8000-000000000001','bbbbbbbb-0000-4000-8000-000000000001');
+select is(public.ical_export_public((select token from public.ical_export_tokens
+                                      where unit_id = 'bbbbbbbb-0000-4000-8000-000000000011')),
+  null, 'public iCal export of a suspended resort returns nothing');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000c","role":"authenticated"}';
+select throws_ok($$select public.check_out_attendance('aaaaaaaa-0000-4000-8000-000000000041')$$,
+  'P0022', null, 'staff cannot check out at a suspended resort');
 
 select * from finish();
 rollback;

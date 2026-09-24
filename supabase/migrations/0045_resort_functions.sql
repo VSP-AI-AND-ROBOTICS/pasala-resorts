@@ -1418,3 +1418,939 @@ grant execute on function public.list_staff_shifts(uuid, uuid, date, date) to au
 -- holds since creation, so `anon` (and PUBLIC) must be revoked explicitly.
 revoke execute on function public.list_staff_shifts(uuid, uuid, date, date) from public;
 revoke execute on function public.list_staff_shifts(uuid, uuid, date, date) from anon;
+
+-- ---------------------------------------------------------------------
+-- Staff operations, outbox, audit and iCal.
+--
+-- Not redefined, because none of them checks a role:
+-- `attendance_records_enforce_own_checkout()` (own-row checkout guard),
+-- `attendance_records_force_checkin_time()`, `ical_build_document()`
+-- (internal; reached only through ical_export/ical_export_public) and
+-- `ical_poll_all_feeds()` (cron only).
+--
+-- The write-guard triggers below back the resort-scoped policies in 0044.
+-- Where a row could be moved, the caller must hold the role at both the
+-- old and the new resort.
+
+create or replace function public.staff_shifts_enforce_admin_write()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if not public.has_resort_role(old.property_id, true, 'owner','admin')
+     or (TG_OP = 'UPDATE'
+         and not public.has_resort_role(new.property_id, true, 'owner','admin')) then
+    raise sqlstate '42501' using
+      message = 'permission denied for table staff_shifts',
+      hint = 'only administrators can modify shift assignments';
+  end if;
+
+  if TG_OP = 'UPDATE' then
+    return new;
+  else  -- DELETE
+    return old;
+  end if;
+end;
+$$;
+
+-- Admin+ of the request's resort decides; the resort itself is part of
+-- the request's content and never changes.
+create or replace function public.leave_requests_enforce_admin_decision()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if not public.has_resort_role(old.property_id, true, 'owner','admin') then
+    raise sqlstate '42501' using
+      message = 'permission denied for table leave_requests',
+      hint = 'only administrators can decide leave requests';
+  end if;
+
+  if new.staff_id is distinct from old.staff_id
+      or new.start_date is distinct from old.start_date
+      or new.end_date is distinct from old.end_date
+      or new.reason is distinct from old.reason
+      or new.property_id is distinct from old.property_id then
+    raise sqlstate '42501' using
+      message = 'only status, decided_by, and decided_at may be changed',
+      hint = 'admins decide requests, they do not edit their content';
+  end if;
+
+  if old.status <> 'pending' then
+    raise sqlstate '42501' using
+      message = 'a decided leave request cannot be changed',
+      hint = 'once approved or rejected, a decision is final';
+  end if;
+
+  if new.status not in ('approved', 'rejected') then
+    raise sqlstate '42501' using
+      message = 'leave request status must be approved or rejected',
+      hint = 'a decision must decide: approved or rejected, not pending or any other value';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- Own row only, and only while the resort is active.
+create or replace function public.check_out_attendance(p_id uuid)
+returns public.attendance_records
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_record public.attendance_records;
+begin
+  select * into v_record from public.attendance_records where id = p_id;
+  if not found then
+    raise sqlstate 'P0002' using message = 'attendance record not found';
+  end if;
+
+  if v_record.staff_id <> auth.uid() then
+    raise sqlstate '42501' using
+      message = 'permission denied for table attendance_records',
+      hint = 'only the staff member who checked in may check themselves out';
+  end if;
+
+  if not exists (select 1 from public.properties
+                  where id = v_record.property_id and status = 'active') then
+    raise exception using errcode = 'P0022', message = 'resort_suspended';
+  end if;
+
+  if v_record.check_out_at is not null then
+    raise sqlstate '42501' using
+      message = 'this record is already checked out',
+      hint = 'a check-out cannot be changed once recorded';
+  end if;
+
+  update public.attendance_records
+    set check_out_at = clock_timestamp()
+    where id = p_id;
+
+  select * into v_record from public.attendance_records where id = p_id;
+  return v_record;
+end;
+$$;
+
+-- Admin+ of the task's resort edits anything (but cannot move the task to
+-- a resort where they are not Admin+); the assignee may change only the
+-- status of their own task, never its resort.
+create or replace function public.tasks_enforce_write()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_admin boolean := public.has_resort_role(old.property_id, true, 'owner','admin');
+begin
+  if TG_OP = 'DELETE' then
+    if not v_admin then
+      raise sqlstate '42501' using
+        message = 'permission denied for table tasks',
+        hint = 'only an administrator can delete a task';
+    end if;
+    return old;
+  end if;
+
+  if v_admin and public.has_resort_role(new.property_id, true, 'owner','admin') then
+    new.updated_at := clock_timestamp();
+    if new.status = 'done' and old.completed_at is null then
+      new.completed_at := clock_timestamp();
+    end if;
+    return new;
+  end if;
+
+  if new.assignee_id <> old.assignee_id then
+    raise sqlstate '42501' using
+      message = 'permission denied for table tasks',
+      hint = 'only an administrator can reassign a task';
+  end if;
+
+  if new.id is distinct from old.id
+      or new.title is distinct from old.title
+      or new.description is distinct from old.description
+      or new.created_by is distinct from old.created_by
+      or new.created_at is distinct from old.created_at
+      or new.property_id is distinct from old.property_id then
+    raise sqlstate '42501' using
+      message = 'permission denied for table tasks',
+      hint = 'only an administrator can edit a task''s details';
+  end if;
+
+  if old.assignee_id <> auth.uid() then
+    raise sqlstate '42501' using
+      message = 'permission denied for table tasks',
+      hint = 'you can only update the status of your own tasks';
+  end if;
+
+  new.updated_at := clock_timestamp();
+  if new.status = 'done' and old.completed_at is null then
+    new.completed_at := clock_timestamp();
+  end if;
+  return new;
+end;
+$$;
+
+-- Staff+ of the request's resort has full write; the assigned staff
+-- member's status-only path is unchanged.
+create or replace function public.service_requests_enforce_write()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if public.has_resort_role(old.property_id, true, 'owner','admin','staff','accountant')
+     and public.has_resort_role(new.property_id, true, 'owner','admin','staff','accountant') then
+    if new.assigned_staff_id is distinct from old.assigned_staff_id
+        and old.assigned_staff_id is null
+        and new.assigned_staff_id is not null
+        and old.status = 'requested' then
+      new.status := 'assigned';
+    end if;
+    new.updated_at := clock_timestamp();
+    return new;
+  end if;
+
+  if old.assigned_staff_id is distinct from auth.uid() then
+    raise sqlstate '42501' using
+      message = 'permission denied for table service_requests',
+      hint = 'you can only update requests assigned to you';
+  end if;
+
+  if new.id is distinct from old.id
+      or new.reservation_id is distinct from old.reservation_id
+      or new.category is distinct from old.category
+      or new.description is distinct from old.description
+      or new.assigned_staff_id is distinct from old.assigned_staff_id
+      or new.created_at is distinct from old.created_at
+      or new.property_id is distinct from old.property_id then
+    raise sqlstate '42501' using
+      message = 'permission denied for table service_requests',
+      hint = 'only staff can reassign or edit a request''s details';
+  end if;
+
+  new.updated_at := clock_timestamp();
+  return new;
+end;
+$$;
+
+create or replace function public.maintenance_issues_enforce_write()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if public.has_resort_role(old.property_id, true, 'owner','admin','staff','accountant')
+     and public.has_resort_role(new.property_id, true, 'owner','admin','staff','accountant') then
+    if new.assigned_staff_id is distinct from old.assigned_staff_id
+        and old.assigned_staff_id is null
+        and new.assigned_staff_id is not null
+        and old.status = 'reported' then
+      new.status := 'assigned';
+    end if;
+    new.updated_at := clock_timestamp();
+    return new;
+  end if;
+
+  if old.assigned_staff_id is distinct from auth.uid() then
+    raise sqlstate '42501' using
+      message = 'permission denied for table maintenance_issues',
+      hint = 'you can only update issues assigned to you';
+  end if;
+
+  if new.id is distinct from old.id
+      or new.reservation_id is distinct from old.reservation_id
+      or new.category is distinct from old.category
+      or new.description is distinct from old.description
+      or new.photo_url is distinct from old.photo_url
+      or new.priority is distinct from old.priority
+      or new.assigned_staff_id is distinct from old.assigned_staff_id
+      or new.created_at is distinct from old.created_at
+      or new.property_id is distinct from old.property_id then
+    raise sqlstate '42501' using
+      message = 'permission denied for table maintenance_issues',
+      hint = 'only staff can reassign or edit an issue''s details';
+  end if;
+
+  new.updated_at := clock_timestamp();
+  return new;
+end;
+$$;
+
+-- Templates: a resort uses its own templates and the platform defaults
+-- (property_id null), never another resort's. For one channel of an
+-- event, the resort's own template wins over a default.
+create or replace function public.enqueue_reservation_outbox()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_name text;
+begin
+  if new.kind <> 'booking' or new.customer_id is null then
+    return new;
+  end if;
+
+  if new.status = 'confirmed'
+     and (tg_op = 'INSERT' or old.status is distinct from 'confirmed') then
+    for v_name in
+      select distinct on (channel) name from public.outbox_templates
+      where event = 'booking_confirmation'
+        and (property_id = new.property_id or property_id is null)
+      order by channel, property_id nulls last
+    loop
+      perform public.enqueue_outbox_message(new.id, v_name);
+    end loop;
+
+    for v_name in
+      select distinct on (channel) name from public.outbox_templates
+      where event = 'payment_success'
+        and (property_id = new.property_id or property_id is null)
+      order by channel, property_id nulls last
+    loop
+      perform public.enqueue_outbox_message(new.id, v_name);
+    end loop;
+  end if;
+
+  if tg_op = 'UPDATE' and old.status = 'confirmed' and new.status = 'cancelled' then
+    for v_name in
+      select distinct on (channel) name from public.outbox_templates
+      where event = 'cancellation'
+        and (property_id = new.property_id or property_id is null)
+      order by channel, property_id nulls last
+    loop
+      perform public.enqueue_outbox_message(new.id, v_name);
+    end loop;
+  end if;
+
+  return new;
+end;
+$$;
+
+-- Enqueues one outbox row, tagged with the reservation's resort. Two
+-- callers:
+--   * the reservations trigger above, on a status change that whoever
+--     made it was already allowed to make (a guest cancelling, staff
+--     checking in, the hold-release cron) -- no further check;
+--   * a direct call (staff re-sending a message), which needs Staff+ at
+--     the reservation's resort. `pg_trigger_depth() = 0` tells the two
+--     apart: a client cannot call this from inside a trigger.
+-- A template that belongs to another resort is treated like a missing
+-- one (silently skipped).
+create or replace function public.enqueue_outbox_message(
+  p_reservation_id uuid,
+  p_template       text
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_property  uuid;
+  v_tpl       public.outbox_templates;
+  v_row       public.reservations;
+  v_profile   public.profiles;
+  v_settings  public.notification_settings;
+  v_email     text;
+  v_recipient text;
+  v_rendered  jsonb;
+  v_channel_enabled boolean;
+begin
+  select property_id into v_property from public.reservations where id = p_reservation_id;
+  if v_property is null then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+  if pg_trigger_depth() = 0 then
+    perform public.assert_resort_role(v_property, true, 'owner','admin','staff','accountant');
+  end if;
+
+  select * into v_tpl from public.outbox_templates
+  where name = p_template
+    and (property_id = v_property or property_id is null);
+  if not found then
+    return;
+  end if;
+
+  select * into v_row from public.reservations where id = p_reservation_id;
+  select * into v_profile from public.profiles where id = v_row.customer_id;
+  select email into v_email from auth.users where id = v_row.customer_id;
+
+  select * into v_settings
+  from public.notification_settings
+  where property_id = v_property;
+
+  -- A property with no settings row at all (created after this migration
+  -- ran, before anyone has visited its Settings screen) is treated as
+  -- "every channel enabled" -- the same opt-out default the table's own
+  -- column defaults establish for a row that does exist.
+  v_channel_enabled := case v_tpl.channel
+    when 'email'    then coalesce(v_settings.email_enabled, true)
+    when 'sms'      then coalesce(v_settings.sms_enabled, true)
+    when 'whatsapp' then coalesce(v_settings.whatsapp_enabled, true)
+  end;
+
+  if not v_channel_enabled then
+    insert into public.outbox
+      (property_id, reservation_id, channel, recipient, template, subject, body,
+       status, last_error)
+    values (
+      v_property, p_reservation_id, v_tpl.channel,
+      format('%s (channel disabled)', v_tpl.channel),
+      p_template, null, null, 'skipped',
+      format('%s notifications are disabled in this property''s settings',
+             v_tpl.channel));
+    return;
+  end if;
+
+  v_recipient := case v_tpl.channel
+    when 'email' then nullif(btrim(coalesce(v_email, '')), '')
+    else nullif(btrim(coalesce(v_profile.phone, '')), '')
+  end;
+
+  if v_recipient is null then
+    insert into public.outbox
+      (property_id, reservation_id, channel, recipient, template, subject, body,
+       status, last_error)
+    values (
+      v_property, p_reservation_id, v_tpl.channel,
+      case v_tpl.channel when 'email' then 'no email on file'
+                          else 'no phone on file' end,
+      p_template, null, null, 'skipped',
+      format('cannot deliver via %s: customer %s has no %s on file',
+             v_tpl.channel, v_row.customer_id,
+             case v_tpl.channel when 'email' then 'email address'
+                                 else 'phone number' end));
+    return;
+  end if;
+
+  v_rendered := public.render_template(p_template, p_reservation_id);
+
+  insert into public.outbox
+    (property_id, reservation_id, channel, recipient, template, subject, body, status)
+  values (
+    v_property, p_reservation_id, v_tpl.channel, v_recipient, p_template,
+    v_rendered ->> 'subject', v_rendered ->> 'body', 'pending');
+end;
+$$;
+
+grant execute on function public.enqueue_outbox_message(uuid, text) to authenticated;
+revoke execute on function public.enqueue_outbox_message(uuid, text) from public;
+revoke execute on function public.enqueue_outbox_message(uuid, text) from anon;
+
+-- Internal (still revoked from every client role, see 0017). Renders only
+-- a template available to the reservation's resort: its own, preferred,
+-- or a platform default.
+create or replace function public.render_template(
+  p_template       text,
+  p_reservation_id uuid
+) returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_tpl      public.outbox_templates;
+  v_row      public.reservations;
+  v_unit     public.units;
+  v_property public.properties;
+  v_profile  public.profiles;
+  v_email    text;
+  v_ctx      jsonb;
+  v_subject  text;
+  v_body     text;
+  v_key      text;
+begin
+  select * into v_row from public.reservations where id = p_reservation_id;
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  select * into v_tpl from public.outbox_templates
+  where name = p_template
+    and (property_id = v_row.property_id or property_id is null)
+  order by property_id nulls last
+  limit 1;
+  if not found then
+    raise exception 'unknown outbox template %', p_template
+      using errcode = 'P0002';
+  end if;
+
+  select * into v_unit from public.units where id = v_row.unit_id;
+  select * into v_property from public.properties where id = v_unit.property_id;
+  select * into v_profile from public.profiles where id = v_row.customer_id;
+  select email into v_email from auth.users where id = v_row.customer_id;
+
+  -- Every value is coalesced: replace() returns NULL if any argument is
+  -- NULL, which would collapse the whole rendered text (see 0017).
+  v_ctx := jsonb_build_object(
+    'guest_name',     coalesce(v_profile.full_name, 'Guest'),
+    'unit_name',      coalesce(v_unit.name, 'your unit'),
+    'property_name',  coalesce(v_property.name, 'Pasala Resorts'),
+    'check_in',       coalesce(to_char(
+                         lower(v_row.period) at time zone v_property.timezone,
+                         'DD Mon YYYY'), ''),
+    'check_out',      coalesce(to_char(
+                         upper(v_row.period) at time zone v_property.timezone,
+                         'DD Mon YYYY'), ''),
+    'total',          coalesce(v_row.quote ->> 'total', '0'),
+    'currency',       coalesce(v_row.quote ->> 'currency', 'INR'),
+    'cancel_reason',  coalesce(v_row.cancel_reason, 'no reason given'),
+    'customer_email', coalesce(v_email, ''),
+    'customer_phone', coalesce(v_profile.phone, '')
+  );
+
+  v_subject := v_tpl.subject_template;
+  v_body    := v_tpl.body_template;
+
+  for v_key in select jsonb_object_keys(v_ctx) loop
+    if v_subject is not null then
+      v_subject := replace(v_subject, '{{' || v_key || '}}', v_ctx ->> v_key);
+    end if;
+    v_body := replace(v_body, '{{' || v_key || '}}', v_ctx ->> v_key);
+  end loop;
+
+  return jsonb_build_object('subject', v_subject, 'body', v_body);
+end;
+$$;
+
+-- One audit row per status transition, tagged with the reservation's
+-- resort.
+create or replace function public.record_reservation_transition()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if tg_op = 'INSERT' then
+    insert into public.audit_log (property_id, actor_id, entity, entity_id, action, after)
+    values (new.property_id, auth.uid(), 'reservation', new.id,
+            'created:' || new.status::text, to_jsonb(new));
+  elsif new.status is distinct from old.status then
+    insert into public.audit_log
+      (property_id, actor_id, entity, entity_id, action, before, after)
+    values (new.property_id, auth.uid(), 'reservation', new.id,
+            'status:' || old.status::text || '->' || new.status::text,
+            to_jsonb(old), to_jsonb(new));
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.sync_unit_calendar_event()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if tg_op = 'DELETE' then
+    delete from public.unit_calendar_events where reservation_id = old.id;
+    return old;
+  end if;
+
+  if new.status = 'cancelled' then
+    delete from public.unit_calendar_events where reservation_id = new.id;
+    return new;
+  end if;
+
+  insert into public.unit_calendar_events
+    (reservation_id, property_id, unit_id, period, kind, status, updated_at)
+  values (new.id, new.property_id, new.unit_id, new.period, new.kind, new.status, now())
+  on conflict (reservation_id) do update
+    set property_id = excluded.property_id,
+        unit_id = excluded.unit_id,
+        period  = excluded.period,
+        kind    = excluded.kind,
+        status  = excluded.status,
+        updated_at = now();
+  return new;
+end;
+$$;
+
+create or replace function public.ical_provision_token()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  insert into public.ical_export_tokens (unit_id, property_id)
+  values (new.id, new.property_id)
+  on conflict (unit_id) do nothing;
+  return new;
+end;
+$$;
+
+-- Admin+ of the unit's resort.
+create or replace function public.rotate_ical_token(p_unit_id uuid)
+returns text
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_property uuid;
+  v_token    text;
+begin
+  select property_id into v_property from public.units where id = p_unit_id;
+  if v_property is null then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+  perform public.assert_resort_role(v_property, true, 'owner','admin');
+
+  v_token := encode(extensions.gen_random_bytes(24), 'hex');
+
+  insert into public.ical_export_tokens (unit_id, token, rotated_at)
+  values (p_unit_id, v_token, now())
+  on conflict (unit_id) do update
+    set token = excluded.token, rotated_at = now();
+
+  return v_token;
+end;
+$$;
+
+-- Admin+ of the unit's resort (read, so allowed while suspended).
+create or replace function public.ical_export(p_unit_id uuid)
+returns text
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_property uuid;
+begin
+  select property_id into v_property from public.units where id = p_unit_id;
+  if v_property is null then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+  perform public.assert_resort_role(v_property, false, 'owner','admin');
+  return public.ical_build_document(p_unit_id);
+end;
+$$;
+
+-- Token-gated, for OTAs. A resort that is not active publishes nothing
+-- (null) -- not an empty calendar, which an OTA would read as "every date
+-- is free".
+create or replace function public.ical_export_public(p_token text)
+returns text
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_unit_id  uuid;
+  v_property uuid;
+begin
+  select unit_id, property_id into v_unit_id, v_property
+  from public.ical_export_tokens
+  where token = p_token;
+
+  if not found then
+    raise exception 'invalid or unknown iCal token' using errcode = 'P0002';
+  end if;
+
+  if not exists (select 1 from public.properties
+                  where id = v_property and status = 'active') then
+    return null;
+  end if;
+
+  return public.ical_build_document(v_unit_id);
+end;
+$$;
+
+-- Called in-database by ical_poll_feed (an admin's Sync, or the cron job
+-- with no JWT). A PostgREST caller -- including the admin's Sync, whose
+-- JWT is still set -- must be Admin+ of the unit's resort. See 0018 for
+-- why the guard keys on request.jwt.claims rather than auth.uid().
+create or replace function public.ical_import_event(
+  p_unit_id uuid,
+  p_uid     text,
+  p_start   timestamptz,
+  p_end     timestamptz
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_property uuid;
+  v_existing public.reservations;
+  v_period   tstzrange;
+  v_id       uuid;
+begin
+  if nullif(current_setting('request.jwt.claims', true), '') is not null then
+    select property_id into v_property from public.units where id = p_unit_id;
+    if v_property is null then
+      raise exception using errcode = 'P0002', message = 'not_found';
+    end if;
+    perform public.assert_resort_role(v_property, true, 'owner','admin');
+  end if;
+
+  if p_uid is null or btrim(p_uid) = '' then
+    raise exception 'external UID is required' using errcode = 'P0005';
+  end if;
+  if p_start is null or p_end is null or p_end <= p_start then
+    raise exception 'invalid event period' using errcode = 'P0005';
+  end if;
+
+  v_period := tstzrange(p_start, p_end, '[)');
+
+  select * into v_existing
+  from public.reservations
+  where unit_id = p_unit_id and external_uid = p_uid;
+
+  if found then
+    if v_existing.status <> 'cancelled' and v_existing.period = v_period then
+      return jsonb_build_object(
+        'status', 'unchanged', 'reservation_id', v_existing.id, 'conflict', null);
+    end if;
+
+    begin
+      update public.reservations
+        set period = v_period, status = 'confirmed'
+        where id = v_existing.id
+        returning id into v_id;
+
+      return jsonb_build_object(
+        'status', 'updated', 'reservation_id', v_id, 'conflict', null);
+    exception when exclusion_violation then
+      return jsonb_build_object(
+        'status', 'conflict', 'reservation_id', null,
+        'conflict', jsonb_build_object(
+          'unit_id', p_unit_id, 'start', p_start, 'end', p_end));
+    end;
+  end if;
+
+  begin
+    insert into public.reservations
+      (unit_id, period, kind, status, external_uid, source)
+    values (p_unit_id, v_period, 'ota', 'confirmed', p_uid, 'ical')
+    returning id into v_id;
+
+    return jsonb_build_object(
+      'status', 'created', 'reservation_id', v_id, 'conflict', null);
+  exception when exclusion_violation then
+    return jsonb_build_object(
+      'status', 'conflict', 'reservation_id', null,
+      'conflict', jsonb_build_object(
+        'unit_id', p_unit_id, 'start', p_start, 'end', p_end));
+  end;
+end;
+$$;
+
+-- Admin+ of the feed's resort for a PostgREST caller (the Sync button);
+-- the cron job (no JWT) is not checked. See 0018 for the state machine.
+create or replace function public.ical_poll_feed(p_feed_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_property    uuid;
+  v_feed        public.ical_feeds;
+  v_resp        record;
+  v_body        text;
+  v_event       record;
+  v_created     int := 0;
+  v_updated     int := 0;
+  v_unchanged   int := 0;
+  v_conflicts   int := 0;
+  v_failed      int := 0;
+  v_failed_note text;
+  v_import      jsonb;
+  v_error       text;
+  v_req_id      bigint;
+  v_result      jsonb;
+begin
+  if nullif(current_setting('request.jwt.claims', true), '') is not null then
+    select property_id into v_property from public.ical_feeds where id = p_feed_id;
+    if v_property is null then
+      raise exception 'feed not found or inactive' using errcode = 'P0002';
+    end if;
+    perform public.assert_resort_role(v_property, true, 'owner','admin');
+  end if;
+
+  -- `for update`: a cron tick and a Sync press for the same feed must not
+  -- both fire a request.
+  select * into v_feed
+  from public.ical_feeds
+  where id = p_feed_id and is_active
+  for update;
+
+  if not found then
+    raise exception 'feed not found or inactive' using errcode = 'P0002';
+  end if;
+
+  -- A request stuck far longer than pg_net's own timeout is abandoned.
+  if v_feed.pending_request_id is not null
+     and v_feed.pending_since < now() - interval '30 minutes' then
+    v_feed.pending_request_id := null;
+  end if;
+
+  if v_feed.pending_request_id is not null then
+    select status_code, content, error_msg, timed_out
+      into v_resp
+      from net._http_response
+      where id = v_feed.pending_request_id;
+
+    if not found then
+      return jsonb_build_object('status', 'pending');
+    end if;
+
+    -- Every path must reach the `update ical_feeds` below, so an
+    -- unexpected error cannot wedge the feed.
+    begin
+      if v_resp.timed_out or v_resp.error_msg is not null
+         or v_resp.status_code is distinct from 200 then
+        v_error := coalesce(
+          v_resp.error_msg,
+          case when v_resp.timed_out then 'request timed out'
+               else 'HTTP ' || coalesce(v_resp.status_code::text, 'unknown') end);
+        v_result := jsonb_build_object('status', 'error', 'error', v_error);
+      else
+        v_body := v_resp.content;
+
+        for v_event in select * from public.ical_parse_events(v_body) loop
+          -- One malformed event skips itself; the rest still import.
+          begin
+            v_import := public.ical_import_event(
+              v_feed.unit_id, v_event.uid, v_event.dtstart, v_event.dtend);
+            case v_import ->> 'status'
+              when 'created'   then v_created   := v_created + 1;
+              when 'updated'   then v_updated   := v_updated + 1;
+              when 'unchanged' then v_unchanged := v_unchanged + 1;
+              when 'conflict'  then v_conflicts := v_conflicts + 1;
+              else null;
+            end case;
+          exception when others then
+            v_failed := v_failed + 1;
+            v_failed_note := coalesce(nullif(btrim(v_event.uid), ''), '(blank uid)')
+              || ': ' || sqlerrm;
+          end;
+        end loop;
+
+        v_error := nullif(trim(both ', ' from concat_ws(', ',
+          case when v_conflicts > 0 then
+            v_conflicts || ' event(s) conflicted with an existing booking '
+            'and were skipped'
+          end,
+          case when v_failed > 0 then
+            v_failed || ' event(s) failed to import and were skipped '
+            '(last error: ' || v_failed_note || ')'
+          end
+        )), '');
+        v_result := jsonb_build_object('status', 'ok', 'created', v_created,
+          'updated', v_updated, 'unchanged', v_unchanged, 'conflicts', v_conflicts,
+          'failed', v_failed);
+      end if;
+    exception when others then
+      v_error := 'poll failed while processing response: ' || sqlerrm;
+      v_result := jsonb_build_object('status', 'error', 'error', v_error);
+    end;
+
+    update public.ical_feeds
+      set last_synced_at = now(), last_error = v_error,
+          pending_request_id = null, pending_since = null
+      where id = p_feed_id;
+  end if;
+
+  -- Fire the next request (the first, or the follow-up to the one just
+  -- collected).
+  begin
+    v_req_id := net.http_get(url := v_feed.url, timeout_milliseconds := 15000);
+  exception when others then
+    update public.ical_feeds
+      set last_error = 'fetch failed: ' || sqlerrm,
+          pending_request_id = null, pending_since = null
+      where id = p_feed_id;
+    return coalesce(v_result, jsonb_build_object('status', 'error', 'error', sqlerrm));
+  end;
+
+  update public.ical_feeds
+    set pending_request_id = v_req_id, pending_since = now()
+    where id = p_feed_id;
+
+  return coalesce(v_result, jsonb_build_object('status', 'requested'));
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+-- The six "no link" tables that stayed nullable in 0043 now require a
+-- resort: every writer above and every client insert supplies one.
+-- Backfill any stragglers first (outbox from its reservation, the rest to
+-- the first property, as 0043 did), with user triggers disabled for the
+-- same reason as 0043.
+
+do $$
+declare
+  v_first uuid;
+  t text;
+begin
+  select id into v_first from public.properties order by created_at limit 1;
+
+  alter table public.outbox disable trigger user;
+  update public.outbox o
+     set property_id = r.property_id
+    from public.reservations r
+   where r.id = o.reservation_id
+     and o.property_id is null;
+  alter table public.outbox enable trigger user;
+
+  foreach t in array array['coupons','staff_shifts','leave_requests',
+                           'attendance_records','tasks']
+  loop
+    execute format('alter table public.%I disable trigger user', t);
+    execute format('update public.%I set property_id = $1 where property_id is null', t)
+      using v_first;
+    execute format('alter table public.%I enable trigger user', t);
+  end loop;
+
+  foreach t in array array['coupons','outbox','staff_shifts','leave_requests',
+                           'attendance_records','tasks']
+  loop
+    execute format('alter table public.%I alter column property_id set not null', t);
+  end loop;
+end;
+$$;
+
+-- A coupon code is unique within its resort, not across the platform:
+-- one resort's SUMMER10 must not block another's.
+alter table public.coupons drop constraint coupons_code_key;
+alter table public.coupons add constraint coupons_property_code_key unique (property_id, code);
+
+-- ---------------------------------------------------------------------
+-- maintenance-photos bucket. Objects live at `{guest uid}/{file}` (see
+-- MaintenanceRepository.uploadPhoto) and are uploaded before the issue
+-- exists, so the path names no resort. Staff read a photo only once an
+-- issue at their resort links to it (maintenance_issues.photo_url) and
+-- the photo sits in that stay's guest's own folder -- so a guest cannot
+-- expose someone else's upload by pasting its path into a report. The
+-- guest's own upload/read policies (0035) are unchanged.
+
+drop policy if exists maintenance_photos_staff_read on storage.objects;
+create policy maintenance_photos_staff_read on storage.objects
+  for select to authenticated
+  using (bucket_id = 'maintenance-photos'
+         and exists (
+           select 1
+             from public.maintenance_issues mi
+             join public.reservations r on r.id = mi.reservation_id
+            where mi.photo_url = objects.name
+              and r.customer_id::text = (storage.foldername(objects.name))[1]
+              and public.has_resort_role(mi.property_id, false,
+                    'owner','admin','staff','accountant')));

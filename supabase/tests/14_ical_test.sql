@@ -92,9 +92,10 @@ values (
   'booking', 'cancelled', 'e5000000-0000-0000-0000-000000000010', 2,
   jsonb_build_object('total', 12000.00), 'app');
 
+-- ical_export is Admin+ of the unit's resort (0045).
 set local role authenticated;
 set local request.jwt.claims to
-  '{"sub":"e5000000-0000-0000-0000-000000000012","role":"authenticated"}';
+  '{"sub":"e5000000-0000-0000-0000-000000000011","role":"authenticated"}';
 
 -- === ical_export: shape, contents, identity, RFC 5545 folding =============
 
@@ -191,12 +192,13 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"e5000000-0000-0000-0000-000000000012","role":"authenticated"}';
 
--- staff-or-above only: a customer cannot pull any unit's export.
+-- Admin+ of the unit's resort only (0045): neither a customer nor the
+-- resort's staff can pull a unit's export.
 set local request.jwt.claims to
   '{"sub":"e5000000-0000-0000-0000-000000000010","role":"authenticated"}';
 select throws_ok(
   $$select public.ical_export('e5000000-0000-0000-0000-000000000002')$$,
-  'P0008', null,
+  'P0020', null,
   'a customer cannot call ical_export directly');
 
 set local request.jwt.claims to
@@ -214,7 +216,7 @@ select lives_ok(
 -- as `postgres` (the owner) rather than under the `authenticated` test
 -- role, then hands back to `authenticated` immediately after. `ical_export`
 -- inside each call is unaffected either way -- it stays granted to
--- `authenticated`, and its own `assert_staff()` check reads the admin JWT
+-- `authenticated`, and its own `assert_resort_role` check reads the admin JWT
 -- claims set above, not the postgres role, so switching role changes
 -- nothing about what it does or doesn't allow.
 set local role postgres;
@@ -308,7 +310,7 @@ set local request.jwt.claims to
   '{"sub":"e5000000-0000-0000-0000-000000000012","role":"authenticated"}';
 select throws_ok(
   $$select public.rotate_ical_token('e5000000-0000-0000-0000-000000000002')$$,
-  'P0008', null,
+  'P0020', null,
   'a staff member (not admin) cannot rotate the export token');
 
 set local request.jwt.claims to
@@ -393,7 +395,7 @@ select throws_ok(
   $$select public.ical_import_event('e5000000-0000-0000-0000-000000000002',
       'airbnb-uid-1', '2028-01-10T14:00:00Z'::timestamptz,
       '2028-01-12T11:00:00Z'::timestamptz)$$,
-  'P0008', null,
+  'P0020', null,
   'a customer cannot import an OTA event');
 
 set local request.jwt.claims to
@@ -525,11 +527,19 @@ select throws_ok(
   'polling a feed id that does not exist (or is inactive) fails cleanly, '
   'never silently doing nothing');
 
+-- An existing (inactive, so never fetched) feed: the role check runs
+-- once the feed's resort is known.
+reset role;
+insert into public.ical_feeds (id, unit_id, url, label, is_active)
+values ('e5000000-0000-0000-0000-000000000031',
+        'e5000000-0000-0000-0000-000000000002',
+        'https://example.invalid/idle.ics', 'IdleFeed', false);
+set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"e5000000-0000-0000-0000-000000000010","role":"authenticated"}';
 select throws_ok(
-  $$select public.ical_poll_feed('00000000-0000-0000-0000-000000000000')$$,
-  'P0008', null,
+  $$select public.ical_poll_feed('e5000000-0000-0000-0000-000000000031')$$,
+  'P0020', null,
   'a customer cannot trigger a feed poll -- Sync is admin-only, same as '
   'every other write path here');
 
