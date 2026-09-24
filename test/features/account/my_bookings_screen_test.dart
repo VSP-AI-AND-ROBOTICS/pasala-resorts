@@ -51,4 +51,42 @@ void main() {
     expect(find.text('Confirmed'), findsOneWidget);
     expect(find.byType(StaggeredFadeIn), findsAtLeastNWidgets(1));
   });
+
+  testWidgets('labels each booking with its own resort when the guest has '
+      'bookings at two resorts', (tester) async {
+    final riverside = Reservation(
+      id: 'r1',
+      unitId: 'u1',
+      start: DateTime(2026, 8, 3, 14),
+      end: DateTime(2026, 8, 5, 11),
+      kind: ReservationKind.booking,
+      status: ReservationStatus.confirmed,
+      guests: 2,
+      resortName: 'Pasala Riverside',
+    );
+    final hilltop = Reservation(
+      id: 'r2',
+      unitId: 'u2',
+      start: DateTime(2026, 9, 10, 14),
+      end: DateTime(2026, 9, 12, 11),
+      kind: ReservationKind.booking,
+      status: ReservationStatus.confirmed,
+      guests: 3,
+      resortName: 'Pasala Hilltop',
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          myBookingsProvider
+              .overrideWith((ref) => Future.value([riverside, hilltop])),
+        ],
+        child: const MaterialApp(home: MyBookingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pasala Riverside'), findsOneWidget);
+    expect(find.text('Pasala Hilltop'), findsOneWidget);
+  });
 }

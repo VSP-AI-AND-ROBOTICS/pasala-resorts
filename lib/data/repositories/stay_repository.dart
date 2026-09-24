@@ -30,9 +30,11 @@ class StayRepository {
         // Postgres one) -- `ascending: true` is required here, not
         // decorative, or this resolves to the LATEST matching reservation
         // instead of the soonest one this method's own doc comment promises.
+        // The `properties` embed gives a guest with stays at more than one
+        // resort a name to tell them apart by in My Stay.
         final checkedIn = await _db
             .from('reservations')
-            .select()
+            .select('*, properties(name)')
             .eq('customer_id', uid)
             .eq('kind', 'booking')
             .eq('status', 'checked_in')
@@ -43,7 +45,7 @@ class StayRepository {
 
         final confirmed = await _db
             .from('reservations')
-            .select()
+            .select('*, properties(name)')
             .eq('customer_id', uid)
             .eq('kind', 'booking')
             .eq('status', 'confirmed')
@@ -63,7 +65,7 @@ class StayRepository {
         if (uid == null) throw const NotPermitted();
         final row = await _db
             .from('reservations')
-            .select()
+            .select('*, properties(name)')
             .eq('customer_id', uid)
             .eq('kind', 'booking')
             .eq('status', 'checked_out')

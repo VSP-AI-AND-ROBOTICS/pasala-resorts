@@ -258,9 +258,11 @@ class BookingRepository
   Future<List<Reservation>> myBookings() => _guard(() async {
         final uid = _db.auth.currentUser?.id;
         if (uid == null) throw const NotPermitted();
+        // The `properties` embed gives a guest with bookings at more than
+        // one resort a name to tell them apart by in My Bookings.
         final rows = await _db
             .from('reservations')
-            .select()
+            .select('*, properties(name)')
             .eq('customer_id', uid)
             .order('period', ascending: false);
         return rows.map(Reservation.fromJson).toList();
