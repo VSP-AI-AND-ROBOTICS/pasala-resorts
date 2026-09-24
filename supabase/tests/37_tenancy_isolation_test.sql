@@ -1,5 +1,5 @@
 begin;
-select plan(72);
+select plan(77);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -360,6 +360,26 @@ set local role authenticated;
 set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000c","role":"authenticated"}';
 select throws_ok($$select public.check_out_attendance('aaaaaaaa-0000-4000-8000-000000000041')$$,
   'P0022', null, 'staff cannot check out at a suspended resort');
+
+-- Room status (0047): nothing at A reaches B's rooms. Fixture as the
+-- superuser with no authenticated caller.
+reset role;
+set local request.jwt.claims to '';
+insert into public.unit_room_status (unit_id, state)
+  values ('bbbbbbbb-0000-4000-8000-000000000011', 'dirty');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000c","role":"authenticated"}';
+select throws_ok($$select * from public.room_status_board('bbbbbbbb-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'A staff cannot read B''s room board');
+select throws_ok($$select public.set_room_status('bbbbbbbb-0000-4000-8000-000000000011', 'ready')$$,
+  'P0020', null, 'A staff cannot change a B room');
+select throws_ok($$select public.dispatch_housekeeping('bbbbbbbb-0000-4000-8000-000000000011',
+  'a0000000-0000-0000-0000-00000000000c')$$, 'P0020', null, 'A staff cannot send housekeeping to a B room');
+select throws_ok($$select * from public.list_dispatchable_staff('bbbbbbbb-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'A staff cannot list B''s housekeepers');
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+select is((select count(*)::int from public.unit_room_status), 0,
+  'A owner reads none of B''s room rows');
 
 -- Catalog guards: fail the suite when a future table, policy or security
 -- definer function is added without resort scoping.

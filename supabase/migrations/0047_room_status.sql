@@ -412,3 +412,81 @@ grant execute on function public.room_status_board(uuid) to authenticated;
 grant execute on function public.set_room_status(uuid, public.room_state, text) to authenticated;
 grant execute on function public.dispatch_housekeeping(uuid, uuid, text) to authenticated;
 grant execute on function public.list_dispatchable_staff(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- checkout_booking, copied from 0045 with one step added: after checkout
+-- the unit needs cleaning, unless it is out of order (checkout never
+-- clears Maintenance). The idempotent early return for an
+-- already-checked-out booking does not touch the room again.
+create or replace function public.checkout_booking(
+  p_reservation_id uuid,
+  p_payment_ref    text,
+  p_amount         numeric
+) returns public.reservations
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_row     public.reservations;
+  v_charges jsonb;
+  v_balance numeric(12,2);
+begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_row from public.reservations
+  where id = p_reservation_id for update;
+
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  if v_row.customer_id is distinct from v_uid then
+    perform public.assert_resort_role(v_row.property_id, true, 'owner','admin','staff','accountant');
+  end if;
+
+  if v_row.status = 'checked_out' then
+    return v_row;   -- idempotent: a retried checkout must not double-charge
+  end if;
+
+  if v_row.status <> 'checked_in' then
+    raise exception 'reservation is %', v_row.status using errcode = 'P0009';
+  end if;
+
+  v_charges := public.current_charges(p_reservation_id);
+  v_balance := (v_charges ->> 'balance')::numeric;
+
+  if v_balance > 0 and (p_amount is null or p_amount is distinct from v_balance) then
+    raise exception 'payment amount % does not match balance due %',
+      p_amount, v_balance
+      using errcode = 'P0009';
+  end if;
+
+  if v_balance > 0 then
+    insert into public.payments
+      (reservation_id, amount, kind, status, gateway, gateway_ref)
+    values (p_reservation_id, v_balance, 'balance', 'succeeded', 'mock', p_payment_ref);
+  end if;
+
+  update public.reservations
+     set status = 'checked_out', checked_out_at = clock_timestamp()
+   where id = p_reservation_id
+  returning * into v_row;
+
+  -- 0047: the room needs cleaning now.
+  insert into public.unit_room_status as s
+    (unit_id, property_id, state, reason, updated_by, updated_at)
+  values (v_row.unit_id, v_row.property_id, 'dirty', null, v_uid, now())
+  on conflict (unit_id) do update
+    set state      = 'dirty',
+        reason     = null,
+        updated_by = excluded.updated_by,
+        updated_at = excluded.updated_at
+    where s.state <> 'out_of_order';
+
+  return v_row;
+end;
+$$;

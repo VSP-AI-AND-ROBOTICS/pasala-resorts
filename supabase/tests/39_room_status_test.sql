@@ -11,7 +11,7 @@
 -- (slot-only), Old Barn (inactive) and Cottage 4 (a confirmed arrival
 -- today, Asia/Kolkata).
 begin;
-select plan(69);
+select plan(81);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters
 -- it). Used by later sections.
@@ -388,6 +388,61 @@ set local request.jwt.claims to '';
 select is((select count(*)::int from public.tasks
             where title = 'Clean Day Hut' and unit_id is null),
   2, 'its housekeeping tasks are kept, unlinked from the room');
+
+-- === Task 4: checkout, suspended and archived resorts =====================
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select lives_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000011', 'ready')$$,
+  'owner marks the occupied room ready before checkout');
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select lives_ok($$select public.checkout_booking('eeeeeeee-0000-4000-8000-000000000031', null, null)$$,
+  'reception checks the guest out');
+select is((select effective_status || '|' || state::text
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000011'),
+  'cleaning|dirty', 'checkout marks the room Cleaning');
+
+-- Review Focus 1: checkout never clears Maintenance.
+select lives_ok($$select public.check_in_booking('eeeeeeee-0000-4000-8000-000000000032')$$,
+  'the arriving guest checks in to Cottage 4');
+select lives_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000014', 'out_of_order', 'Geyser')$$,
+  'the Incharge marks the occupied room out of order');
+select lives_ok($$select public.checkout_booking('eeeeeeee-0000-4000-8000-000000000032', null, null)$$,
+  'the guest checks out');
+select is((select effective_status || '|' || reason
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'),
+  'maintenance|Geyser', 'checkout leaves an out-of-order room in Maintenance');
+
+-- Suspended: reads work, writes P0022. `reset role` keeps the claims;
+-- clear them so the status change runs with no authenticated caller.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'suspended'
+ where id = 'eeeeeeee-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is((select count(*)::int from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')),
+  2, 'staff of a suspended resort still read the board');
+select throws_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000011', 'ready')$$,
+  'P0022', null, 'no room changes at a suspended resort');
+select throws_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000011',
+  'e0000000-0000-0000-0000-000000000004')$$, 'P0022', null, 'no dispatching at a suspended resort');
+select is((select count(*)::int from public.list_dispatchable_staff('eeeeeeee-0000-4000-8000-000000000001')),
+  2, 'the housekeeper list still reads at a suspended resort');
+
+-- Archived: closed.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'archived'
+ where id = 'eeeeeeee-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select * from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'an archived resort''s board is closed to its staff');
+reset role;
+set local request.jwt.claims to '';
 
 select * from finish();
 rollback;
