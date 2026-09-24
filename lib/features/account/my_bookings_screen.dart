@@ -131,10 +131,27 @@ class BookingTile extends StatelessWidget {
           vertical: Spacing.xs,
         ),
         onTap: onTap,
-        title: Text(
-          '${formatDay(reservation.start.toLocal())} → '
-          '${formatDay(reservation.end.toLocal())}',
-          style: textTheme.titleMedium,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Only present when the query embedded `properties(name)`
+            // (My Bookings, My Stay) -- a guest with bookings at more than
+            // one resort needs this to tell rows apart; a single-resort
+            // context (e.g. Task 21's admin list, which reuses this tile)
+            // never sets it, so nothing extra renders there.
+            if (reservation.resortName case final resortName?)
+              Text(
+                resortName,
+                style: textTheme.labelLarge
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            Text(
+              '${formatDay(reservation.start.toLocal())} → '
+              '${formatDay(reservation.end.toLocal())}',
+              style: textTheme.titleMedium,
+            ),
+          ],
         ),
         subtitle: switch ((reservation.isHold, reservation.guests)) {
           (true, _) => Text(_holdSubtitle!,
