@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/errors.dart';
 import '../../core/supabase_client.dart';
 import '../models/current_charges.dart';
+import '../models/payment_method.dart';
 import '../models/reservation.dart';
 
 class StayRepository {
@@ -89,16 +90,23 @@ class StayRepository {
         return CurrentCharges.fromJson(json as Map<String, dynamic>);
       });
 
+  /// Settles the balance and checks out. [method] is how the balance was
+  /// taken: [PaymentMethod.gateway] for a guest's own online payment (with
+  /// the gateway's reference in [paymentRef]), or a desk method recorded by
+  /// resort staff (with an optional receipt/UTR number in [paymentRef]).
+  /// A guest passing a desk method gets P0009 from `checkout_booking`.
   Future<Reservation> checkout({
     required String reservationId,
-    required String paymentRef,
+    String? paymentRef,
     required num amount,
+    PaymentMethod method = PaymentMethod.gateway,
   }) =>
       _guard(() async {
         final row = await _db.rpc('checkout_booking', params: {
           'p_reservation_id': reservationId,
           'p_payment_ref': paymentRef,
           'p_amount': amount,
+          'p_method': method.wire,
         });
         return Reservation.fromJson(row as Map<String, dynamic>);
       });

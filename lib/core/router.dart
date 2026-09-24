@@ -595,7 +595,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/my-stay/checkout',
             pageBuilder: (_, state) => fadeSlidePage(
-              CheckoutScreen(reservationId: state.extra! as String),
+              checkoutScreenFor(state.extra),
               state,
             ),
           ),

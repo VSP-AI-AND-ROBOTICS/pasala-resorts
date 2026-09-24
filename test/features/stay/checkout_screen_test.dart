@@ -1,0 +1,262 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:pasala/core/errors.dart';
+import 'package:pasala/data/models/current_charges.dart';
+import 'package:pasala/data/models/payment_method.dart';
+import 'package:pasala/data/models/reservation.dart';
+import 'package:pasala/data/repositories/finance_repository.dart';
+import 'package:pasala/data/repositories/stay_repository.dart';
+import 'package:pasala/features/booking/payment_gateway.dart';
+import 'package:pasala/features/finance/providers.dart';
+import 'package:pasala/features/stay/checkout_screen.dart';
+
+import '../../support/fake_finance_source.dart';
+
+typedef _Checkout = ({
+  String reservationId,
+  String? paymentRef,
+  num amount,
+  PaymentMethod method,
+});
+
+/// Only [checkout] is reached from this screen.
+class _FakeStayRepository implements StayRepository {
+  final checkouts = <_Checkout>[];
+  Object? checkoutError;
+
+  @override
+  Future<Reservation> checkout({
+    required String reservationId,
+    String? paymentRef,
+    required num amount,
+    PaymentMethod method = PaymentMethod.gateway,
+  }) async {
+    checkouts.add((
+      reservationId: reservationId,
+      paymentRef: paymentRef,
+      amount: amount,
+      method: method,
+    ));
+    if (checkoutError != null) throw checkoutError!;
+    return Reservation(
+      id: reservationId,
+      unitId: 'u1',
+      start: DateTime(2026, 9, 24),
+      end: DateTime(2026, 9, 26),
+      kind: ReservationKind.booking,
+      status: ReservationStatus.checkedOut,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeGateway implements PaymentGateway {
+  final charges = <num>[];
+
+  @override
+  Future<PaymentResult> charge({required String reservationId, required num amount}) async {
+    charges.add(amount);
+    return PaymentResult.success('mock_$reservationId');
+  }
+}
+
+CurrentCharges _charges(double balance) => CurrentCharges(
+      stayAmount: 3000,
+      foodAmount: 0,
+      activityAmount: 0,
+      total: 3000,
+      paid: 3000 - balance,
+      balance: balance,
+    );
+
+Future<void> _pump(
+  WidgetTester tester, {
+  required Object extra,
+  required _FakeStayRepository stay,
+  _FakeGateway? gateway,
+  double balance = 2000,
+  FakeFinanceSource? finance,
+}) async {
+  tester.view.physicalSize = const Size(800, 1600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  final router = GoRouter(
+    initialLocation: '/my-stay/checkout',
+    initialExtra: extra,
+    routes: [
+      GoRoute(path: '/my-stay/checkout', builder: (_, state) => checkoutScreenFor(state.extra)),
+      GoRoute(
+          path: '/my-stay/invoice/:id',
+          builder: (_, state) => Text('INVOICE ${state.pathParameters['id']}')),
+    ],
+  );
+  await tester.pumpWidget(ProviderScope(
+    retry: (_, _) => null,
+    overrides: [
+      stayRepositoryProvider.overrideWithValue(stay),
+      currentChargesProvider.overrideWith((ref, id) async => _charges(balance)),
+      paymentGatewayProvider.overrideWithValue(gateway ?? _FakeGateway()),
+      financeSourceProvider.overrideWithValue(finance ?? FakeFinanceSource()),
+    ],
+    child: MaterialApp.router(
+      routerConfig: router,
+      // Stands in for an open Finance screen, which keeps its summary alive.
+      builder: (context, child) => Stack(children: [
+        child!,
+        Consumer(builder: (_, ref, _) {
+          ref.watch(financeSummaryProvider('p1'));
+          return const SizedBox.shrink();
+        }),
+      ]),
+    ),
+  ));
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  group('desk checkout', () {
+    testWidgets('offers the five desk methods, Cash selected, and a reference field',
+        (tester) async {
+      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: _FakeStayRepository());
+
+      for (final m in PaymentMethod.desk) {
+        expect(find.byKey(Key('desk-method-${m.wire}')), findsOneWidget, reason: m.label);
+      }
+      expect(find.byKey(const Key('desk-method-gateway')), findsNothing);
+      expect(tester.widget<ChoiceChip>(find.byKey(const Key('desk-method-cash'))).selected, isTrue);
+      expect(find.byKey(const Key('desk-reference')), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'), findsOneWidget);
+    });
+
+    testWidgets('records the chosen method and the trimmed reference, and never calls the gateway',
+        (tester) async {
+      final stay = _FakeStayRepository();
+      final gateway = _FakeGateway();
+      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: stay, gateway: gateway);
+
+      await tester.tap(find.byKey(const Key('desk-method-upi')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('desk-reference')), '  UTR123  ');
+      await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(stay.checkouts, [
+        (reservationId: 'r1', paymentRef: 'UTR123', amount: 2000, method: PaymentMethod.upi),
+      ]);
+      expect(gateway.charges, isEmpty);
+      expect(find.text('INVOICE r1'), findsOneWidget);
+    });
+
+    testWidgets('a blank reference is sent as none', (tester) async {
+      final stay = _FakeStayRepository();
+      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: stay);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(stay.checkouts.single.paymentRef, isNull);
+      expect(stay.checkouts.single.method, PaymentMethod.cash);
+    });
+
+    testWidgets('the reference stops at 64 characters', (tester) async {
+      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: _FakeStayRepository());
+
+      await tester.enterText(find.byKey(const Key('desk-reference')), 'x' * 70);
+      await tester.pump();
+
+      final field = tester.widget<TextField>(find.byKey(const Key('desk-reference')));
+      expect(field.controller!.text, hasLength(64));
+    });
+
+    // Review Focus 4.
+    testWidgets('with nothing left to pay there is no method to pick', (tester) async {
+      final stay = _FakeStayRepository();
+      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: stay, balance: 0);
+
+      expect(find.byKey(const Key('desk-method-cash')), findsNothing);
+      expect(find.byKey(const Key('desk-reference')), findsNothing);
+      await tester.tap(find.widgetWithText(FilledButton, 'Check out'));
+      await tester.pumpAndSettle();
+
+      expect(stay.checkouts, [
+        (reservationId: 'r1', paymentRef: null, amount: 0, method: PaymentMethod.gateway),
+      ]);
+    });
+
+    testWidgets('a refusal is shown and the screen stays', (tester) async {
+      final stay = _FakeStayRepository()
+        ..checkoutError = const InvalidState('desk payment methods are recorded by resort staff');
+      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: stay);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('desk payment methods are recorded by resort staff'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'), findsOneWidget);
+    });
+
+    testWidgets('a desk checkout refetches the finance figures', (tester) async {
+      final finance = FakeFinanceSource();
+      await _pump(tester,
+          extra: const DeskCheckoutArgs('r1'), stay: _FakeStayRepository(), finance: finance);
+      final before = finance.summaryCalls.length;
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(finance.summaryCalls.length, greaterThan(before));
+    });
+  });
+
+  group('guest checkout', () {
+    testWidgets('is unchanged: no methods, and the gateway takes the balance', (tester) async {
+      final stay = _FakeStayRepository();
+      final gateway = _FakeGateway();
+      await _pump(tester, extra: 'r1', stay: stay, gateway: gateway);
+
+      expect(find.byKey(const Key('desk-method-cash')), findsNothing);
+      await tester.tap(find.widgetWithText(FilledButton, 'Pay ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(gateway.charges, [2000]);
+      expect(stay.checkouts, [
+        (reservationId: 'r1', paymentRef: 'mock_r1', amount: 2000, method: PaymentMethod.gateway),
+      ]);
+      expect(find.text('INVOICE r1'), findsOneWidget);
+    });
+
+    testWidgets('with nothing to pay it sends no-balance-due', (tester) async {
+      final stay = _FakeStayRepository();
+      await _pump(tester, extra: 'r1', stay: stay, balance: 0);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Check out'));
+      await tester.pumpAndSettle();
+
+      expect(stay.checkouts.single.paymentRef, 'no-balance-due');
+      expect(stay.checkouts.single.method, PaymentMethod.gateway);
+    });
+  });
+
+  group('checkoutScreenFor', () {
+    test("a reservation id is the guest's own checkout", () {
+      final screen = checkoutScreenFor('r1') as CheckoutScreen;
+      expect(screen.reservationId, 'r1');
+      expect(screen.desk, isFalse);
+    });
+
+    test('DeskCheckoutArgs is the desk checkout', () {
+      final screen = checkoutScreenFor(const DeskCheckoutArgs('r1')) as CheckoutScreen;
+      expect(screen.reservationId, 'r1');
+      expect(screen.desk, isTrue);
+    });
+
+    test('anything else is refused', () {
+      expect(() => checkoutScreenFor(null), throwsArgumentError);
+    });
+  });
+}
