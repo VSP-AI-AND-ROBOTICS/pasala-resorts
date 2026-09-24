@@ -33,6 +33,24 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <script>
+    // Flutter 3.44+ no longer registers a caching service worker, but a
+    // browser that still has one (or old Cache Storage entries) from a
+    // pre-3.44 build of this app would otherwise keep serving that stale
+    // build. Clean both up before flutter_bootstrap.js loads the new one.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker?.getRegistrations().then((rs) => {
+        rs.forEach((r) => r.unregister());
+      });
+    }
+    if ('caches' in window) {
+      window.caches?.keys().then((keys) => {
+        keys
+          .filter((key) => key.startsWith('flutter-'))
+          .forEach((key) => window.caches.delete(key));
+      });
+    }
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
