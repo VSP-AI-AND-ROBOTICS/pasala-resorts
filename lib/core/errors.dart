@@ -27,6 +27,20 @@ class NotPermitted extends BookingFailure {
   const NotPermitted() : super('You do not have access to do that.');
 }
 
+/// P0020 -- the signed-in user has no `resort_members` row for the resort a
+/// function or query was scoped to, e.g. a remembered current resort they
+/// have since been removed from.
+class NotAMember extends BookingFailure {
+  const NotAMember() : super('You no longer have access to this resort.');
+}
+
+/// P0022 -- the resort's `properties.status` is `suspended`. Staff writes
+/// via functions are refused; the guest can still read and cancel.
+class ResortSuspended extends BookingFailure {
+  const ResortSuspended()
+      : super('This resort is suspended — changes are disabled.');
+}
+
 /// A 400/422 from Supabase auth: a mistyped password on sign-in, or a
 /// duplicate email on sign-up. Kept distinct from [NotPermitted] (I7) --
 /// without this, every one of those looked identical to "you don't have
@@ -124,6 +138,15 @@ BookingFailure mapPostgrestError(Object error) {
     // The message is written for the admin reading it and safe to show
     // verbatim, same as the other InvalidState-mapped codes above.
     'P0014' => InvalidState(message),
+    // P0020-P0023: resort-tenancy errors. P0020 (not_a_member) and P0022
+    // (resort_suspended) get dedicated failures with their own copy;
+    // P0021 (resort_mismatch) and P0023 (last_owner) carry a
+    // server-written message that's already safe to show verbatim, same
+    // as the other InvalidState-mapped codes above.
+    'P0020' => const NotAMember(),
+    'P0021' => InvalidState(message),
+    'P0022' => const ResortSuspended(),
+    'P0023' => InvalidState(message),
     '23514' => InvalidState(message),
     '23505' => const DuplicateValue(),
     _ => UnknownFailure(message),
