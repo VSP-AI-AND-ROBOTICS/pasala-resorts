@@ -1,10 +1,19 @@
-# Pasala Resorts — Booking Platform (Phase 1 + Phase 2)
+# ResortHub — Multi-Resort Booking Platform (Phase 1 + Phase 2 + Tenancy)
 
 A Flutter app (Android, iOS, and web from one codebase) backed by Supabase
 (Postgres + Auth + Realtime), implementing property browsing, a
 server-priced booking flow with a timed hold, coupons, a refund policy
-engine, an advance/balance split, an admin dashboard and reports, a
+engine, an advance/balance split, an owner/admin dashboard and reports, a
 notification outbox, and two-way iCal calendar sync with Airbnb/Booking.com.
+
+The app was built and seeded around a single tenant, Pasala Farm House, but
+the product itself is now ResortHub: any number of resorts ("properties")
+can live in one deployment, each with its own team and its own data,
+switchable from one account when that account belongs to more than one.
+See "Platform admin" and "Memberships and roles" below for how a resort and
+its team are set up; the rest of this README otherwise still describes the
+booking/ops feature set as it was written for Pasala, which is one resort
+among however many exist in a given deployment.
 
 Read `docs/STATUS.md` first — it is the single honest page on what is real,
 what is stubbed, and what is needed from the owner to go live.
@@ -19,8 +28,12 @@ and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
 
 **Core booking (phase 1)**
 
-- Email/password authentication, five roles (`customer`, `staff`, `admin`,
-  `accountant`, `super_admin`), one codebase gated by role at the router.
+- Email/password authentication, one codebase gated by role at the router.
+  Roles are two-tier: a platform-level role on `profiles.role`
+  (`customer` or `platform_admin`, see "Platform admin" below) and, per
+  resort, a membership role in `resort_members` (`owner`, `admin`, `staff`,
+  `accountant`, see "Memberships and roles" below). There is no more global
+  `super_admin`/`admin`/`staff`/`accountant` — those are resort-scoped now.
 - Multi-property, multi-unit catalog (nightly, slot, or both booking modes).
 - Rate rules (base, weekend, priority-ordered date-range overrides) priced
   entirely server-side via a Postgres RPC — the client never computes a
@@ -187,9 +200,10 @@ supabase start
 # The Makefile's ANON_KEY variable picks this up automatically — you only
 # need the raw value if you're running `flutter run`/`flutter build` by hand.
 
-# 3. Apply all 18 migrations and load seed data (properties, units, rate
-#    rules, refund policy, one confirmed booking, one admin block, and the
-#    accounts below). No coupons are seeded.
+# 3. Apply all migrations and load seed data (one resort — Pasala Farm
+#    House — its units, rate rules, refund policy, one confirmed booking,
+#    one admin block, its resort_members team, and the accounts below).
+#    No coupons are seeded.
 supabase db reset
 
 # 4. Run the pgTAP suite against the freshly seeded database (optional but
@@ -204,18 +218,65 @@ make run-web
 Then sign in with any account from the table below (shared password
 `password123`).
 
+## Platform admin
+
+Nobody is a platform admin by default. Being a platform admin is a
+platform-wide capability (create/suspend resorts, `/platform`) — it is
+separate from, and does not imply, membership in any particular resort.
+After signing up, grant it once:
+
+    docker exec supabase_db_pasala_farm psql -U postgres -c \
+      "update public.profiles set role = 'platform_admin' where id = (select id from auth.users where email = 'you@example.com');"
+
+`profiles.role` only ever holds `customer` or `platform_admin`; every other
+role lives per-resort in `resort_members` (see below).
+
+## Memberships and roles
+
+Each resort's team lives in `resort_members`: a row per
+`(property_id, user_id)` with a role of `owner`, `admin`, `staff`, or
+`accountant`. A user can be a member of more than one resort, with a
+different role in each — there is no single global role that follows them
+everywhere. The signed-in account's memberships drive the resort switcher:
+an account with exactly one resort goes straight to it, an account with
+several gets a switcher, and an account with none (a plain customer) never
+sees owner/admin screens at all.
+
+- **owner** — full control of that resort, including its team: `/owner`
+  and its sub-routes (`/owner/dashboard`, `/owner/reports`,
+  `/owner/settings`, …) plus `/owner/team`, which lists, adds (by email —
+  only `/signup` creates an `auth.users` row, so the owner adds an
+  *existing* account here, never a brand-new one), changes the role of, and
+  removes members for that resort. A resort must always keep at least one
+  owner; `set_member_role`/removal both refuse to drop the last one.
+- **admin** — day-to-day operations for that resort (`/admin` and its
+  sub-routes: properties, units, rates, blocking, bookings, OTA sync,
+  reviews) short of team management.
+- **staff** — front-line operational screens for that resort (today's
+  arrivals/departures, check-in/out, kitchen orders, etc.).
+- **accountant** — read access to that resort's financials (dashboard,
+  reports) without the operational screens.
+
+A resort's own data (reservations, expenses, reports, …) is only ever
+visible to that resort's members (by role, per the above) and, platform-
+wide, to a `platform_admin` — never to a member of a *different* resort.
+Create new resorts, and add their first owner, from `/platform`
+(platform-admin only).
+
 ## Seeded accounts
 
-All seeded accounts share the password `password123`.
+All seeded accounts share the password `password123`. Pasala Farm House is
+the only seeded resort; all four staff accounts are `resort_members` of it
+(none is a platform admin by default — see "Platform admin" above).
 
-| Email | Role |
+| Email | Role (on Pasala Farm House) |
 |---|---|
-| `super@pasala.test` | super_admin |
+| `super@pasala.test` | owner |
 | `admin@pasala.test` | admin |
 | `staff@pasala.test` | staff |
 | `accounts@pasala.test` | accountant |
-| `ravi@example.com` | customer |
-| `meera@example.com` | customer |
+| `ravi@example.com` | customer (no resort membership) |
+| `meera@example.com` | customer (no resort membership) |
 
 ## `make` targets
 
