@@ -42,6 +42,7 @@ import '../features/owner/owner_home_screen.dart';
 import '../features/owner/owner_reports_screen.dart';
 import '../features/owner/owner_settings_screen.dart';
 import '../features/owner/staff_performance_screen.dart';
+import '../features/owner/team_screen.dart';
 import '../features/reports/dashboard_screen.dart';
 import '../features/reports/reports_screen.dart';
 import '../features/resorts/choose_resort_screen.dart';
@@ -398,6 +399,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/owner/settings',
             builder: (_, _) => const OwnerSettingsScreen(),
+          ),
+          GoRoute(
+            path: '/owner/team',
+            builder: (_, _) => const TeamScreen(),
           ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
           GoRoute(

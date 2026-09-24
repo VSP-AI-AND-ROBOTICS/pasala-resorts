@@ -82,6 +82,12 @@ class OwnerHomeScreen extends ConsumerWidget {
       subtitle: 'Farmhouse info, pricing, policies and permissions',
       path: '/owner/settings',
     ),
+    (
+      icon: Icons.groups_outlined,
+      title: 'Team',
+      subtitle: 'Add, re-role or remove who has access to this resort',
+      path: '/owner/team',
+    ),
   ];
 
   @override
