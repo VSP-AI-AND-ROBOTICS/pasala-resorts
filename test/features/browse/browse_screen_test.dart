@@ -4,11 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pasala/core/location/location_service.dart';
 import 'package:pasala/core/location/place_label.dart';
+import 'package:pasala/core/theme/theme_toggle_button.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/features/browse/browse_screen.dart';
 import 'package:pasala/features/browse/providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// A [LocationService] that resolves instantly with no location -- the
 /// hero's own badge behaviour is covered separately by
@@ -58,6 +60,10 @@ Widget _appFor(List<Property> properties, {AppUser? user}) => ProviderScope(
     );
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('shows a hero header above the property list', (tester) async {
     await tester.pumpWidget(_appFor(_properties));
     await tester.pumpAndSettle();
@@ -342,5 +348,33 @@ void main() {
 
       expect(find.text('Set location'), findsOneWidget);
     });
+  });
+
+  group('hero theme toggle', () {
+    testWidgets(
+      'shows the theme toggle in the action row, before the profile button',
+      (tester) async {
+        await tester.pumpWidget(_appFor(_properties));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(ThemeToggleButton), findsOneWidget);
+
+        final actionRow = tester.widget<Row>(
+          find.ancestor(
+            of: find.byType(ThemeToggleButton),
+            matching: find.byType(Row),
+          ),
+        );
+        final toggleIndex = actionRow.children.indexWhere(
+          (w) => w is IconTheme && w.child is ThemeToggleButton,
+        );
+        final profileIndex = actionRow.children.indexWhere(
+          (w) => w.key == const Key('browse-hero-profile'),
+        );
+        expect(toggleIndex, greaterThanOrEqualTo(0));
+        expect(profileIndex, greaterThanOrEqualTo(0));
+        expect(toggleIndex, lessThan(profileIndex));
+      },
+    );
   });
 }

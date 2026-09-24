@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/greeting.dart';
 import '../../core/theme/app_assets.dart';
+import '../../core/theme/theme_toggle_button.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
@@ -204,10 +205,13 @@ class _BrowseHero extends ConsumerWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  // Reserved spot for `ThemeToggleButton` -- a separate
-                  // track adds it here, right before the profile button,
-                  // once `themeModeProvider` lands. Left empty rather than
-                  // a placeholder widget so it costs nothing until then.
+                  // White icon so the toggle reads against the hero photo's
+                  // scrim, matching the profile button beside it rather than
+                  // whatever color the current theme would otherwise pick.
+                  IconTheme(
+                    data: const IconThemeData(color: Colors.white),
+                    child: const ThemeToggleButton(),
+                  ),
                   IconButton(
                     key: const Key('browse-hero-profile'),
                     tooltip: 'Account',
