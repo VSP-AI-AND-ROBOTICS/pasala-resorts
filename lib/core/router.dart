@@ -43,6 +43,7 @@ import '../features/owner/owner_reports_screen.dart';
 import '../features/owner/owner_settings_screen.dart';
 import '../features/owner/staff_performance_screen.dart';
 import '../features/owner/team_screen.dart';
+import '../features/platform/platform_screen.dart';
 import '../features/reports/dashboard_screen.dart';
 import '../features/reports/reports_screen.dart';
 import '../features/resorts/choose_resort_screen.dart';
@@ -271,6 +272,15 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/choose-resort',
         pageBuilder: (_, state) =>
             fadeSlidePage(const ChooseResortScreen(), state),
+      ),
+      // Also outside the ShellRoute: the platform admin has no membership
+      // at any resort, so `AppShell`'s nav destinations (which are all
+      // keyed off `currentResortProvider`) have nothing to key off here
+      // either -- same reasoning as `/choose-resort` above.
+      GoRoute(
+        path: '/platform',
+        pageBuilder: (_, state) =>
+            fadeSlidePage(const PlatformScreen(), state),
       ),
       ShellRoute(
         builder: (_, _, child) => AppShell(child: child),
