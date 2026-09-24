@@ -101,3 +101,123 @@ create policy resort_members_read on public.resort_members
   for select to authenticated
   using (user_id = auth.uid()
          or public.has_resort_role(property_id, false, 'owner','admin'));
+
+-- ---------------------------------------------------------------------
+-- property_id on every resort-owned table.
+
+create function public.fill_property_id()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_parent_table text := tg_argv[0];
+  v_parent_col   text := tg_argv[1];
+  v_parent_id    uuid;
+  v_property     uuid;
+begin
+  execute format('select ($1).%I', v_parent_col) into v_parent_id using new;
+  if v_parent_id is null then
+    return new;
+  end if;
+  execute format('select property_id from public.%I where id = $1', v_parent_table)
+    into v_property using v_parent_id;
+  if tg_op = 'INSERT' and new.property_id is null then
+    new.property_id := v_property;
+  elsif new.property_id is distinct from v_property then
+    raise exception using errcode = 'P0021', message = 'resort_mismatch';
+  end if;
+  return new;
+end;
+$$;
+
+do $$
+declare
+  r record;
+begin
+  for r in select * from (values
+    ('reservations','unit_id','units'),
+    ('rate_rules','unit_id','units'),
+    ('ical_feeds','unit_id','units'),
+    ('ical_export_tokens','unit_id','units'),
+    ('payments','reservation_id','reservations'),
+    ('food_orders','reservation_id','reservations'),
+    ('activity_bookings','reservation_id','reservations'),
+    ('coupon_redemptions','reservation_id','reservations'),
+    ('reviews','reservation_id','reservations'),
+    ('service_requests','reservation_id','reservations'),
+    ('maintenance_issues','reservation_id','reservations'),
+    ('unit_calendar_events','reservation_id','reservations'),
+    ('food_items','category_id','food_categories'),
+    ('food_order_items','order_id','food_orders')
+  ) as t(child, col, parent)
+  loop
+    execute format('alter table public.%I add column property_id uuid references public.properties(id)', r.child);
+    -- Backfilling with a plain UPDATE would otherwise fire every
+    -- user trigger on the table for each existing row: write-guard
+    -- triggers reject the update outright (no auth.uid() in a
+    -- migration), and side-effecting triggers on reservations
+    -- (audit log, outbox enqueue, calendar sync) would re-fire for
+    -- history that already happened. Disable user triggers for the
+    -- duration of the backfill only; the new fill_property_id
+    -- trigger below is created after they're re-enabled.
+    execute format('alter table public.%I disable trigger user', r.child);
+    execute format(
+      'update public.%I c set property_id = p.property_id from public.%I p where p.id = c.%I',
+      r.child, r.parent, r.col);
+    execute format('alter table public.%I enable trigger user', r.child);
+    execute format('create index %I on public.%I (property_id)', r.child || '_property_idx', r.child);
+    execute format(
+      'create trigger %I before insert or update on public.%I
+         for each row execute function public.fill_property_id(%L, %L)',
+      r.child || '_fill_property', r.child, r.parent, r.col);
+  end loop;
+end;
+$$;
+
+-- Tables with no path to a resort: everything that exists today belongs
+-- to the single existing property.
+do $$
+declare
+  v_pasala uuid;
+  t text;
+begin
+  select id into v_pasala from public.properties order by created_at limit 1;
+  foreach t in array array['coupons','outbox','outbox_templates','staff_shifts',
+                           'leave_requests','attendance_records','tasks','audit_log']
+  loop
+    execute format('alter table public.%I add column property_id uuid references public.properties(id)', t);
+    if v_pasala is not null and t not in ('outbox_templates') then
+      -- Same reasoning as above: skip write-guard triggers (e.g.
+      -- staff_shifts' admin-only check) for this system backfill.
+      execute format('alter table public.%I disable trigger user', t);
+      execute format('update public.%I set property_id = $1', t) using v_pasala;
+      execute format('alter table public.%I enable trigger user', t);
+    end if;
+    execute format('create index %I on public.%I (property_id)', t || '_property_idx', t);
+  end loop;
+end;
+$$;
+
+-- outbox_templates rows stay platform defaults (property_id null);
+-- audit_log keeps null for platform-level events. Six other "no link
+-- today" tables (coupons, outbox, staff_shifts, leave_requests,
+-- attendance_records, tasks) are backfilled above but stay nullable
+-- for now: a later task sets them NOT NULL once the triggers and
+-- tests that supply property_id on those tables land. Everything
+-- derivable from a resort-scoped parent is required from here on.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'reservations','rate_rules','ical_feeds','ical_export_tokens','payments',
+    'food_orders','activity_bookings','coupon_redemptions','reviews',
+    'service_requests','maintenance_issues','unit_calendar_events','food_items',
+    'food_order_items']
+  loop
+    execute format('alter table public.%I alter column property_id set not null', t);
+  end loop;
+end;
+$$;

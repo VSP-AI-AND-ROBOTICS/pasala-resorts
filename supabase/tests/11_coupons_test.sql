@@ -231,9 +231,12 @@ select is(
 -- A redemption cannot exist without a reservation: the FK is real, not
 -- just a convention. Run as postgres (bypassing RLS, same as every other
 -- fixture-seeding statement in this file's peers) so this actually
--- exercises the FK constraint rather than being pre-empted by
+-- exercises the constraint rather than being pre-empted by
 -- coupon_redemptions_admin_write's RLS check, which a plain customer
--- would hit first regardless of the FK.
+-- would hit first regardless. Since resort_tenancy (0043), property_id
+-- is derived from the reservation and is NOT NULL, so a nonexistent
+-- reservation now trips that not-null check before the FK constraint
+-- gets a chance to fire.
 set local role postgres;
 select throws_ok(
   $$insert into public.coupon_redemptions
@@ -241,7 +244,7 @@ select throws_ok(
     values ((select id from public.coupons where code = 'SAVE10'),
             '00000000-0000-0000-0000-0000000000ff',
             '11111111-1111-1111-1111-111111111111', 100)$$,
-  '23503', null,
+  '23502', null,
   'a coupon_redemptions row cannot reference a nonexistent reservation');
 set local role authenticated;
 set local request.jwt.claims to

@@ -1,5 +1,5 @@
 begin;
-select plan(12);
+select plan(17);
 
 select enum_has_labels('public','resort_role',
   array['owner','admin','staff','accountant']);
@@ -49,6 +49,32 @@ select throws_ok(
   $$select public.assert_resort_role('aaaaaaaa-1111-0000-0000-000000000001', true,
       'owner','admin','staff','accountant')$$,
   'P0022', null, 'assert on suspended write raises P0022');
+
+reset role;
+insert into public.units (id, property_id, name, capacity_base, capacity_max) values
+  ('aaaaaaaa-2222-0000-0000-000000000001','aaaaaaaa-1111-0000-0000-000000000001','UA',2,4),
+  ('bbbbbbbb-2222-0000-0000-000000000001','bbbbbbbb-1111-0000-0000-000000000001','UB',2,4);
+insert into public.reservations (id, unit_id, period, kind, status, guests, block_reason) values
+  ('aaaaaaaa-3333-0000-0000-000000000001','aaaaaaaa-2222-0000-0000-000000000001',
+   tstzrange('2027-01-03 14:00+05:30','2027-01-04 11:00+05:30','[)'),'block','confirmed',1,'maintenance');
+
+select is((select property_id from public.reservations
+            where id = 'aaaaaaaa-3333-0000-0000-000000000001'),
+          'aaaaaaaa-1111-0000-0000-000000000001'::uuid,
+          'reservation property_id filled from its unit');
+select col_not_null('public','payments','property_id','payments.property_id required');
+select col_is_null('public','audit_log','property_id','audit_log.property_id nullable');
+
+select throws_ok(
+  $$insert into public.payments (reservation_id, property_id, kind, amount, status)
+    values ('aaaaaaaa-3333-0000-0000-000000000001',
+            'bbbbbbbb-1111-0000-0000-000000000001','advance',100,'succeeded')$$,
+  'P0021', null, 'payment cannot point at a different resort than its reservation');
+
+select throws_ok(
+  $$update public.reservations set unit_id = 'bbbbbbbb-2222-0000-0000-000000000001'
+     where id = 'aaaaaaaa-3333-0000-0000-000000000001'$$,
+  'P0021', null, 'moving a reservation to another resort''s unit is refused');
 
 select * from finish();
 rollback;
