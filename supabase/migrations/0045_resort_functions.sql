@@ -2354,3 +2354,399 @@ create policy maintenance_photos_staff_read on storage.objects
               and r.customer_id::text = (storage.foldername(objects.name))[1]
               and public.has_resort_role(mi.property_id, false,
                     'owner','admin','staff','accountant')));
+
+-- ---------------------------------------------------------------------
+-- Resort members. These replace `list_profiles()` and `set_user_role()`
+-- (0019_user_admin.sql): roles now live in resort_members, one row per
+-- person per resort, and only that resort's owners change them. There is
+-- still no "create account" function -- a new person signs up, then an
+-- owner adds that account by email. Error codes: P0020 not_a_member,
+-- P0022 resort_suspended, P0023 last_owner, P0002 not found, P0005 bad
+-- input. Every change writes an audit_log row at the resort.
+
+drop function public.list_profiles();
+drop function public.set_user_role(uuid, public.user_role);
+
+-- The roster, with the email joined in from auth.users. SECURITY DEFINER
+-- for the same reason list_profiles was: `authenticated` has no grant on
+-- auth.users and must not get one; only the email column is read from it.
+create or replace function public.list_resort_members(p_property uuid)
+returns table(
+  user_id    uuid,
+  email      text,
+  full_name  text,
+  role       public.resort_role,
+  created_at timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.assert_resort_role(p_property, false, 'owner','admin');
+
+  return query
+    select m.user_id, u.email::text, p.full_name, m.role, m.created_at
+      from public.resort_members m
+      join public.profiles p on p.id = m.user_id
+      join auth.users u on u.id = m.user_id
+     where m.property_id = p_property
+     order by m.created_at, u.email;
+end;
+$$;
+
+grant execute on function public.list_resort_members(uuid) to authenticated;
+revoke execute on function public.list_resort_members(uuid) from public;
+revoke execute on function public.list_resort_members(uuid) from anon;
+
+-- Adds an existing account (found by email) to the resort. An account that
+-- is already a member is refused rather than overwritten: changing a role
+-- goes through set_member_role, which holds the last-owner guard.
+create or replace function public.add_resort_member(
+  p_property uuid,
+  p_email    text,
+  p_role     public.resort_role
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid;
+  v_new  public.resort_members;
+begin
+  perform public.assert_resort_role(p_property, true, 'owner');
+
+  if p_role is null then
+    raise exception 'role is required' using errcode = 'P0005';
+  end if;
+
+  select id into v_user from auth.users
+   where lower(email) = lower(trim(p_email));
+  if v_user is null then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+
+  if exists (select 1 from public.resort_members
+              where property_id = p_property and user_id = v_user) then
+    raise exception 'already a member of this resort' using errcode = 'P0005';
+  end if;
+
+  insert into public.resort_members (property_id, user_id, role)
+  values (p_property, v_user, p_role)
+  returning * into v_new;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values (auth.uid(), 'resort_member', v_user, 'add:' || p_role::text,
+          null, to_jsonb(v_new), p_property);
+end;
+$$;
+
+grant execute on function public.add_resort_member(uuid, text, public.resort_role) to authenticated;
+revoke execute on function public.add_resort_member(uuid, text, public.resort_role) from public;
+revoke execute on function public.add_resort_member(uuid, text, public.resort_role) from anon;
+
+-- Owner-only role change, refusing to leave the resort with no owner.
+create or replace function public.set_member_role(
+  p_property uuid,
+  p_user     uuid,
+  p_role     public.resort_role
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_old          public.resort_members;
+  v_new          public.resort_members;
+  v_owner_count  int;
+begin
+  perform public.assert_resort_role(p_property, true, 'owner');
+
+  if p_role is null then
+    raise exception 'role is required' using errcode = 'P0005';
+  end if;
+
+  -- The last-owner guard: without it, the only owner demoting themself
+  -- leaves a resort nobody can manage.
+  --
+  -- A single `for update` on just this row only locks the row being
+  -- changed -- it does not conflict with a concurrent transaction demoting
+  -- a DIFFERENT owner, so a plain `select count(*)` afterwards can read a
+  -- count that predates either commit. Two owners each demoting the other
+  -- "simultaneously" would both see count = 2, both pass, and both commit,
+  -- leaving zero -- exactly the lockout this guard exists to prevent (the
+  -- race ecd7182 closed for set_user_role's last super admin). The check
+  -- and the read it depends on must happen under a lock a competing
+  -- transaction is actually forced to wait on.
+  --
+  -- Fixed by locking every owner row of this resort -- not just this one --
+  -- in a fixed order (`order by user_id`) before counting. That order is
+  -- also why this must be the FIRST lock this transaction takes on any
+  -- owner row: if p_user's own row were locked first, two transactions
+  -- demoting two different owners would each already hold their own
+  -- target's lock before reaching this statement, and each would then
+  -- block waiting for the other's -- a deadlock, not a clean queue.
+  --
+  -- Unlike set_user_role, this takes the owner locks on every call, not
+  -- only when an unlocked peek says the target is an owner: a peek can be
+  -- stale (the target promoted to owner just after it), which would skip
+  -- the guard. A resort has a handful of owners, so the extra locking is
+  -- negligible.
+  perform 1 from public.resort_members
+   where property_id = p_property and role = 'owner'
+   order by user_id
+   for update;
+
+  select * into v_old from public.resort_members
+   where property_id = p_property and user_id = p_user
+   for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+
+  -- Setting a role to its current value is a no-op that succeeds, not an
+  -- error -- the caller (e.g. a screen re-submitting an unchanged
+  -- dropdown) should never have to special-case "same value" itself.
+  if v_old.role = p_role then
+    return;
+  end if;
+
+  if v_old.role = 'owner' then
+    select count(*) into v_owner_count
+      from public.resort_members
+     where property_id = p_property and role = 'owner';
+    if v_owner_count <= 1 then
+      raise exception using errcode = 'P0023', message = 'last_owner';
+    end if;
+  end if;
+
+  update public.resort_members set role = p_role
+   where property_id = p_property and user_id = p_user
+   returning * into v_new;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values (auth.uid(), 'resort_member', p_user,
+          'role:' || v_old.role::text || '->' || p_role::text,
+          to_jsonb(v_old), to_jsonb(v_new), p_property);
+end;
+$$;
+
+grant execute on function public.set_member_role(uuid, uuid, public.resort_role) to authenticated;
+revoke execute on function public.set_member_role(uuid, uuid, public.resort_role) from public;
+revoke execute on function public.set_member_role(uuid, uuid, public.resort_role) from anon;
+
+-- Owner-only removal, with the same last-owner guard and locking as
+-- set_member_role above (see the comment there).
+create or replace function public.remove_resort_member(
+  p_property uuid,
+  p_user     uuid
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_old          public.resort_members;
+  v_owner_count  int;
+begin
+  perform public.assert_resort_role(p_property, true, 'owner');
+
+  perform 1 from public.resort_members
+   where property_id = p_property and role = 'owner'
+   order by user_id
+   for update;
+
+  select * into v_old from public.resort_members
+   where property_id = p_property and user_id = p_user
+   for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+
+  if v_old.role = 'owner' then
+    select count(*) into v_owner_count
+      from public.resort_members
+     where property_id = p_property and role = 'owner';
+    if v_owner_count <= 1 then
+      raise exception using errcode = 'P0023', message = 'last_owner';
+    end if;
+  end if;
+
+  delete from public.resort_members
+   where property_id = p_property and user_id = p_user;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values (auth.uid(), 'resort_member', p_user, 'remove:' || v_old.role::text,
+          to_jsonb(v_old), null, p_property);
+end;
+$$;
+
+grant execute on function public.remove_resort_member(uuid, uuid) to authenticated;
+revoke execute on function public.remove_resort_member(uuid, uuid) from public;
+revoke execute on function public.remove_resort_member(uuid, uuid) from anon;
+
+-- ---------------------------------------------------------------------
+-- Platform functions (platform admin only; P0008 for everyone else). The
+-- platform admin has no row access to resort-owned tables, so these are
+-- its only view of the resorts: summaries, never guest data.
+
+-- Per resort: owner emails, and the count and value of bookings made in
+-- the last 30 and 365 days (confirmed or later, by reservations.created_at;
+-- value is the quoted total, as report_revenue uses).
+create or replace function public.platform_resorts()
+returns table(
+  property_id   uuid,
+  name          text,
+  status        text,
+  owner_emails  text[],
+  created_at    timestamptz,
+  bookings_30d  int,
+  revenue_30d   numeric,
+  bookings_365d int,
+  revenue_365d  numeric
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  return query
+    select
+      p.id,
+      p.name,
+      p.status,
+      coalesce((
+        select array_agg(u.email::text order by u.email)
+          from public.resort_members m
+          join auth.users u on u.id = m.user_id
+         where m.property_id = p.id and m.role = 'owner'), '{}'),
+      p.created_at,
+      coalesce(b.bookings_30d, 0),
+      coalesce(b.revenue_30d, 0),
+      coalesce(b.bookings_365d, 0),
+      coalesce(b.revenue_365d, 0)
+    from public.properties p
+    left join lateral (
+      select
+        (count(*) filter (where r.created_at >= now() - interval '30 days'))::int
+          as bookings_30d,
+        sum((r.quote ->> 'total')::numeric)
+          filter (where r.created_at >= now() - interval '30 days') as revenue_30d,
+        count(*)::int as bookings_365d,
+        sum((r.quote ->> 'total')::numeric) as revenue_365d
+      from public.reservations r
+      where r.property_id = p.id
+        and r.kind = 'booking'
+        and r.status in ('confirmed','checked_in','checked_out')
+        and r.created_at >= now() - interval '365 days'
+    ) b on true
+    order by p.created_at, p.name;
+end;
+$$;
+
+grant execute on function public.platform_resorts() to authenticated;
+revoke execute on function public.platform_resorts() from public;
+revoke execute on function public.platform_resorts() from anon;
+
+-- Suspend, archive or reactivate a resort. properties_guard_status (0044)
+-- lets this through because the caller is a platform admin.
+create or replace function public.set_resort_status(p_property uuid, p_status text)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_old text;
+begin
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  if p_status is null or p_status not in ('active','suspended','archived') then
+    raise exception 'status must be active, suspended or archived' using errcode = 'P0005';
+  end if;
+
+  select status into v_old from public.properties where id = p_property for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+
+  if v_old = p_status then
+    return;
+  end if;
+
+  update public.properties set status = p_status where id = p_property;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values (auth.uid(), 'property', p_property, 'status:' || v_old || '->' || p_status,
+          jsonb_build_object('status', v_old), jsonb_build_object('status', p_status),
+          p_property);
+end;
+$$;
+
+grant execute on function public.set_resort_status(uuid, text) to authenticated;
+revoke execute on function public.set_resort_status(uuid, text) from public;
+revoke execute on function public.set_resort_status(uuid, text) from anon;
+
+-- Creates an active resort and makes an existing account (found by email)
+-- its owner. The slug is the name lower-cased with non-alphanumerics
+-- collapsed to '-', plus '-2', '-3', ... when taken.
+create or replace function public.create_resort(p_name text, p_owner_email text)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_owner uuid;
+  v_base  text;
+  v_slug  text;
+  v_n     int := 1;
+  v_id    uuid;
+begin
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  if coalesce(trim(p_name), '') = '' then
+    raise exception 'name is required' using errcode = 'P0005';
+  end if;
+
+  select id into v_owner from auth.users
+   where lower(email) = lower(trim(p_owner_email));
+  if v_owner is null then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+
+  v_base := trim(both '-' from regexp_replace(lower(trim(p_name)), '[^a-z0-9]+', '-', 'g'));
+  if v_base = '' then
+    v_base := 'resort';
+  end if;
+  v_slug := v_base;
+  while exists (select 1 from public.properties where slug = v_slug) loop
+    v_n := v_n + 1;
+    v_slug := v_base || '-' || v_n;
+  end loop;
+
+  insert into public.properties (name, slug)
+  values (trim(p_name), v_slug)
+  returning id into v_id;
+
+  insert into public.resort_members (property_id, user_id, role)
+  values (v_id, v_owner, 'owner');
+
+  return v_id;
+end;
+$$;
+
+grant execute on function public.create_resort(text, text) to authenticated;
+revoke execute on function public.create_resort(text, text) from public;
+revoke execute on function public.create_resort(text, text) from anon;
