@@ -18,6 +18,7 @@ import '../features/admin/kitchen_orders_screen.dart';
 import '../features/admin/maintenance_issues_screen.dart';
 import '../features/admin/reception_checkin_screen.dart';
 import '../features/admin/reception_checkout_screen.dart';
+import '../features/admin/resort_unit_guard.dart';
 import '../features/admin/service_requests_screen.dart';
 import '../features/admin/tasks_screen.dart';
 import '../features/admin/block_dates_screen.dart';
@@ -144,6 +145,14 @@ String? redirectFor({
     final isAdminHere =
         resort != null && const {ResortRole.owner, ResortRole.admin}.contains(resort.role);
     if (!isAdminHere && !staffOrAboveOk) return '/404';
+    // The property id in `/admin/units/:propertyId` comes from the URL:
+    // only the current resort's own id opens it. (The unit-id routes are
+    // checked by `ResortUnitGuard`, since a unit's resort needs a lookup.)
+    const unitsPrefix = '/admin/units/';
+    if (path.startsWith(unitsPrefix) &&
+        path.substring(unitsPrefix.length) != resort.propertyId) {
+      return '/404';
+    }
   }
   if (path.startsWith('/staff') && resort == null) return '/404';
   // The Owner flow (Business Dashboard -> ... -> Settings) is a distinct,
@@ -334,18 +343,24 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/admin/rates/:unitId',
-            builder: (_, state) =>
-                RateRulesScreen(unitId: state.pathParameters['unitId']!),
+            builder: (_, state) => ResortUnitGuard(
+              unitId: state.pathParameters['unitId']!,
+              child: RateRulesScreen(unitId: state.pathParameters['unitId']!),
+            ),
           ),
           GoRoute(
             path: '/admin/block/:unitId',
-            builder: (_, state) =>
-                BlockDatesScreen(unitId: state.pathParameters['unitId']!),
+            builder: (_, state) => ResortUnitGuard(
+              unitId: state.pathParameters['unitId']!,
+              child: BlockDatesScreen(unitId: state.pathParameters['unitId']!),
+            ),
           ),
           GoRoute(
             path: '/admin/ota/:unitId',
-            builder: (_, state) =>
-                IcalScreen(unitId: state.pathParameters['unitId']!),
+            builder: (_, state) => ResortUnitGuard(
+              unitId: state.pathParameters['unitId']!,
+              child: IcalScreen(unitId: state.pathParameters['unitId']!),
+            ),
           ),
           GoRoute(
             path: '/admin/bookings',

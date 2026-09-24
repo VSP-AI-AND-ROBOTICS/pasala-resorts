@@ -147,7 +147,7 @@ void main() {
       for (final path in [
         '/admin',
         '/admin/properties',
-        '/admin/units/u1',
+        '/admin/units/r1',
         '/admin/rates/u1',
         '/admin/block/u1',
         '/admin/ota/u1',
@@ -158,6 +158,14 @@ void main() {
       ]) {
         expect(_to(_admin, _adminM, path), null, reason: path);
       }
+    });
+
+    // Final review I2: the property id in the URL must be the current
+    // resort's -- another resort's id is not found, not trusted.
+    test("/admin/units/:propertyId only opens the current resort's units", () {
+      expect(_to(_admin, _adminM, '/admin/units/r1'), null);
+      expect(_to(_admin, _adminM, '/admin/units/other-resort'), '/404');
+      expect(_to(_superAdmin, _ownerM, '/admin/units/other-resort'), '/404');
     });
 
     test('super_admin reaches every /admin/* route too', () {
@@ -180,7 +188,7 @@ void main() {
       for (final path in [
         '/admin',
         '/admin/properties',
-        '/admin/units/u1',
+        '/admin/units/r1',
         '/admin/rates/u1',
         '/admin/block/u1',
         '/admin/ota/u1',
