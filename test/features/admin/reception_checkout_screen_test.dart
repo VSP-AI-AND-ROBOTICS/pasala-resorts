@@ -2,9 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/reservation.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
 import 'package:pasala/features/admin/reception_checkout_screen.dart';
+
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
+
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _resort;
+}
 
 Reservation _checkedIn(String id, {String? customerName}) => Reservation(
       id: id,
@@ -16,6 +26,8 @@ Reservation _checkedIn(String id, {String? customerName}) => Reservation(
       customerName: customerName,
       guests: 2,
     );
+
+final listedPropertyIds = <String>[];
 
 Widget _appFor(List<Reservation> guests) {
   final router = GoRouter(
@@ -31,7 +43,11 @@ Widget _appFor(List<Reservation> guests) {
   );
   return ProviderScope(
     overrides: [
-      checkedInProvider.overrideWith((ref) async => guests),
+      checkedInProvider.overrideWith((ref, propertyId) async {
+        listedPropertyIds.add(propertyId);
+        return guests;
+      }),
+      currentResortProvider.overrideWith(_FixedResort.new),
     ],
     child: MaterialApp.router(routerConfig: router),
   );
@@ -55,6 +71,9 @@ void main() {
 
     expect(find.text('Ravi Kumar'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Check Out'), findsOneWidget);
+    // Review Focus #1: the screen must pass the current resort's id
+    // through to the repository, not rely on RLS alone.
+    expect(listedPropertyIds, everyElement('p1'));
   });
 
   testWidgets('tapping Check Out navigates to the checkout screen',

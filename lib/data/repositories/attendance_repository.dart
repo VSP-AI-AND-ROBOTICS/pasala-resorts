@@ -10,7 +10,11 @@ import '../models/attendance_record.dart';
 /// caller's own rows for anyone else regardless), `date: null` means
 /// "every date on record." A record, not positional params, so
 /// `FutureProvider.family` can key on it directly.
-typedef AttendanceFilter = ({String? staffId, DateTime? date});
+typedef AttendanceFilter = ({
+  String propertyId,
+  String? staffId,
+  DateTime? date,
+});
 
 class AttendanceRepository {
   AttendanceRepository(this._db);
@@ -36,13 +40,15 @@ class AttendanceRepository {
   /// the relationship here guards against the same class of bug if this
   /// table ever grows a second FK to `profiles`.
   Future<List<AttendanceRecord>> list({
+    required String propertyId,
     String? staffId,
     DateTime? date,
   }) =>
       _guard(() async {
         dynamic query = _db
             .from('attendance_records')
-            .select('*, profiles!attendance_records_staff_id_fkey(full_name)');
+            .select('*, profiles!attendance_records_staff_id_fkey(full_name)')
+            .eq('property_id', propertyId);
         if (staffId != null) query = query.eq('staff_id', staffId);
         if (date != null) query = query.eq('work_date', _dateOnly(date));
         final rows = await query.order('work_date', ascending: false) as List;
@@ -55,8 +61,10 @@ class AttendanceRepository {
   /// deliberately not sent -- the server enforces `work_date = current_date`
   /// via `attendance_records_own_insert`'s `with check`, and
   /// `check_in_at` defaults to `now()`.
-  Future<void> checkIn({required String staffId}) => _guard(() async {
+  Future<void> checkIn({required String propertyId, required String staffId}) =>
+      _guard(() async {
         await _db.from('attendance_records').insert({
+          'property_id': propertyId,
           'staff_id': staffId,
           'work_date': _dateOnly(DateTime.now()),
         });
@@ -86,6 +94,7 @@ final attendanceRepositoryProvider = Provider<AttendanceRepository>(
 final attendanceRecordsProvider =
     FutureProvider.family<List<AttendanceRecord>, AttendanceFilter>(
   (ref, filter) => ref.watch(attendanceRepositoryProvider).list(
+        propertyId: filter.propertyId,
         staffId: filter.staffId,
         date: filter.date,
       ),

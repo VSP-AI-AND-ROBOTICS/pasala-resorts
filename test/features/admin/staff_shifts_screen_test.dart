@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/admin_profile.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/staff_shift.dart';
 import 'package:pasala/data/repositories/profile_directory_repository.dart';
 import 'package:pasala/data/repositories/staff_shift_repository.dart';
@@ -12,29 +14,36 @@ import 'package:pasala/features/admin/staff_shifts_screen.dart';
 class FakeStaffShiftRepository implements StaffShiftRepository {
   final List<StaffShift> store = [];
   final List<String> deletedIds = [];
+  final List<String> listedPropertyIds = [];
+  final List<String> createdPropertyIds = [];
   int _idCounter = 0;
 
   @override
   Future<List<StaffShift>> list({
+    required String propertyId,
     String? staffId,
     DateTime? from,
     DateTime? to,
-  }) async =>
-      store.where((s) {
-        if (staffId != null && s.staffId != staffId) return false;
-        if (from != null && s.shiftDate.isBefore(from)) return false;
-        if (to != null && s.shiftDate.isAfter(to)) return false;
-        return true;
-      }).toList();
+  }) async {
+    listedPropertyIds.add(propertyId);
+    return store.where((s) {
+      if (staffId != null && s.staffId != staffId) return false;
+      if (from != null && s.shiftDate.isBefore(from)) return false;
+      if (to != null && s.shiftDate.isAfter(to)) return false;
+      return true;
+    }).toList();
+  }
 
   @override
   Future<void> createRange({
+    required String propertyId,
     required String staffId,
     required DateTimeRange range,
     required TimeOfDay start,
     required TimeOfDay end,
     String? notes,
   }) async {
+    createdPropertyIds.add(propertyId);
     for (var d = range.start; !d.isAfter(range.end); d = d.add(const Duration(days: 1))) {
       store.add(StaffShift(
         id: 'shift-${_idCounter++}',
@@ -70,10 +79,19 @@ final _staffProfile = AdminProfile(
   createdAt: DateTime.utc(2026, 1, 1),
 );
 
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
+
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _resort;
+}
+
 Widget _appFor(FakeStaffShiftRepository repo) => ProviderScope(
       overrides: [
         staffShiftRepositoryProvider.overrideWithValue(repo),
         adminProfilesProvider.overrideWith((ref) async => [_staffProfile]),
+        currentResortProvider.overrideWith(_FixedResort.new),
       ],
       child: const MaterialApp(home: StaffShiftsScreen()),
     );
@@ -100,6 +118,7 @@ void main() {
     final repo = FakeStaffShiftRepository();
 
     await repo.createRange(
+      propertyId: 'p1',
       staffId: 'staff-1',
       range: DateTimeRange(start: DateTime(2026, 9, 1), end: DateTime(2026, 9, 2)),
       start: const TimeOfDay(hour: 9, minute: 0),
@@ -144,6 +163,9 @@ void main() {
     expect(find.text('Sita Staff'), findsOneWidget);
     expect(find.textContaining('09:00'), findsOneWidget);
     expect(find.textContaining('17:00'), findsOneWidget);
+    // Review Focus #1: the screen must pass the current resort's id
+    // through to the repository, not rely on RLS alone.
+    expect(repo.listedPropertyIds, everyElement('p1'));
   });
 
   testWidgets('confirming delete removes the shift', (tester) async {

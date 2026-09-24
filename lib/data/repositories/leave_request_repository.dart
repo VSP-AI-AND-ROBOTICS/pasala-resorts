@@ -11,7 +11,11 @@ import '../models/leave_request.dart';
 /// caller's own rows for anyone else regardless), `status: null` means
 /// "every status." A record, not positional params, so
 /// `FutureProvider.family` can key on it directly.
-typedef LeaveRequestFilter = ({String? staffId, LeaveStatus? status});
+typedef LeaveRequestFilter = ({
+  String propertyId,
+  String? staffId,
+  LeaveStatus? status,
+});
 
 class LeaveRequestRepository {
   LeaveRequestRepository(this._db);
@@ -33,13 +37,15 @@ class LeaveRequestRepository {
   /// see everything), so there is no filter-based leak for an RPC to
   /// close that plain RLS doesn't already close on its own.
   Future<List<LeaveRequest>> list({
+    required String propertyId,
     String? staffId,
     LeaveStatus? status,
   }) =>
       _guard(() async {
         dynamic query = _db
             .from('leave_requests')
-            .select('*, profiles!leave_requests_staff_id_fkey(full_name)');
+            .select('*, profiles!leave_requests_staff_id_fkey(full_name)')
+            .eq('property_id', propertyId);
         if (staffId != null) query = query.eq('staff_id', staffId);
         if (status != null) query = query.eq('status', leaveStatusToDb(status));
         final rows = await query.order('created_at', ascending: false) as List;
@@ -52,21 +58,23 @@ class LeaveRequestRepository {
   /// and `leave_requests_own_insert`'s `with check` both enforce this --
   /// the client never sends a `status`).
   Future<void> create({
+    required String propertyId,
     required String staffId,
     required DateTimeRange range,
     String? reason,
   }) =>
       _guard(() async {
-        await _db.from('leave_requests').insert(
-              LeaveRequest(
-                id: '',
-                staffId: staffId,
-                startDate: range.start,
-                endDate: range.end,
-                reason: reason,
-                status: LeaveStatus.pending,
-              ).toInsert(),
-            );
+        await _db.from('leave_requests').insert({
+          'property_id': propertyId,
+          ...LeaveRequest(
+            id: '',
+            staffId: staffId,
+            startDate: range.start,
+            endDate: range.end,
+            reason: reason,
+            status: LeaveStatus.pending,
+          ).toInsert(),
+        });
       });
 
   /// Records an admin's decision. [decided_by] is the CALLING admin's own
@@ -96,6 +104,7 @@ final leaveRequestRepositoryProvider = Provider<LeaveRequestRepository>(
 final leaveRequestsProvider =
     FutureProvider.family<List<LeaveRequest>, LeaveRequestFilter>(
   (ref, filter) => ref.watch(leaveRequestRepositoryProvider).list(
+        propertyId: filter.propertyId,
         staffId: filter.staffId,
         status: filter.status,
       ),

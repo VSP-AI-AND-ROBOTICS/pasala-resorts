@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
@@ -33,9 +34,11 @@ class TimeSlotsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider).value;
     final staffId = user?.id;
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, staffId: staffId, from: null, to: null);
     final shiftsAsync = staffId == null
         ? AsyncValue<List<StaffShift>>.data(const [])
-        : ref.watch(staffShiftsProvider((staffId: staffId, from: null, to: null)));
+        : ref.watch(staffShiftsProvider(filter));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Time Slots')),
@@ -43,8 +46,7 @@ class TimeSlotsScreen extends ConsumerWidget {
         value: shiftsAsync,
         onRetry: staffId == null
             ? null
-            : () => ref.invalidate(
-                staffShiftsProvider((staffId: staffId, from: null, to: null))),
+            : () => ref.invalidate(staffShiftsProvider(filter)),
         empty: () => const EmptyState(
           icon: Icons.access_time_outlined,
           title: 'No shifts assigned yet',

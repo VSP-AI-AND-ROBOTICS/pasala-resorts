@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -36,7 +37,8 @@ class _LeaveRequestsScreenState extends ConsumerState<LeaveRequestsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filter = (staffId: _staffId, status: _statusFilter);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, staffId: _staffId, status: _statusFilter);
     final requests = ref.watch(leaveRequestsProvider(filter));
     final profiles = ref.watch(adminProfilesProvider);
 

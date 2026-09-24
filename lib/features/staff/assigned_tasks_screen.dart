@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -22,7 +23,8 @@ class AssignedTasksScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider).value;
     final staffId = user?.id;
-    final filter = (assigneeId: staffId, status: null);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, assigneeId: staffId, status: null);
     final tasksAsync = staffId == null
         ? const AsyncValue<List<StaffTask>>.data([])
         : ref.watch(tasksProvider(filter));
