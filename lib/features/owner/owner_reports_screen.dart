@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/current_resort.dart';
+import '../../core/errors.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
-import '../reports/csv_download.dart';
+import '../../core/widgets/failure_view.dart';
+import '../../data/repositories/finance_repository.dart';
+import '../finance/finance_csv.dart';
+import '../finance/providers.dart';
 import '../reports/csv_export.dart';
 import '../reports/providers.dart';
 import 'providers.dart';
@@ -22,15 +26,24 @@ String _isoDate(DateTime d) =>
     '${d.month.toString().padLeft(2, '0')}-'
     '${d.day.toString().padLeft(2, '0')}';
 
-enum _OwnerReportKind { revenue, occupancy, foodSales, expenses }
+enum _OwnerReportKind {
+  revenue,
+  occupancy,
+  foodSales,
+  expenses,
+  collections,
+  ledger,
+  settlements,
+}
 
 /// `/owner/reports` -- the consolidated export center: Revenue, Occupancy,
-/// Food & Activity Sales, and Expenses, all exportable as CSV, reusing
-/// `csv_export.dart`/`csv_download.dart` exactly as `ReportsScreen` does.
+/// Food & Activity Sales, Expenses, and the three finance reports
+/// (Collections, Ledger, Settlements, from 0048_finance_ledger.sql), all
+/// exportable as CSV through `csv_export.dart` and [csvDownloaderProvider].
 /// Deliberately separate from `ReportsScreen` (which the Owner hub's
-/// Revenue/Occupancy tiles link to directly for a live day-by-day view) --
-/// this screen's job is bulk export across every report this app has,
-/// including the two new ledgers `ReportsScreen` doesn't know about.
+/// Revenue/Occupancy tiles link to directly for a live day-by-day view) and
+/// from `/finance` (which shows the finance reports on screen) -- this
+/// screen's job is bulk export across every report this app has.
 class OwnerReportsScreen extends ConsumerStatefulWidget {
   const OwnerReportsScreen({super.key});
 
@@ -62,7 +75,20 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _deliver(String filename, List<List<String>> rows) {
+    final delivered = ref.read(csvDownloaderProvider)(filename, toCsv(rows));
+    _showMessage(
+      delivered ? 'CSV exported.' : "CSV export isn't available on this platform yet.",
+    );
+  }
+
   Future<void> _export(_OwnerReportKind kind, String propertyId, String resortName) async {
+    if (kind == _OwnerReportKind.collections ||
+        kind == _OwnerReportKind.ledger ||
+        kind == _OwnerReportKind.settlements) {
+      return _exportFinance(kind, propertyId);
+    }
+
     final List<List<String>> rows;
     final String label;
 
@@ -109,15 +135,44 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
           ['Day', 'Category', 'Total'],
           for (final r in data) [formatDate(r.day), r.category, formatInr(r.total)],
         ];
+      case _OwnerReportKind.collections:
+      case _OwnerReportKind.ledger:
+      case _OwnerReportKind.settlements:
+        return;
     }
 
     if (!mounted) return;
-    final csv = toCsv(rows);
-    final filename = 'pasala-$label-${_isoDate(_range.start)}-${_isoDate(_range.end)}.csv';
-    final delivered = downloadCsv(filename, csv);
-    _showMessage(
-      delivered ? 'CSV exported.' : "CSV export isn't available on this platform yet.",
-    );
+    _deliver('pasala-$label-${_isoDate(_range.start)}-${_isoDate(_range.end)}.csv', rows);
+  }
+
+  /// The finance reports read [financeSourceProvider] directly -- a fresh
+  /// query per export -- and take the resort's name, slug and GSTIN from
+  /// `finance_summary` for the header and file name.
+  Future<void> _exportFinance(_OwnerReportKind kind, String propertyId) async {
+    final source = ref.read(financeSourceProvider);
+    final from = _range.start;
+    final to = _range.end;
+    try {
+      final resort = (await source.summary(propertyId)).resort;
+      final (String report, List<List<String>> rows) = switch (kind) {
+        _OwnerReportKind.collections => (
+            'collections',
+            collectionsCsv(resort, from, to, await source.collections(from, to, propertyId)),
+          ),
+        _OwnerReportKind.ledger => (
+            'ledger',
+            ledgerCsv(resort, from, to, await source.ledger(from, to, propertyId)),
+          ),
+        _ => (
+            'settlements',
+            settlementsCsv(resort, from, to, await source.settlements(from, to, propertyId)),
+          ),
+      };
+      if (!mounted) return;
+      _deliver(financeCsvFileName(resort.slug, report, from, to), rows);
+    } on BookingFailure catch (e) {
+      if (mounted) _showMessage(FailureView.messageFor(e));
+    }
   }
 
   @override
@@ -127,6 +182,9 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
     final resort = ref.watch(currentResortProvider)!;
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+
+    void export(_OwnerReportKind kind) =>
+        _export(kind, resort.propertyId, resort.resortName);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Reports')),
@@ -159,32 +217,49 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
             title: 'Revenue',
             subtitle: 'Bookings, gross and net revenue by day',
             color: scheme.primary,
-            onExport: () =>
-                _export(_OwnerReportKind.revenue, resort.propertyId, resort.resortName),
+            onExport: () => export(_OwnerReportKind.revenue),
           ),
           _ReportTile(
             icon: Icons.pie_chart_outline,
             title: 'Occupancy',
             subtitle: 'Nights booked vs. available, by unit',
             color: scheme.tertiary,
-            onExport: () => _export(
-                _OwnerReportKind.occupancy, resort.propertyId, resort.resortName),
+            onExport: () => export(_OwnerReportKind.occupancy),
           ),
           _ReportTile(
             icon: Icons.restaurant_outlined,
             title: 'Food & activity sales',
             subtitle: 'Items sold and gross, by day and category',
             color: scheme.primary,
-            onExport: () => _export(
-                _OwnerReportKind.foodSales, resort.propertyId, resort.resortName),
+            onExport: () => export(_OwnerReportKind.foodSales),
           ),
           _ReportTile(
             icon: Icons.receipt_long_outlined,
             title: 'Expenses',
             subtitle: 'Totals by day and category',
             color: scheme.onSurfaceVariant,
-            onExport: () => _export(
-                _OwnerReportKind.expenses, resort.propertyId, resort.resortName),
+            onExport: () => export(_OwnerReportKind.expenses),
+          ),
+          _ReportTile(
+            icon: Icons.payments_outlined,
+            title: 'Collections',
+            subtitle: 'Money in and out by day, online and desk, by method',
+            color: scheme.primary,
+            onExport: () => export(_OwnerReportKind.collections),
+          ),
+          _ReportTile(
+            icon: Icons.account_balance_outlined,
+            title: 'Ledger',
+            subtitle: 'Revenue by category with room tax',
+            color: scheme.tertiary,
+            onExport: () => export(_OwnerReportKind.ledger),
+          ),
+          _ReportTile(
+            icon: Icons.fact_check_outlined,
+            title: 'Settlements',
+            subtitle: 'Checked-out bookings and how they were paid',
+            color: scheme.onSurfaceVariant,
+            onExport: () => export(_OwnerReportKind.settlements),
           ),
         ],
       ),
