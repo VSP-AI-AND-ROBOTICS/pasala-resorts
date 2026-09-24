@@ -190,8 +190,59 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_tz text;
 begin
-  raise exception 'report_collections is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property_id, false, 'owner','admin','accountant');
+
+  select p.timezone into v_tz from public.properties p where p.id = p_property_id;
+
+  -- Cash basis: money in (payments, walk-in sales) and out (refunds) on
+  -- the resort-local day it moved. Column names are prefixed (l_*) so
+  -- they never collide with this function's OUT parameters.
+  return query
+  with paid as (
+    select pm.reservation_id as res_id, sum(pm.amount) as paid_total
+      from public.payments pm
+     where pm.property_id = p_property_id and pm.status = 'succeeded'
+     group by pm.reservation_id
+  ),
+  lines as (
+    select (pm.created_at at time zone v_tz)::date as l_day,
+           case when pm.method = 'gateway' then 'online' else 'front_desk' end as l_channel,
+           case pm.kind when 'advance' then 'booking_advance' else 'checkout_balance' end as l_source,
+           pm.method as l_method,
+           pm.amount as l_amount
+      from public.payments pm
+     where pm.property_id = p_property_id
+       and pm.status = 'succeeded'
+       and pm.created_at >= (p_from::timestamp at time zone v_tz)
+       and pm.created_at <  ((p_to + 1)::timestamp at time zone v_tz)
+    union all
+    select s.sale_date, 'front_desk', 'walk_in_sale', s.payment_method, s.amount
+      from public.food_activity_sales s
+     where s.property_id = p_property_id
+       and s.sale_date between p_from and p_to
+    union all
+    -- A refund goes back the way the advance came in, and never exceeds
+    -- what the booking actually paid (compute_refund works on the quote
+    -- total, not on the money received).
+    select (r.cancelled_at at time zone v_tz)::date, 'online', 'refund',
+           'gateway'::public.payment_method,
+           -least(coalesce(r.refund_amount, 0), coalesce(pd.paid_total, 0))
+      from public.reservations r
+      left join paid pd on pd.res_id = r.id
+     where r.property_id = p_property_id
+       and r.status = 'cancelled'
+       and r.cancelled_at >= (p_from::timestamp at time zone v_tz)
+       and r.cancelled_at <  ((p_to + 1)::timestamp at time zone v_tz)
+       and least(coalesce(r.refund_amount, 0), coalesce(pd.paid_total, 0)) > 0
+  )
+  select l.l_day, l.l_channel, l.l_source, l.l_method,
+         count(*)::int, round(sum(l.l_amount), 2)
+    from lines l
+   group by l.l_day, l.l_channel, l.l_source, l.l_method
+   order by l.l_day, l.l_channel, l.l_source, l.l_method;
 end;
 $$;
 

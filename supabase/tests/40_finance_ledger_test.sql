@@ -13,7 +13,7 @@
 -- "August 2026" fixtures (B1-B7, SX, W1-W3) feed Collections and the
 -- Ledger, with every amount worked out in the test that reads it.
 begin;
-select plan(34);
+select plan(47);
 
 -- Before any fixture: every payment the seed already holds became gateway.
 select is((select count(*)::int from public.payments where method <> 'gateway'), 0,
@@ -365,6 +365,70 @@ select is((select method::text || '|' || coalesce(reference, '-') || '|' || amou
 select is((select status::text from public.reservations
             where id = 'ffffffff-0000-4000-8000-000000000026'),
   'checked_in', 'the refused desk checkout left the booking checked in');
+
+reset role;
+set local request.jwt.claims to '';
+
+-- === Task 3: report_collections =============================================
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select is((select count(*)::int
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')),
+  13, 'August has 13 collection lines');
+select is((select string_agg(c.channel || '|' || c.source || '|' || c.method::text || '|' || c.txn_count || '|' || c.amount,
+                             ';' order by c.channel, c.source, c.method)
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') c
+            where c.day = '2026-08-01'),
+  'online|booking_advance|gateway|1|5000.00',
+  'an online advance is dated by its payment, and resort S''s payment stays out');
+select is((select string_agg(c.channel || '|' || c.source || '|' || c.method::text || '|' || c.txn_count || '|' || c.amount, ';')
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') c
+            where c.day = '2026-08-02'),
+  'online|booking_advance|gateway|1|336.00', 'a failed payment is not a collection');
+select is((select string_agg(c.channel || '|' || c.source || '|' || c.method::text || '|' || c.txn_count || '|' || c.amount, ';')
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') c
+            where c.day = '2026-08-05'),
+  'online|refund|gateway|1|-1500.00', 'a refund is negative, online, on the cancel date');
+select is((select count(*)::int
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') c
+            where c.day = '2026-08-06'),
+  0, 'a cancelled unpaid hold shows no refund');
+select is((select string_agg(c.channel || '|' || c.source || '|' || c.method::text || '|' || c.txn_count || '|' || c.amount, ';')
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') c
+            where c.day = '2026-08-07'),
+  'online|refund|gateway|1|-1000.00', 'a refund larger than the amount paid is capped at what was paid');
+select is((select string_agg(c.channel || '|' || c.source || '|' || c.method::text || '|' || c.txn_count || '|' || c.amount,
+                             ';' order by c.method)
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') c
+            where c.day = '2026-08-10'),
+  'front_desk|walk_in_sale|cash|2|550.00;front_desk|walk_in_sale|upi|1|300.00',
+  'walk-in sales are front-desk money, by method');
+select is((select string_agg(c.channel || '|' || c.source || '|' || c.method::text || '|' || c.txn_count || '|' || c.amount, ';')
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') c
+            where c.day = '2026-08-12'),
+  'front_desk|checkout_balance|cash|1|7540.00', 'a desk balance is front-desk money by its method');
+select is((select string_agg(c.channel || '|' || c.source || '|' || c.method::text || '|' || c.txn_count || '|' || c.amount, ';')
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') c
+            where c.day = '2026-08-21'),
+  'online|checkout_balance|gateway|1|2000.00', 'a self-checkout balance is online money');
+select is((select array_agg(c.day order by c.day)
+             from public.report_collections('2026-08-24', '2026-08-25', 'ffffffff-0000-4000-8000-000000000001') c),
+  array['2026-08-24', '2026-08-25']::date[],
+  'payments at 23:30 and 00:15 resort time fall on their resort-local days');
+select is((select count(*)::int
+             from public.report_collections('2026-08-10', '2026-08-10', 'ffffffff-0000-4000-8000-000000000001')),
+  2, 'a one-day range returns that day only');
+select is((select sum(c.amount)
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') c),
+  18226.00::numeric, 'August nets to 18,226.00');
+-- Today, after Task 2: C1 and C5 were paid in cash at the desk.
+select is((select c.method::text || '|' || c.txn_count || '|' || c.amount
+             from public.report_collections((now() at time zone 'Asia/Kolkata')::date,
+                                            (now() at time zone 'Asia/Kolkata')::date,
+                                            'ffffffff-0000-4000-8000-000000000001') c
+            where c.channel = 'front_desk' and c.source = 'checkout_balance'),
+  'cash|2|2800.00', 'today''s desk checkouts are collected under cash');
 
 reset role;
 set local request.jwt.claims to '';
