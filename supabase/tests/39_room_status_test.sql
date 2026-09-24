@@ -11,7 +11,7 @@
 -- (slot-only), Old Barn (inactive) and Cottage 4 (a confirmed arrival
 -- today, Asia/Kolkata).
 begin;
-select plan(14);
+select plan(38);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters
 -- it). Used by later sections.
@@ -147,6 +147,113 @@ select is((select count(*)::int from public.unit_room_status), 0,
   'a guest reads none of them');
 reset role;
 set local request.jwt.claims to '';
+
+-- === Task 2: room_status_board and set_room_status =========================
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is((select array_agg(name order by name)
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')),
+  array['Cottage 1','Cottage 4','Day Hut'],
+  'the board lists every active unit and no inactive one');
+select is((select effective_status || '|' || guest_first_name || '|'
+                  || (occupied_reservation_id = 'eeeeeeee-0000-4000-8000-000000000031')::text
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000011'),
+  'occupied|Gita|true', 'a checked-in unit is Occupied, with the guest''s first name only');
+select is((select booking_mode::text
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000012'),
+  'slot', 'a slot-only unit comes back as slot (Day use)');
+select is((select effective_status || '|' || arriving_today::text
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'),
+  'available|true', 'a unit with a confirmed arrival today is Available and flagged');
+select is((select state::text || '|' || overdue::text || '|' || coalesce(housekeeping_task_id::text, '-')
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000012'),
+  'ready|false|-', 'a unit with no stored row is ready, with no housekeeping');
+
+-- Role matrix.
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select is((select count(*)::int from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')),
+  3, 'an accountant reads the board');
+select throws_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000014', 'dirty')$$,
+  'P0020', null, 'an accountant cannot change a room');
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000008","role":"authenticated"}';
+select throws_ok($$select * from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'a guest cannot read the board');
+select throws_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000014', 'dirty')$$,
+  'P0020', null, 'a guest cannot change a room');
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000007","role":"authenticated"}';
+select throws_ok($$select * from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'staff of another resort cannot read the board');
+select throws_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000014', 'dirty')$$,
+  'P0020', null, 'staff of another resort cannot change a room');
+set local role anon;
+select throws_ok($$select * from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')$$,
+  '42501', null, 'anon cannot call the board');
+
+-- Setting states.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000014', 'out_of_order')$$,
+  'P0030', 'reason_required', 'Maintenance without a reason is refused');
+select throws_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000014', 'out_of_order', '   ')$$,
+  'P0030', 'reason_required', 'a blank reason is refused');
+select lives_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000014', 'out_of_order', ' AC broken ')$$,
+  'staff marks a room out of order with a reason');
+select is((select effective_status || '|' || reason
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'),
+  'maintenance|AC broken', 'the board shows Maintenance with the trimmed reason');
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select lives_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000011', 'dirty')$$,
+  'admin marks an occupied room as needing cleaning');
+select is((select effective_status || '|' || state::text
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000011'),
+  'occupied|dirty', 'an occupied room stays Occupied and keeps its needs-cleaning state');
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select lives_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000014', 'ready')$$,
+  'owner returns a room to Available');
+select is((select effective_status || '|' || coalesce(reason, '-')
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'),
+  'available|-', 'Available clears the maintenance reason');
+
+-- Housekeeping columns and the SLA, with a task inserted directly
+-- (dispatching arrives in Task 3). `reset role` keeps the claims; clear them.
+reset role;
+set local request.jwt.claims to '';
+insert into public.tasks (property_id, assignee_id, title, kind, unit_id, created_by, created_at) values
+  ('eeeeeeee-0000-4000-8000-000000000001','e0000000-0000-0000-0000-000000000004','Clean Day Hut',
+   'housekeeping','eeeeeeee-0000-4000-8000-000000000012','e0000000-0000-0000-0000-000000000003',
+   now() - interval '61 minutes');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is((select housekeeper_name || '|' || housekeeping_status::text || '|' || overdue::text
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000012'),
+  'Hari Housekeeper|todo|true', 'an open task older than the 60-minute SLA is Overdue, with its housekeeper');
+reset role;
+set local request.jwt.claims to '';
+update public.properties set housekeeping_sla_minutes = 120
+ where id = 'eeeeeeee-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is((select overdue
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000012'),
+  false, 'the same task is on time under a 120-minute SLA');
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select lives_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000012', 'ready')$$,
+  'owner marks the day hut Available');
+reset role;
+set local request.jwt.claims to '';
+select is((select status::text from public.tasks
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000012'),
+  'done', 'marking a room Available closes its open housekeeping task');
 
 select * from finish();
 rollback;

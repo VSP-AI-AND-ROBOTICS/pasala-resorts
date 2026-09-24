@@ -62,6 +62,11 @@ create index tasks_unit_idx on public.tasks (unit_id) where unit_id is not null;
 -- Room functions. The signatures are the contract the app is built
 -- against; Tasks 2 and 3 of the plan replace the stub bodies.
 
+-- One row per active unit of the resort, for the room grid. Staff+ of the
+-- resort (reads are allowed while it is suspended). effective_status:
+-- occupied (a checked-in reservation) > maintenance (out_of_order) >
+-- cleaning (dirty) > available. The stored state comes back too, so an
+-- occupied room can still carry a needs-cleaning or out-of-order badge.
 create function public.room_status_board(p_property uuid)
 returns table (
   unit_id                    uuid,
@@ -84,11 +89,66 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+#variable_conflict use_column
+declare
+  v_today date := (now() at time zone 'Asia/Kolkata')::date;
+  v_sla   int;
 begin
-  raise exception 'room_status_board is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property, false, 'owner','admin','staff','accountant');
+
+  select p.housekeeping_sla_minutes into v_sla
+    from public.properties p where p.id = p_property;
+
+  return query
+    select u.id,
+           u.name,
+           u.booking_mode,
+           case
+             when occ.id is not null then 'occupied'
+             when s.state = 'out_of_order' then 'maintenance'
+             when s.state = 'dirty' then 'cleaning'
+             else 'available'
+           end,
+           coalesce(s.state, 'ready'::public.room_state),
+           s.reason,
+           occ.id,
+           nullif(split_part(btrim(g.full_name), ' ', 1), ''),
+           exists (select 1 from public.reservations a
+                    where a.unit_id = u.id
+                      and a.kind <> 'block'
+                      and a.status = 'confirmed'
+                      and (lower(a.period) at time zone 'Asia/Kolkata')::date = v_today),
+           hk.id,
+           hp.full_name,
+           hk.status,
+           hk.created_at,
+           coalesce(hk.created_at < now() - make_interval(mins => v_sla), false)
+      from public.units u
+      left join public.unit_room_status s on s.unit_id = u.id
+      left join lateral (
+        select r.id, r.customer_id
+          from public.reservations r
+         where r.unit_id = u.id and r.status = 'checked_in'
+         order by r.checked_in_at desc nulls last
+         limit 1
+      ) occ on true
+      left join public.profiles g on g.id = occ.customer_id
+      left join lateral (
+        select t.id, t.assignee_id, t.status, t.created_at
+          from public.tasks t
+         where t.unit_id = u.id and t.kind = 'housekeeping' and t.status <> 'done'
+         order by t.created_at desc
+         limit 1
+      ) hk on true
+      left join public.profiles hp on hp.id = hk.assignee_id
+     where u.property_id = p_property and u.is_active
+     order by u.name, u.id;
 end;
 $$;
 
+-- Owner/admin/staff of the unit's resort set its housekeeping state.
+-- Maintenance needs a reason (P0030). Available also closes the unit's
+-- open housekeeping task -- the room is clean, so the job is done.
 create function public.set_room_status(
   p_unit   uuid,
   p_state  public.room_state,
@@ -98,8 +158,40 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_property uuid;
+  v_reason   text := nullif(btrim(p_reason), '');
 begin
-  raise exception 'set_room_status is not implemented yet' using errcode = '0A000';
+  select u.property_id into v_property from public.units u where u.id = p_unit;
+  if not found then
+    raise exception 'unit not found' using errcode = 'P0002';
+  end if;
+
+  perform public.assert_resort_role(v_property, true, 'owner','admin','staff');
+
+  if p_state is null then
+    raise exception 'state is required' using errcode = 'P0005';
+  end if;
+  if p_state = 'out_of_order' and v_reason is null then
+    raise exception using errcode = 'P0030', message = 'reason_required';
+  end if;
+
+  insert into public.unit_room_status as s
+    (unit_id, property_id, state, reason, updated_by, updated_at)
+  values (p_unit, v_property, p_state,
+          case when p_state = 'out_of_order' then v_reason end,
+          auth.uid(), now())
+  on conflict (unit_id) do update
+    set state      = excluded.state,
+        reason     = excluded.reason,
+        updated_by = excluded.updated_by,
+        updated_at = excluded.updated_at;
+
+  if p_state = 'ready' then
+    update public.tasks
+       set status = 'done'
+     where unit_id = p_unit and kind = 'housekeeping' and status <> 'done';
+  end if;
 end;
 $$;
 
