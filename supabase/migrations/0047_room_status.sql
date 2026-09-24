@@ -58,6 +58,129 @@ alter table public.tasks
   add column started_at timestamptz;
 create index tasks_unit_idx on public.tasks (unit_id) where unit_id is not null;
 
+-- A room belongs only on a housekeeping task. Not the spec's strict
+-- `(kind = 'housekeeping') = (unit_id is not null)`: with
+-- `on delete set null` above, that would refuse every delete of a unit
+-- with housekeeping history. dispatch_housekeeping always sets unit_id.
+alter table public.tasks
+  add constraint tasks_unit_only_for_housekeeping
+    check (unit_id is null or kind = 'housekeeping');
+
+-- One open housekeeping task per unit. dispatch_housekeeping checks first
+-- and raises P0031; this index settles two dispatches that race past that
+-- check.
+create unique index tasks_one_open_housekeeping_per_unit
+  on public.tasks (unit_id)
+  where kind = 'housekeeping' and status <> 'done';
+
+-- The unit's resort must be the task's resort (P0021), as for every other
+-- unit-linked table (0043). A general task (no unit) passes straight
+-- through.
+create trigger tasks_fill_property
+  before insert or update on public.tasks
+  for each row execute function public.fill_property_id('units', 'unit_id');
+
+-- tasks_enforce_write, copied from 0045 with three changes:
+--  * started_at is set the first time a task moves to in_progress;
+--  * the assignee's status-only path also may not change kind, unit_id,
+--    started_at or completed_at;
+--  * on a housekeeping task, an owner/admin/staff member of its resort
+--    may change the status only. RLS (tasks_update) still admits only
+--    admins and the assignee to a direct update, so this "room writer"
+--    path is reachable only through set_room_status.
+create or replace function public.tasks_enforce_write()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_admin boolean := public.has_resort_role(old.property_id, true, 'owner','admin');
+  v_room_writer boolean := old.kind = 'housekeeping'
+    and public.has_resort_role(old.property_id, true, 'owner','admin','staff');
+begin
+  if TG_OP = 'DELETE' then
+    if not v_admin then
+      raise sqlstate '42501' using
+        message = 'permission denied for table tasks',
+        hint = 'only an administrator can delete a task';
+    end if;
+    return old;
+  end if;
+
+  if v_admin and public.has_resort_role(new.property_id, true, 'owner','admin') then
+    new.updated_at := clock_timestamp();
+    if new.status = 'in_progress' and old.started_at is null then
+      new.started_at := clock_timestamp();
+    end if;
+    if new.status = 'done' and old.completed_at is null then
+      new.completed_at := clock_timestamp();
+    end if;
+    return new;
+  end if;
+
+  if new.assignee_id <> old.assignee_id then
+    raise sqlstate '42501' using
+      message = 'permission denied for table tasks',
+      hint = 'only an administrator can reassign a task';
+  end if;
+
+  if new.id is distinct from old.id
+      or new.title is distinct from old.title
+      or new.description is distinct from old.description
+      or new.created_by is distinct from old.created_by
+      or new.created_at is distinct from old.created_at
+      or new.property_id is distinct from old.property_id
+      or new.kind is distinct from old.kind
+      or new.unit_id is distinct from old.unit_id
+      or new.started_at is distinct from old.started_at
+      or new.completed_at is distinct from old.completed_at then
+    raise sqlstate '42501' using
+      message = 'permission denied for table tasks',
+      hint = 'only an administrator can edit a task''s details';
+  end if;
+
+  if old.assignee_id <> auth.uid() and not v_room_writer then
+    raise sqlstate '42501' using
+      message = 'permission denied for table tasks',
+      hint = 'you can only update the status of your own tasks';
+  end if;
+
+  new.updated_at := clock_timestamp();
+  if new.status = 'in_progress' and old.started_at is null then
+    new.started_at := clock_timestamp();
+  end if;
+  if new.status = 'done' and old.completed_at is null then
+    new.completed_at := clock_timestamp();
+  end if;
+  return new;
+end;
+$$;
+
+-- A finished housekeeping task makes a dirty room ready. An out-of-order
+-- room stays in Maintenance: only a person clears that.
+create function public.tasks_housekeeping_done()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  update public.unit_room_status
+     set state = 'ready', reason = null, updated_by = auth.uid(), updated_at = now()
+   where unit_id = new.unit_id
+     and state = 'dirty';
+  return null;
+end;
+$$;
+
+create trigger tasks_housekeeping_done
+  after update of status on public.tasks
+  for each row
+  when (new.kind = 'housekeeping' and new.unit_id is not null
+        and new.status = 'done' and old.status is distinct from 'done')
+  execute function public.tasks_housekeeping_done();
+
 -- ---------------------------------------------------------------------
 -- Room functions. The signatures are the contract the app is built
 -- against; Tasks 2 and 3 of the plan replace the stub bodies.
@@ -195,6 +318,11 @@ begin
 end;
 $$;
 
+-- Owner/admin/staff of the unit's resort send one `staff` member of that
+-- same resort (else P0020) to clean the unit. Refused with P0031 while an
+-- open housekeeping task exists. Marks the room dirty unless it is out of
+-- order -- sending housekeeping never clears Maintenance. Returns the new
+-- task's id.
 create function public.dispatch_housekeeping(
   p_unit     uuid,
   p_assignee uuid,
@@ -204,11 +332,58 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_unit public.units;
+  v_task uuid;
 begin
-  raise exception 'dispatch_housekeeping is not implemented yet' using errcode = '0A000';
+  select * into v_unit from public.units where id = p_unit;
+  if not found then
+    raise exception 'unit not found' using errcode = 'P0002';
+  end if;
+
+  perform public.assert_resort_role(v_unit.property_id, true, 'owner','admin','staff');
+
+  if not exists (select 1 from public.resort_members m
+                  where m.property_id = v_unit.property_id
+                    and m.user_id = p_assignee
+                    and m.role = 'staff') then
+    raise exception using errcode = 'P0020', message = 'not_a_member';
+  end if;
+
+  if exists (select 1 from public.tasks t
+              where t.unit_id = p_unit and t.kind = 'housekeeping' and t.status <> 'done') then
+    raise exception using errcode = 'P0031', message = 'already_dispatched';
+  end if;
+
+  begin
+    insert into public.tasks
+      (property_id, assignee_id, title, description, kind, unit_id, created_by)
+    values
+      (v_unit.property_id, p_assignee, 'Clean ' || v_unit.name,
+       coalesce(btrim(p_note), ''), 'housekeeping', p_unit, auth.uid())
+    returning id into v_task;
+  exception when unique_violation then
+    -- Lost a race with another dispatch (tasks_one_open_housekeeping_per_unit).
+    raise exception using errcode = 'P0031', message = 'already_dispatched';
+  end;
+
+  insert into public.unit_room_status as s
+    (unit_id, property_id, state, reason, updated_by, updated_at)
+  values (p_unit, v_unit.property_id, 'dirty', null, auth.uid(), now())
+  on conflict (unit_id) do update
+    set state      = 'dirty',
+        reason     = null,
+        updated_by = excluded.updated_by,
+        updated_at = excluded.updated_at
+    where s.state <> 'out_of_order';
+
+  return v_task;
 end;
 $$;
 
+-- The resort's `staff` members, for the Send housekeeping picker. Needed
+-- because staff cannot read the roster (resort_members_read is owner/admin
+-- or self); returns only the id and name.
 create function public.list_dispatchable_staff(p_property uuid)
 returns table (user_id uuid, full_name text)
 language plpgsql
@@ -216,8 +391,16 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+#variable_conflict use_column
 begin
-  raise exception 'list_dispatchable_staff is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property, false, 'owner','admin','staff');
+
+  return query
+    select m.user_id, p.full_name
+      from public.resort_members m
+      join public.profiles p on p.id = m.user_id
+     where m.property_id = p_property and m.role = 'staff'
+     order by p.full_name nulls last, m.user_id;
 end;
 $$;
 

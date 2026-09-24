@@ -410,6 +410,10 @@ select is(
         -- of the unit (or the resort) it is given.
         'room_status_board','set_room_status','dispatch_housekeeping',
         'list_dispatchable_staff',
+        -- 0047: tasks_housekeeping_done is a trigger function (not callable
+        -- as an RPC); it fires only on a task update that tasks_update RLS
+        -- and tasks_enforce_write already allowed.
+        'tasks_housekeeping_done',
         -- 0044: properties_guard_status checks is_platform_admin() directly
         -- before allowing a status change; reviews_set_author_name has no
         -- check of its own, but it only ever fires on a row the reviews_insert

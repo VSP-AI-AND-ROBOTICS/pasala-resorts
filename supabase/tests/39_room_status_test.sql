@@ -11,7 +11,7 @@
 -- (slot-only), Old Barn (inactive) and Cottage 4 (a confirmed arrival
 -- today, Asia/Kolkata).
 begin;
-select plan(38);
+select plan(69);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters
 -- it). Used by later sections.
@@ -254,6 +254,140 @@ set local request.jwt.claims to '';
 select is((select status::text from public.tasks
             where unit_id = 'eeeeeeee-0000-4000-8000-000000000012'),
   'done', 'marking a room Available closes its open housekeeping task');
+
+-- === Task 3: dispatching housekeeping and the task rules ===================
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is((select array_agg(full_name order by full_name)
+             from public.list_dispatchable_staff('eeeeeeee-0000-4000-8000-000000000001')),
+  array['Hari Housekeeper','Indu Incharge'], 'only the resort''s staff members can be dispatched');
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok($$select * from public.list_dispatchable_staff('eeeeeeee-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'an accountant cannot list housekeepers');
+select throws_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000014',
+  'e0000000-0000-0000-0000-000000000004')$$, 'P0020', null, 'an accountant cannot dispatch');
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000007","role":"authenticated"}';
+select throws_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000014',
+  'e0000000-0000-0000-0000-000000000007')$$, 'P0020', null, 'staff of another resort cannot dispatch');
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000014',
+  'e0000000-0000-0000-0000-000000000007')$$, 'P0020', null, 'an assignee from another resort is refused');
+select throws_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000014',
+  'e0000000-0000-0000-0000-000000000005')$$, 'P0020', null, 'a member who is not staff cannot be dispatched');
+select throws_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000014',
+  'e0000000-0000-0000-0000-000000000009')$$, 'P0020', null, 'someone with no membership cannot be dispatched');
+select lives_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000014',
+  'e0000000-0000-0000-0000-000000000004', ' Deep clean ')$$, 'the Incharge dispatches housekeeping');
+select is((select effective_status || '|' || housekeeper_name || '|' || housekeeping_status::text || '|' || overdue::text
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'),
+  'cleaning|Hari Housekeeper|todo|false', 'the room shows Cleaning with the housekeeper and a fresh task');
+select throws_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000014',
+  'e0000000-0000-0000-0000-000000000004')$$, 'P0031', 'already_dispatched',
+  'a second dispatch while one is open is refused');
+reset role;
+set local request.jwt.claims to '';
+select is((select title || '|' || description || '|' || kind::text || '|' || assignee_id::text
+                  || '|' || property_id::text || '|' || created_by::text
+             from public.tasks where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'),
+  'Clean Cottage 4|Deep clean|housekeeping|e0000000-0000-0000-0000-000000000004|'
+  || 'eeeeeeee-0000-4000-8000-000000000001|e0000000-0000-0000-0000-000000000003',
+  'the task names the room, carries the note and records who dispatched it');
+
+-- The housekeeper's side: Assigned Work, status only.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select is((select count(*)::int from public.tasks where kind = 'housekeeping' and status <> 'done'),
+  1, 'the housekeeper sees the open task');
+select throws_ok($$update public.tasks set unit_id = 'eeeeeeee-0000-4000-8000-000000000011'
+  where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'$$,
+  '42501', null, 'the assignee cannot move the task to another room');
+select throws_ok($$update public.tasks set kind = 'general'
+  where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'$$,
+  '42501', null, 'the assignee cannot change the task kind');
+select throws_ok($$update public.tasks set started_at = now() - interval '1 day'
+  where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'$$,
+  '42501', null, 'the assignee cannot backdate the start');
+update public.tasks set status = 'in_progress'
+ where unit_id = 'eeeeeeee-0000-4000-8000-000000000014';
+select isnt((select started_at from public.tasks
+              where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'),
+  null, 'moving to In Progress records the start time');
+update public.tasks set status = 'done'
+ where unit_id = 'eeeeeeee-0000-4000-8000-000000000014';
+select is((select effective_status || '|' || coalesce(housekeeping_task_id::text, '-')
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000014'),
+  'available|-', 'a finished housekeeping task returns the room to Available');
+
+-- Review Focus 1: housekeeping never clears Maintenance.
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select lives_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000012', 'out_of_order', 'Roof leak')$$,
+  'the Incharge marks the day hut out of order');
+select lives_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000012',
+  'e0000000-0000-0000-0000-000000000004')$$, 'housekeeping can still be sent to an out-of-order room');
+select is((select state::text
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000012'),
+  'out_of_order', 'dispatching does not clear the maintenance flag');
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+update public.tasks set status = 'done'
+ where unit_id = 'eeeeeeee-0000-4000-8000-000000000012' and status <> 'done';
+select is((select effective_status
+             from public.room_status_board('eeeeeeee-0000-4000-8000-000000000001')
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000012'),
+  'maintenance', 'finishing housekeeping leaves an out-of-order room in Maintenance');
+
+-- Review Focus 3: a Staff / Incharge who is not the assignee.
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select lives_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000014',
+  'e0000000-0000-0000-0000-000000000004')$$, 'a room can be dispatched again once its last task is done');
+select lives_ok($$select public.set_room_status('eeeeeeee-0000-4000-8000-000000000014', 'ready')$$,
+  'the Incharge (not the assignee) marks the room Available');
+reset role;
+set local request.jwt.claims to '';
+select is((select count(*)::int from public.tasks
+            where unit_id = 'eeeeeeee-0000-4000-8000-000000000014' and status <> 'done'),
+  0, 'marking Available closes the open task even for a non-admin caller');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select lives_ok($$select public.dispatch_housekeeping('eeeeeeee-0000-4000-8000-000000000014',
+  'e0000000-0000-0000-0000-000000000004')$$, 'housekeeping is sent to Cottage 4 again');
+select is(pg_temp.rows_affected($$update public.tasks set status = 'done'
+  where unit_id = 'eeeeeeee-0000-4000-8000-000000000014' and status <> 'done'$$),
+  0, 'a staff member who is not the assignee still cannot update the task directly');
+
+-- Task rules, as the superuser with no authenticated caller.
+reset role;
+set local request.jwt.claims to '';
+-- Review Focus 2: the index behind P0031 when two dispatches race.
+select throws_ok($$insert into public.tasks (property_id, assignee_id, title, kind, unit_id, created_by)
+  values ('eeeeeeee-0000-4000-8000-000000000001','e0000000-0000-0000-0000-000000000003',
+          'Clean Cottage 4','housekeeping','eeeeeeee-0000-4000-8000-000000000014',
+          'e0000000-0000-0000-0000-000000000002')$$,
+  '23505', null, 'a unit can have only one open housekeeping task');
+select throws_ok($$insert into public.tasks (property_id, assignee_id, title, kind, unit_id, created_by)
+  values ('eeeeeeee-0000-4000-8000-000000000002','e0000000-0000-0000-0000-000000000007',
+          'Clean','housekeeping','eeeeeeee-0000-4000-8000-000000000012',
+          'e0000000-0000-0000-0000-000000000006')$$,
+  'P0021', null, 'a task cannot point at another resort''s room');
+select throws_ok($$insert into public.tasks (property_id, assignee_id, title, kind, unit_id, created_by)
+  values ('eeeeeeee-0000-4000-8000-000000000001','e0000000-0000-0000-0000-000000000004',
+          'Fix tap','general','eeeeeeee-0000-4000-8000-000000000012',
+          'e0000000-0000-0000-0000-000000000003')$$,
+  '23514', null, 'a general task cannot carry a room');
+
+-- Review Focus 5: deleting a unit with housekeeping history.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select lives_ok($$delete from public.units where id = 'eeeeeeee-0000-4000-8000-000000000012'$$,
+  'an admin can still delete a unit with housekeeping history');
+reset role;
+set local request.jwt.claims to '';
+select is((select count(*)::int from public.tasks
+            where title = 'Clean Day Hut' and unit_id is null),
+  2, 'its housekeeping tasks are kept, unlinked from the room');
 
 select * from finish();
 rollback;
