@@ -170,7 +170,7 @@ For each resort-owned table:
 - **Platform admin:** no policy grants it row access to any resort-owned
   table.
 
-### `security definer` functions (72 today)
+### `security definer` functions (46 today, besides the four global role helpers)
 
 Every existing function is rewritten so that it:
 
