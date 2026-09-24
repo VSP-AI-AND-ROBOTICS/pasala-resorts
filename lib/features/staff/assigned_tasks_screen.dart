@@ -9,6 +9,7 @@ import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/staff_task.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/room_status_repository.dart';
 import '../../data/repositories/task_repository.dart';
 import '../admin/tasks_screen.dart' show statusLabel;
 
@@ -50,6 +51,17 @@ class AssignedTasksScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(task.title, style: Theme.of(context).textTheme.titleMedium),
+                      if (task.unitName != null) ...[
+                        const SizedBox(height: Spacing.xs),
+                        Row(
+                          key: Key('task-unit-${task.id}'),
+                          children: [
+                            const Icon(Icons.meeting_room_outlined, size: 16),
+                            const SizedBox(width: Spacing.xs),
+                            Text('Room: ${task.unitName}'),
+                          ],
+                        ),
+                      ],
                       if (task.description.isNotEmpty) ...[
                         const SizedBox(height: Spacing.xs),
                         Text(task.description),
@@ -85,6 +97,9 @@ class AssignedTasksScreen extends ConsumerWidget {
     try {
       await ref.read(taskRepositoryProvider).updateStatus(id: taskId, status: status);
       ref.invalidate(tasksProvider(filter));
+      // Finishing a housekeeping task makes the room Available server-side
+      // (tasks_housekeeping_done); refetch the board if it is showing.
+      ref.invalidate(roomBoardProvider(filter.propertyId));
     } on BookingFailure catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)

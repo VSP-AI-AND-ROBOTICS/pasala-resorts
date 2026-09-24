@@ -1,7 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/core/router.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/resort_membership.dart';
+import 'package:pasala/data/repositories/auth_repository.dart';
 
 const _ownerM =
     ResortMembership(propertyId: 'r1', resortName: 'R1', role: ResortRole.owner);
@@ -28,6 +32,18 @@ String? _to(AppUser? user, ResortMembership? resort, String path) => redirectFor
       path: path,
       onPreAuthScreen: false,
     );
+
+Iterable<String> _paths(List<RouteBase> routes) sync* {
+  for (final route in routes) {
+    if (route is GoRoute) yield route.path;
+    yield* _paths(route.routes);
+  }
+}
+
+class _NoResort extends CurrentResort {
+  @override
+  ResortMembership? build() => null;
+}
 
 void main() {
   group('unauthenticated', () {
@@ -370,6 +386,32 @@ void main() {
     test('/owner/team requires owner', () {
       expect(_to(_superAdmin, _ownerM, '/owner/team'), null);
       expect(_to(_admin, _adminM, '/owner/team'), '/404');
+    });
+  });
+
+  group('room status grid', () {
+    test('the app router registers /staff/rooms', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(null)),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      final router = container.read(routerProvider);
+
+      expect(_paths(router.configuration.routes), contains('/staff/rooms'));
+    });
+
+    test('/staff/rooms opens for every role at the current resort', () {
+      expect(_to(_superAdmin, _ownerM, '/staff/rooms'), null);
+      expect(_to(_admin, _adminM, '/staff/rooms'), null);
+      expect(_to(_staff, _staffM, '/staff/rooms'), null);
+      expect(_to(_accountant, _accountantM, '/staff/rooms'), null);
+    });
+
+    test('/staff/rooms is closed to customers', () {
+      expect(_to(_customer, null, '/staff/rooms'), '/404');
     });
   });
 }

@@ -29,11 +29,17 @@ class StaffTask {
     this.assigneeName,
     this.createdAt,
     this.updatedAt,
+    this.unitName,
   });
 
   final String id;
   final String assigneeId;
   final String? assigneeName;
+
+  /// The room a housekeeping task is for, from the `units(name)` embed that
+  /// [TaskRepository.list] requests -- null for a general task, or for a
+  /// response without that embed.
+  final String? unitName;
   final String title;
   final String description;
   final TaskStatus status;
@@ -45,6 +51,7 @@ class StaffTask {
         assigneeId: json['assignee_id'] as String,
         assigneeName:
             (json['profiles'] as Map<String, dynamic>?)?['full_name'] as String?,
+        unitName: (json['units'] as Map<String, dynamic>?)?['name'] as String?,
         title: json['title'] as String,
         description: json['description'] as String? ?? '',
         status: taskStatusFromDb(json['status'] as String),

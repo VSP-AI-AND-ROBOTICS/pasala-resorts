@@ -67,8 +67,11 @@ class AppShell extends ConsumerWidget {
   // (the staff-operations hub), not `/admin/dashboard` (the financial
   // summary) -- that route stays admin-only-reachable via `AdminMoreScreen`,
   // untouched by this change.
+  // Rooms (the room status grid) sits second: duty managers change room
+  // states and send housekeeping all day. Accountants get it too, read-only.
   static const _staffDestinations = [
     (path: '/staff', icon: Icons.task_alt_outlined, label: 'Today'),
+    (path: '/staff/rooms', icon: Icons.meeting_room_outlined, label: 'Rooms'),
     (
       path: '/staff/dashboard',
       icon: Icons.dashboard_outlined,

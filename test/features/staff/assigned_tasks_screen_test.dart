@@ -6,8 +6,11 @@ import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/staff_task.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
+import 'package:pasala/data/repositories/room_status_repository.dart';
 import 'package:pasala/data/repositories/task_repository.dart';
 import 'package:pasala/features/staff/assigned_tasks_screen.dart';
+
+import '../../support/fake_room_board_source.dart';
 
 const _staff = AppUser(
   id: 'staff-1',
@@ -69,6 +72,7 @@ class FakeTaskRepository implements TaskRepository {
       title: existing.title,
       description: existing.description,
       status: status,
+      unitName: existing.unitName,
     );
   }
 
@@ -145,5 +149,67 @@ void main() {
 
     expect(repo.store.first.status, TaskStatus.inProgress);
     expect(find.text('In Progress'), findsWidgets);
+  });
+
+  testWidgets('a housekeeping task shows its room', (tester) async {
+    final repo = FakeTaskRepository()
+      ..store.add(const StaffTask(
+        id: 't1',
+        assigneeId: 'staff-1',
+        title: 'Clean Cottage 4',
+        description: 'Deep clean',
+        status: TaskStatus.todo,
+        unitName: 'Cottage 4',
+      ));
+
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Room: Cottage 4'), findsOneWidget);
+    expect(find.byKey(const Key('task-unit-t1')), findsOneWidget);
+  });
+
+  testWidgets('changing a task status refetches the room board',
+      (tester) async {
+    final repo = FakeTaskRepository()
+      ..store.add(const StaffTask(
+        id: 't1',
+        assigneeId: 'staff-1',
+        title: 'Clean Cottage 4',
+        description: '',
+        status: TaskStatus.todo,
+        unitName: 'Cottage 4',
+      ));
+    final board = FakeRoomBoardSource();
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
+        currentResortProvider.overrideWith(_FixedResort.new),
+        taskRepositoryProvider.overrideWithValue(repo),
+        roomBoardSourceProvider.overrideWithValue(board),
+      ],
+      child: MaterialApp(
+        home: Column(
+          children: [
+            const Expanded(child: AssignedTasksScreen()),
+            // Stands in for an open Rooms tab, which keeps the board alive.
+            Consumer(builder: (_, ref, _) {
+              ref.watch(roomBoardProvider('p1'));
+              return const SizedBox.shrink();
+            }),
+          ],
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final before = board.boardCalls.length;
+
+    await tester.tap(find.byKey(const Key('task-status-t1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Done').last);
+    await tester.pumpAndSettle();
+
+    expect(board.boardCalls.length, greaterThan(before));
   });
 }

@@ -14,10 +14,14 @@ import 'package:pasala/data/models/review.dart';
 import 'package:pasala/data/models/unit.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/data/repositories/review_repository.dart';
+import 'package:pasala/data/models/room_status.dart';
+import 'package:pasala/data/repositories/room_status_repository.dart';
 import 'package:pasala/features/admin/admin_home_screen.dart';
 import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/reports/providers.dart';
 import 'package:pasala/features/staff/providers.dart';
+
+import '../../support/fake_room_board_source.dart';
 
 /// Resolves `currentResortProvider` to a fixed membership synchronously, on
 /// the very first build -- unlike overriding `currentUserProvider` with a
@@ -229,6 +233,37 @@ void main() {
     });
   });
 
+  group('roomReadinessLabel', () {
+    test('every room ready, occupied ones included', () {
+      expect(
+        roomReadinessLabel([
+          boardEntry(),
+          boardEntry(unitId: 'u2', status: RoomStatus.occupied),
+        ]),
+        'All rooms ready ✓',
+      );
+      expect(allRoomsReady([boardEntry()]), isTrue);
+    });
+
+    test('counts rooms to clean and rooms in maintenance', () {
+      final rooms = [
+        boardEntry(state: RoomState.dirty, status: RoomStatus.cleaning),
+        boardEntry(
+            unitId: 'u2',
+            state: RoomState.outOfOrder,
+            status: RoomStatus.maintenance,
+            reason: 'Leak'),
+        boardEntry(unitId: 'u3', state: RoomState.dirty, status: RoomStatus.occupied),
+      ];
+      expect(roomReadinessLabel(rooms), '2 to clean · 1 in maintenance');
+      expect(allRoomsReady(rooms), isFalse);
+    });
+
+    test('a resort with no rooms says so', () {
+      expect(roomReadinessLabel(const []), 'No rooms set up');
+    });
+  });
+
   group('AdminHomeScreen', () {
     const property = Property(
       id: 'p1',
@@ -268,6 +303,7 @@ void main() {
     Widget app({
       List<Reservation> bookings = const [],
       List<Review> reviews = const [],
+      List<RoomBoardEntry> rooms = const [],
       ThemeMode themeMode = ThemeMode.light,
     }) {
       final router = GoRouter(
@@ -291,6 +327,9 @@ void main() {
           GoRoute(
               path: '/admin/outbox',
               builder: (_, _) => const Text('OUTBOX SCREEN')),
+          GoRoute(
+              path: '/staff/rooms',
+              builder: (_, _) => const Text('ROOMS SCREEN')),
           GoRoute(
               path: '/property/:id',
               builder: (_, _) => const Text('PROPERTY SCREEN')),
@@ -332,6 +371,8 @@ void main() {
                 cancellationsThisMonth: 0,
                 activeHolds: 0,
               )),
+          roomBoardSourceProvider
+              .overrideWithValue(FakeRoomBoardSource()..entries = rooms),
         ],
         child: MaterialApp.router(
           theme: buildTheme(Brightness.light),
@@ -486,6 +527,62 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.textContaining('Asha'), findsOneWidget);
+    });
+
+    testWidgets('Preparation and the readiness card show the real rooms',
+        (tester) async {
+      await useTallSurface(tester);
+      await tester.pumpWidget(app(rooms: [
+        boardEntry(state: RoomState.dirty, status: RoomStatus.cleaning),
+        boardEntry(
+            unitId: 'u2',
+            name: 'Cottage 2',
+            state: RoomState.outOfOrder,
+            status: RoomStatus.maintenance,
+            reason: 'Leak'),
+      ]));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('preparation-rooms'))).data,
+        '1 to clean · 1 in maintenance',
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('readiness-overall'))).data,
+        'ATTENTION',
+      );
+      expect(
+        find.descendant(
+            of: find.byKey(const Key('readiness-rooms')),
+            matching: find.byIcon(Icons.error_outline)),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('all rooms ready reads READY', (tester) async {
+      await useTallSurface(tester);
+      await tester.pumpWidget(app(rooms: [boardEntry()]));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('preparation-rooms'))).data,
+        'All rooms ready ✓',
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('readiness-overall'))).data,
+        'READY',
+      );
+    });
+
+    testWidgets('tapping Rooms navigates to the room grid', (tester) async {
+      await useTallSurface(tester);
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('quick-action-Rooms')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('ROOMS SCREEN'), findsOneWidget);
     });
   });
 }

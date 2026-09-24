@@ -36,6 +36,18 @@ void main() {
     expect(map('P0022'), isA<ResortSuspended>());
   });
 
+  test('P0030 maps to ReasonRequired with readable copy', () {
+    final failure = map('P0030', 'reason_required');
+    expect(failure, isA<ReasonRequired>());
+    expect(failure.message, 'Enter a reason to mark a room as Maintenance.');
+  });
+
+  test('P0031 maps to AlreadyDispatched with readable copy', () {
+    final failure = map('P0031', 'already_dispatched');
+    expect(failure, isA<AlreadyDispatched>());
+    expect(failure.message, 'Housekeeping is already on its way to this room.');
+  });
+
   test('NotPermitted never leaks the server message', () {
     expect(map('42501', 'permission denied for table reservations').message,
         isNot(contains('reservations')));
