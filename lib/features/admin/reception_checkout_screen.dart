@@ -7,6 +7,7 @@ import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
+import '../../data/repositories/room_status_repository.dart';
 import '../../data/repositories/stay_repository.dart';
 import '../staff/providers.dart' show allBookingsProvider;
 
@@ -53,6 +54,8 @@ class ReceptionCheckoutScreen extends ConsumerWidget {
                       // See the matching comment in reception_checkin_screen.dart
                       // -- the dashboard's own cards read this same list.
                       ref.invalidate(allBookingsProvider);
+                      // checkout_booking marks the room for cleaning.
+                      ref.invalidate(roomBoardProvider(propertyId));
                     }
                   },
                   child: const Text('Check Out'),
