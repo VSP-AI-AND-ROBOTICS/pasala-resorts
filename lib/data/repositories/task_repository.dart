@@ -33,6 +33,7 @@ class TaskRepository {
   /// required an explicit FK hint on `leave_requests` doesn't strictly
   /// apply here, but the hint is included anyway for consistency with
   /// `AttendanceRepository`'s same defensive choice.
+  /// `units(name)` names the room of a housekeeping task (0047).
   Future<List<StaffTask>> list({
     required String propertyId,
     String? assigneeId,
@@ -41,7 +42,7 @@ class TaskRepository {
       _guard(() async {
         dynamic query = _db
             .from('tasks')
-            .select('*, profiles!tasks_assignee_id_fkey(full_name)')
+            .select('*, profiles!tasks_assignee_id_fkey(full_name), units(name)')
             .eq('property_id', propertyId);
         if (assigneeId != null) query = query.eq('assignee_id', assigneeId);
         if (status != null) query = query.eq('status', taskStatusToDb(status));

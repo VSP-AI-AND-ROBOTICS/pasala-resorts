@@ -52,6 +52,32 @@ void main() {
       expect(task.assigneeName, 'Sita Staff');
       expect(task.status, TaskStatus.inProgress);
     });
+
+    test('reads the room name from an embedded units object', () {
+      final task = StaffTask.fromJson(const {
+        'id': 't3',
+        'assignee_id': 'u1',
+        'units': {'name': 'Cottage 4'},
+        'title': 'Clean Cottage 4',
+        'description': '',
+        'status': 'todo',
+      });
+
+      expect(task.unitName, 'Cottage 4');
+    });
+
+    test('a general task has no room', () {
+      final task = StaffTask.fromJson(const {
+        'id': 't4',
+        'assignee_id': 'u1',
+        'units': null,
+        'title': 'Restock minibar',
+        'description': '',
+        'status': 'todo',
+      });
+
+      expect(task.unitName, isNull);
+    });
   });
 
   test('toInsert never includes id, status, created_at, updated_at, or '
