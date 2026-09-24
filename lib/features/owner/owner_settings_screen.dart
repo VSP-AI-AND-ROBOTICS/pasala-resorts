@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
+import '../../data/models/subscription.dart';
+import '../../data/repositories/subscription_repository.dart';
 import '../admin/property_form_screen.dart';
 import '../admin/units_screen.dart';
 import '../browse/providers.dart';
@@ -20,7 +22,8 @@ import 'tax_settings_screen.dart';
 /// `UnitsScreen` -> `RateRulesScreen`) so nothing here duplicates a
 /// working screen. Staff permissions -> `UsersScreen` was removed in Task
 /// 14 along with the global `UserRole` it managed; the Team screen
-/// replacing it lands in Task 18.
+/// replacing it lands in Task 18. The Plan tile at the top shows the
+/// resort's ResortHub plan, read-only.
 class OwnerSettingsScreen extends ConsumerWidget {
   const OwnerSettingsScreen({super.key});
 
@@ -50,6 +53,9 @@ class OwnerSettingsScreen extends ConsumerWidget {
           return ListView(
             padding: const EdgeInsets.all(Spacing.md),
             children: [
+              eyebrow('PLAN'),
+              _PlanTile(propertyId: propertyId),
+              const SizedBox(height: Spacing.md),
               eyebrow('PROPERTY'),
               _SettingsTile(
                 icon: Icons.home_work_outlined,
@@ -155,4 +161,43 @@ class _SettingsTile extends StatelessWidget {
           onTap: onTap,
         ),
       );
+}
+
+/// The resort's ResortHub plan, read-only (spec decision 8): only the
+/// platform admin changes it. Watches its own provider, so a failure here
+/// never hides the rest of Settings.
+class _PlanTile extends ConsumerWidget {
+  const _PlanTile({required this.propertyId});
+
+  final String propertyId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final (title, subtitle, lapsed) =
+        switch (ref.watch(resortPlanProvider(propertyId))) {
+      AsyncData(value: final plan?) =>
+        ('Plan: ${plan.name}', planStatusLine(plan), plan.lapsed),
+      AsyncData() =>
+        ('Plan: not set up', 'Contact ResortHub to choose a plan', false),
+      AsyncError() => ('Plan', 'Could not load your plan', false),
+      _ => ('Plan', 'Loading…', false),
+    };
+
+    return Card(
+      key: const Key('owner-plan-tile'),
+      margin: const EdgeInsets.only(bottom: Spacing.sm),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: scheme.secondary.withValues(alpha: 0.12),
+          child: Icon(Icons.workspace_premium_outlined, color: scheme.secondary),
+        ),
+        title: Text(title),
+        subtitle: Text(
+          subtitle,
+          style: lapsed ? TextStyle(color: scheme.error) : null,
+        ),
+      ),
+    );
+  }
 }
