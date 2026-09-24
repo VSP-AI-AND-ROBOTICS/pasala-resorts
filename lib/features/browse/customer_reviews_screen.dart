@@ -9,9 +9,10 @@ import '../../data/models/review.dart';
 import '../../data/repositories/review_repository.dart';
 
 /// `/reviews` -- every guest review, newest first, reachable by any
-/// signed-in customer (not just admin/staff) now that `reviews_read_all`
-/// (0040_reviews_public_read.sql) makes them public within the app. The
-/// property page's own Reviews section links here for the full list.
+/// signed-in customer (not just admin/staff) now that `reviews_read`
+/// (0044_resort_policies.sql) makes active resorts' reviews public in the
+/// app. The property page's own Reviews section links here for the full
+/// list.
 class CustomerReviewsScreen extends ConsumerWidget {
   const CustomerReviewsScreen({super.key});
 

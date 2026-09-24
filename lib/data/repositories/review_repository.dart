@@ -55,18 +55,17 @@ class ReviewRepository {
         return row == null ? null : Review.fromJson(row);
       });
 
-  /// Every review, newest first -- `reviews_read_all` (0040_reviews_public_
-  /// read.sql) grants this to every signed-in user, not just staff, since
-  /// reviews are social proof shown on the property page. The embed gives
-  /// each review a first name to show; `reviews` has only one FK into
-  /// `profiles` (`customer_id`), so unlike `reservations` this needs no
-  /// constraint-name hint to disambiguate. Backs the admin dashboard's
-  /// Guest Experience card, the customer property page's reviews section,
-  /// and both standalone Reviews screens.
+  /// Every review the caller may read, newest first -- `reviews_read`
+  /// (0044_resort_policies.sql) shows reviews of active resorts to every
+  /// signed-in user, since reviews are social proof shown on the property
+  /// page. Each row carries its own `author_name`, so no `profiles` embed is
+  /// needed (guest profiles are not readable across resorts). Backs the
+  /// admin dashboard's Guest Experience card, the customer property page's
+  /// reviews section, and both standalone Reviews screens.
   Future<List<Review>> all() => _guard(() async {
         final rows = await _db
             .from('reviews')
-            .select('*, profiles(full_name)')
+            .select()
             .order('created_at', ascending: false);
         return rows.map(Review.fromJson).toList();
       });

@@ -528,7 +528,7 @@ class _LocationSection extends StatelessWidget {
 /// already read About/Location and is deciding whether to book would look
 /// for it. "View All Reviews" opens the full list at `/reviews`.
 /// `allReviewsProvider` is shared with the admin dashboard's Guest
-/// Experience card; `reviews_read_all` (0040_reviews_public_read.sql) is
+/// Experience card; `reviews_read` (0044_resort_policies.sql) is
 /// what makes every guest's review visible here, not just the customer's
 /// own.
 class _ReviewsSection extends ConsumerWidget {

@@ -26,16 +26,14 @@ class Review {
   final String feedback;
   final DateTime? createdAt;
 
-  /// From the `profiles` row [ReviewRepository.all]'s join embeds -- null
-  /// wherever that join isn't requested (e.g. [ReviewRepository.submit]'s
-  /// own insert-and-return, which has no reason to know the caller's own
-  /// name back). Just the first word of `full_name`, never the full name,
-  /// since this is shown to other customers, not just staff.
+  /// From the review's own `author_name` column (copied from the author's
+  /// profile when the review is written; see 0044_resort_policies.sql) --
+  /// null when it is missing or blank. Just the first word, never the full
+  /// name, since this is shown to other customers, not just staff.
   final String? customerFirstName;
 
   factory Review.fromJson(Map<String, dynamic> json) {
-    final profile = json['profiles'] as Map<String, dynamic>?;
-    final fullName = profile?['full_name'] as String?;
+    final fullName = json['author_name'] as String?;
     return Review(
       id: json['id'] as String,
       reservationId: json['reservation_id'] as String,

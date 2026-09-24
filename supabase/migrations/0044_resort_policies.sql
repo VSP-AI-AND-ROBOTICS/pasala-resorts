@@ -236,13 +236,48 @@ create policy coupons_write on public.coupons
   with check (public.has_resort_role(property_id, true, 'owner','admin'));
 
 -- ---------------------------------------------------------------------
--- reviews: public read (the app filters by resort); the checked-out
--- guest insert policy reviews_insert is kept unchanged.
+-- reviews: guest-facing catalog -- readable by signed-in users while the
+-- resort is active, by the resort's staff, and by the author. The
+-- checked-out guest insert policy reviews_insert is kept unchanged.
+--
+-- The author's name is stored on the review itself, so showing reviews
+-- no longer needs read access to the author's profile
+-- (profiles_review_author_read is dropped below).
 
 drop policy if exists reviews_read_all on public.reviews;
 create policy reviews_read on public.reviews
   for select to authenticated
-  using (true);
+  using (exists (select 1 from public.properties p
+                  where p.id = reviews.property_id and p.status = 'active')
+         or public.has_resort_role(property_id, false, 'owner','admin','staff','accountant')
+         or customer_id = auth.uid());
+
+alter table public.reviews add column author_name text;
+
+alter table public.reviews disable trigger user;
+update public.reviews rv
+   set author_name = p.full_name
+  from public.profiles p
+ where p.id = rv.customer_id;
+alter table public.reviews enable trigger user;
+
+-- Always taken from the author's profile, whatever the client sent.
+create function public.reviews_set_author_name()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  select full_name into new.author_name
+    from public.profiles where id = new.customer_id;
+  return new;
+end;
+$$;
+
+create trigger reviews_set_author_name
+  before insert on public.reviews
+  for each row execute function public.reviews_set_author_name();
 
 -- ---------------------------------------------------------------------
 -- Resort settings and messaging.
@@ -356,13 +391,20 @@ create policy tasks_read on public.tasks
 create policy tasks_insert on public.tasks
   for insert to authenticated
   with check (public.has_resort_role(property_id, true, 'owner','admin'));
--- The assignee's column limits stay in tasks_enforce_write.
+-- The assignee's column limits stay in tasks_enforce_write. The assignee
+-- branch is pinned to a resort the assignee still works at (and that is
+-- active), in both USING and WITH CHECK, so an assignee cannot move a task
+-- to another resort or keep writing after removal or suspension.
 create policy tasks_update on public.tasks
   for update to authenticated
   using (public.has_resort_role(property_id, true, 'owner','admin')
-         or assignee_id = auth.uid())
+         or (assignee_id = auth.uid()
+             and public.has_resort_role(property_id, true,
+                   'owner','admin','staff','accountant')))
   with check (public.has_resort_role(property_id, true, 'owner','admin')
-              or assignee_id = auth.uid());
+              or (assignee_id = auth.uid()
+                  and public.has_resort_role(property_id, true,
+                        'owner','admin','staff','accountant')));
 create policy tasks_delete on public.tasks
   for delete to authenticated
   using (public.has_resort_role(property_id, true, 'owner','admin'));
@@ -436,7 +478,8 @@ create policy ical_export_tokens_write on public.ical_export_tokens
 -- profiles stay global. Policies here never select from profiles
 -- directly (that recursed): role comparisons go through the security
 -- definer helpers current_role() and is_platform_admin().
--- profiles_review_author_read is kept unchanged.
+-- profiles_review_author_read is dropped: it exposed every reviewing
+-- guest's profile to every signed-in user; reviews carry author_name.
 
 drop policy if exists profiles_select_self on public.profiles;
 drop policy if exists profiles_update_self on public.profiles;
@@ -444,6 +487,7 @@ drop policy if exists profiles_admin_select on public.profiles;
 drop policy if exists profiles_admin_insert on public.profiles;
 drop policy if exists profiles_admin_update on public.profiles;
 drop policy if exists profiles_admin_delete on public.profiles;
+drop policy if exists profiles_review_author_read on public.profiles;
 
 create policy profiles_read_self on public.profiles
   for select to authenticated

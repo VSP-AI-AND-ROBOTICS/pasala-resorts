@@ -1,5 +1,5 @@
 begin;
-select plan(28);
+select plan(31);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -57,6 +57,13 @@ insert into public.tasks (property_id, title, assignee_id, created_by) values
   ('aaaaaaaa-0000-4000-8000-000000000001','Clean pool','a0000000-0000-0000-0000-00000000000c','a0000000-0000-0000-0000-00000000000b'),
   ('bbbbbbbb-0000-4000-8000-000000000001','Fix gate','b0000000-0000-0000-0000-00000000000a','b0000000-0000-0000-0000-00000000000a');
 
+-- B's guest reviewed their stay. author_name is set by the trigger from the
+-- profile, whatever the insert supplies.
+update public.profiles set full_name = 'Bina Guest' where id = 'c0000000-0000-0000-0000-00000000000b';
+insert into public.reviews (reservation_id, customer_id, farmhouse_rating, cleanliness_rating,
+  food_rating, service_rating, activities_rating, overall_rating, feedback, author_name) values
+  ('bbbbbbbb-0000-4000-8000-000000000021','c0000000-0000-0000-0000-00000000000b',5,5,5,5,5,5,'Great','Spoofed');
+
 -- Owner
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
@@ -64,7 +71,8 @@ select is((select count(*)::int from public.reservations where property_id = 'bb
 select is((select count(*)::int from public.payments where property_id = 'bbbbbbbb-0000-4000-8000-000000000001'), 0, 'A owner: no B payments');
 select is((select count(*)::int from public.expenses where property_id = 'bbbbbbbb-0000-4000-8000-000000000001'), 0, 'A owner: no B expenses');
 select is((select count(*)::int from public.tasks where property_id = 'bbbbbbbb-0000-4000-8000-000000000001'), 0, 'A owner: no B tasks');
-select is((select count(*)::int from public.profiles where id = 'c0000000-0000-0000-0000-00000000000b'), 0, 'A owner: cannot read B guest profile');
+select is((select count(*)::int from public.profiles where id = 'c0000000-0000-0000-0000-00000000000b'), 0, 'A owner: cannot read B guest profile (even though that guest wrote a review)');
+select is((select author_name from public.reviews where customer_id = 'c0000000-0000-0000-0000-00000000000b'), 'Bina Guest', 'A owner: B review shows author_name from the profile');
 select is((select count(*)::int from public.profiles where id = 'c0000000-0000-0000-0000-00000000000a'), 1, 'A owner: can read own guest profile');
 select is((select count(*)::int from public.expenses where property_id = 'aaaaaaaa-0000-4000-8000-000000000001'), 1, 'A owner: sees own expenses');
 select throws_ok($$insert into public.expenses (property_id, category, amount, expense_date, recorded_by)
@@ -87,6 +95,11 @@ select is((select count(*)::int from public.reservations where property_id = 'bb
 select is((select count(*)::int from public.payments where property_id = 'bbbbbbbb-0000-4000-8000-000000000001'), 0, 'A staff: no B payments');
 select is((select count(*)::int from public.expenses), 0, 'A staff: no expenses at all (not an expense reader)');
 select is((select count(*)::int from public.tasks), 1, 'A staff: only own assigned task');
+select throws_ok($$update public.tasks set property_id = 'bbbbbbbb-0000-4000-8000-000000000001'
+  where assignee_id = 'a0000000-0000-0000-0000-00000000000c'$$,
+  '42501', null, 'A staff: cannot move own assigned task to resort B');
+select is((select property_id from public.tasks where assignee_id = 'a0000000-0000-0000-0000-00000000000c'),
+  'aaaaaaaa-0000-4000-8000-000000000001'::uuid, 'A staff: the task stays in resort A');
 
 -- Accountant
 set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000d","role":"authenticated"}';
