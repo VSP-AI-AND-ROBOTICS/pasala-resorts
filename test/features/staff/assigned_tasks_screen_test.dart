@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/staff_task.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/data/repositories/task_repository.dart';
@@ -12,19 +14,35 @@ const _staff = AppUser(
   email: 'staff@pasala.test',
 );
 
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.staff);
+
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _resort;
+}
+
 class FakeTaskRepository implements TaskRepository {
   final List<StaffTask> store = [];
+  final List<String> listedPropertyIds = [];
 
   @override
-  Future<List<StaffTask>> list({String? assigneeId, TaskStatus? status}) async =>
-      store.where((t) {
-        if (assigneeId != null && t.assigneeId != assigneeId) return false;
-        if (status != null && t.status != status) return false;
-        return true;
-      }).toList();
+  Future<List<StaffTask>> list({
+    required String propertyId,
+    String? assigneeId,
+    TaskStatus? status,
+  }) async {
+    listedPropertyIds.add(propertyId);
+    return store.where((t) {
+      if (assigneeId != null && t.assigneeId != assigneeId) return false;
+      if (status != null && t.status != status) return false;
+      return true;
+    }).toList();
+  }
 
   @override
   Future<void> create({
+    required String propertyId,
     required String assigneeId,
     required String title,
     required String description,
@@ -62,6 +80,7 @@ class FakeTaskRepository implements TaskRepository {
 Widget _appFor(FakeTaskRepository repo) => ProviderScope(
       overrides: [
         currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
+        currentResortProvider.overrideWith(_FixedResort.new),
         taskRepositoryProvider.overrideWithValue(repo),
       ],
       child: const MaterialApp(home: AssignedTasksScreen()),
@@ -101,6 +120,9 @@ void main() {
 
     expect(find.text('Restock minibar'), findsOneWidget);
     expect(find.text('Not mine'), findsNothing);
+    // Review Focus #1: the screen must pass the current resort's id
+    // through to the repository, not rely on RLS alone.
+    expect(repo.listedPropertyIds, everyElement('p1'));
   });
 
   testWidgets('changing the status control calls updateStatus', (tester) async {

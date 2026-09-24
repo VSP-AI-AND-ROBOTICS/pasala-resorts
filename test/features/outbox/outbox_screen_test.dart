@@ -1,18 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/outbox_message.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/outbox_repository.dart';
 import 'package:pasala/features/outbox/outbox_screen.dart';
+
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
+
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _resort;
+}
 
 /// In-memory stand-in for [OutboxRepository], mirroring
 /// `FakeReportRepository` in `reports_screen_test.dart`.
 class FakeOutboxSource implements OutboxSource {
   List<OutboxMessage> rows = [];
   Object? error;
+  final List<String> listedPropertyIds = [];
 
   @override
-  Future<List<OutboxMessage>> messages() async {
+  Future<List<OutboxMessage>> messages(String propertyId) async {
+    listedPropertyIds.add(propertyId);
     if (error != null) throw error!;
     return rows;
   }
@@ -41,7 +53,10 @@ OutboxMessage _row({
 void main() {
   Future<void> pump(WidgetTester tester, FakeOutboxSource source) async {
     await tester.pumpWidget(ProviderScope(
-      overrides: [outboxSourceProvider.overrideWithValue(source)],
+      overrides: [
+        outboxSourceProvider.overrideWithValue(source),
+        currentResortProvider.overrideWith(_FixedResort.new),
+      ],
       child: const MaterialApp(home: OutboxScreen()),
     ));
     await tester.pumpAndSettle();
@@ -120,21 +135,22 @@ void main() {
   testWidgets('a row shows its channel, recipient and template', (
     tester,
   ) async {
-    await pump(
-      tester,
-      FakeOutboxSource()
-        ..rows = [
-          _row(
-            recipient: 'priya@example.com',
-            template: 'booking_confirmation',
-            channel: OutboxChannel.email,
-          ),
-        ],
-    );
+    final source = FakeOutboxSource()
+      ..rows = [
+        _row(
+          recipient: 'priya@example.com',
+          template: 'booking_confirmation',
+          channel: OutboxChannel.email,
+        ),
+      ];
+    await pump(tester, source);
 
     expect(find.text('priya@example.com'), findsOneWidget);
     expect(find.textContaining('booking_confirmation'), findsOneWidget);
     expect(find.textContaining('Email'), findsOneWidget);
+    // Review Focus #1: the screen must pass the current resort's id
+    // through to the repository, not rely on RLS alone.
+    expect(source.listedPropertyIds, everyElement('p1'));
   });
 
   testWidgets('a skipped row surfaces its last_error', (tester) async {

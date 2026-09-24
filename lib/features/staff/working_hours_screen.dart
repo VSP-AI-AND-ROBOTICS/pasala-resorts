@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
@@ -67,7 +68,8 @@ class WorkingHoursScreen extends ConsumerWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final filter = (staffId: staffId, date: null);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, staffId: staffId, date: null);
     final recordsAsync = ref.watch(attendanceRecordsProvider(filter));
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;

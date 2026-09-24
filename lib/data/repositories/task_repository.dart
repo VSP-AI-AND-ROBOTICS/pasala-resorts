@@ -10,7 +10,11 @@ import '../models/staff_task.dart';
 /// returns only the caller's own rows for anyone else regardless),
 /// `status: null` means "every status." A record, not positional
 /// params, so `FutureProvider.family` can key on it directly.
-typedef TaskFilter = ({String? assigneeId, TaskStatus? status});
+typedef TaskFilter = ({
+  String propertyId,
+  String? assigneeId,
+  TaskStatus? status,
+});
 
 class TaskRepository {
   TaskRepository(this._db);
@@ -30,13 +34,15 @@ class TaskRepository {
   /// apply here, but the hint is included anyway for consistency with
   /// `AttendanceRepository`'s same defensive choice.
   Future<List<StaffTask>> list({
+    required String propertyId,
     String? assigneeId,
     TaskStatus? status,
   }) =>
       _guard(() async {
         dynamic query = _db
             .from('tasks')
-            .select('*, profiles!tasks_assignee_id_fkey(full_name)');
+            .select('*, profiles!tasks_assignee_id_fkey(full_name)')
+            .eq('property_id', propertyId);
         if (assigneeId != null) query = query.eq('assignee_id', assigneeId);
         if (status != null) query = query.eq('status', taskStatusToDb(status));
         final rows = await query.order('created_at', ascending: false) as List;
@@ -47,20 +53,22 @@ class TaskRepository {
   /// the client never sends a `status`). Admin-only; `tasks_admin_insert`
   /// rejects anyone else.
   Future<void> create({
+    required String propertyId,
     required String assigneeId,
     required String title,
     required String description,
   }) =>
       _guard(() async {
-        await _db.from('tasks').insert(
-              StaffTask(
-                id: '',
-                assigneeId: assigneeId,
-                title: title,
-                description: description,
-                status: TaskStatus.todo,
-              ).toInsert(),
-            );
+        await _db.from('tasks').insert({
+          'property_id': propertyId,
+          ...StaffTask(
+            id: '',
+            assigneeId: assigneeId,
+            title: title,
+            description: description,
+            status: TaskStatus.todo,
+          ).toInsert(),
+        });
       });
 
   /// Full edit -- title, description, and/or reassignment. Admin-only;
@@ -104,6 +112,7 @@ final taskRepositoryProvider = Provider<TaskRepository>(
 
 final tasksProvider = FutureProvider.family<List<StaffTask>, TaskFilter>(
   (ref, filter) => ref.watch(taskRepositoryProvider).list(
+        propertyId: filter.propertyId,
         assigneeId: filter.assigneeId,
         status: filter.status,
       ),

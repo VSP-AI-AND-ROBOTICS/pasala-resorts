@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/admin_profile.dart';
 import 'package:pasala/data/models/leave_request.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/leave_request_repository.dart';
 import 'package:pasala/data/repositories/profile_directory_repository.dart';
 import 'package:pasala/features/admin/leave_requests_screen.dart';
@@ -12,20 +14,25 @@ import 'package:pasala/features/admin/leave_requests_screen.dart';
 class FakeLeaveRequestRepository implements LeaveRequestRepository {
   final List<LeaveRequest> store = [];
   final List<String> decidedIds = [];
+  final List<String> listedPropertyIds = [];
 
   @override
   Future<List<LeaveRequest>> list({
+    required String propertyId,
     String? staffId,
     LeaveStatus? status,
-  }) async =>
-      store.where((r) {
-        if (staffId != null && r.staffId != staffId) return false;
-        if (status != null && r.status != status) return false;
-        return true;
-      }).toList();
+  }) async {
+    listedPropertyIds.add(propertyId);
+    return store.where((r) {
+      if (staffId != null && r.staffId != staffId) return false;
+      if (status != null && r.status != status) return false;
+      return true;
+    }).toList();
+  }
 
   @override
   Future<void> create({
+    required String propertyId,
     required String staffId,
     required DateTimeRange range,
     String? reason,
@@ -60,10 +67,19 @@ final _staffProfile = AdminProfile(
   createdAt: DateTime(2026, 1, 1),
 );
 
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
+
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _resort;
+}
+
 Widget _appFor(FakeLeaveRequestRepository repo) => ProviderScope(
       overrides: [
         leaveRequestRepositoryProvider.overrideWithValue(repo),
         adminProfilesProvider.overrideWith((ref) async => [_staffProfile]),
+        currentResortProvider.overrideWith(_FixedResort.new),
       ],
       child: const MaterialApp(home: LeaveRequestsScreen()),
     );
@@ -95,6 +111,9 @@ void main() {
 
     expect(find.byKey(const Key('leave-row-l1')), findsOneWidget);
     expect(find.byKey(const Key('leave-row-l2')), findsNothing);
+    // Review Focus #1: the screen must pass the current resort's id
+    // through to the repository, not rely on RLS alone.
+    expect(repo.listedPropertyIds, everyElement('p1'));
   });
 
   testWidgets('shows an empty state when there are no pending requests', (

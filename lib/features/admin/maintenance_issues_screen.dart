@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -25,7 +26,9 @@ class _MaintenanceIssuesScreenState extends ConsumerState<MaintenanceIssuesScree
   Future<void> _assign(String id, String staffId) async {
     try {
       await ref.read(maintenanceRepositoryProvider).assign(id: id, staffId: staffId);
-      ref.invalidate(maintenanceIssuesProvider((assignedStaffId: null, status: _statusFilter)));
+      final propertyId = ref.read(currentResortProvider)!.propertyId;
+      ref.invalidate(maintenanceIssuesProvider(
+          (propertyId: propertyId, assignedStaffId: null, status: _statusFilter)));
     } on BookingFailure catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -36,7 +39,8 @@ class _MaintenanceIssuesScreenState extends ConsumerState<MaintenanceIssuesScree
 
   @override
   Widget build(BuildContext context) {
-    final filter = (assignedStaffId: null, status: _statusFilter);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, assignedStaffId: null, status: _statusFilter);
     final issuesAsync = ref.watch(maintenanceIssuesProvider(filter));
     final profiles = ref.watch(adminProfilesProvider);
 

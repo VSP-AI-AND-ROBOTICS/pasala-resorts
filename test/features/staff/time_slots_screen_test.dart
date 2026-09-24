@@ -1,13 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/staff_shift.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/data/repositories/staff_shift_repository.dart';
 import 'package:pasala/features/staff/time_slots_screen.dart';
 
 const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test');
+
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.staff);
+
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _resort;
+}
 
 StaffShift _shift(String id, DateTime date, {int hour = 9}) => StaffShift(
       id: id,
@@ -18,10 +28,16 @@ StaffShift _shift(String id, DateTime date, {int hour = 9}) => StaffShift(
       endTime: TimeOfDay(hour: hour + 8, minute: 0),
     );
 
+final listedPropertyIds = <String>[];
+
 Widget _appFor(List<StaffShift> shifts) => ProviderScope(
       overrides: [
         currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
-        staffShiftsProvider.overrideWith((ref, filter) async => shifts),
+        currentResortProvider.overrideWith(_FixedResort.new),
+        staffShiftsProvider.overrideWith((ref, filter) async {
+          listedPropertyIds.add(filter.propertyId);
+          return shifts;
+        }),
       ],
       child: const MaterialApp(home: TimeSlotsScreen()),
     );
@@ -60,5 +76,8 @@ void main() {
 
     expect(find.textContaining('09:00'), findsOneWidget);
     expect(find.textContaining('17:00'), findsOneWidget);
+    // Review Focus #1: the screen must pass the current resort's id
+    // through to the repository, not rely on RLS alone.
+    expect(listedPropertyIds, everyElement('p1'));
   });
 }

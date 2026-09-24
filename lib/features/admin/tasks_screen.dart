@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -35,7 +36,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filter = (assigneeId: _assigneeId, status: _statusFilter);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, assigneeId: _assigneeId, status: _statusFilter);
     final tasks = ref.watch(tasksProvider(filter));
     final profiles = ref.watch(adminProfilesProvider);
 
@@ -250,6 +252,7 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
       final description = _description.text.trim();
       if (existing == null) {
         await ref.read(taskRepositoryProvider).create(
+              propertyId: ref.read(currentResortProvider)!.propertyId,
               assigneeId: assigneeId,
               title: title,
               description: description,

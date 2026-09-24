@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -41,7 +42,13 @@ class _StaffShiftsScreenState extends ConsumerState<StaffShiftsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filter = (staffId: _staffId, from: _dateRange?.start, to: _dateRange?.end);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (
+      propertyId: propertyId,
+      staffId: _staffId,
+      from: _dateRange?.start,
+      to: _dateRange?.end,
+    );
     final shifts = ref.watch(staffShiftsProvider(filter));
     final profiles = ref.watch(adminProfilesProvider);
 
@@ -287,6 +294,7 @@ class _StaffShiftFormScreenState extends ConsumerState<StaffShiftFormScreen> {
       final notes = _notes.text.trim();
       if (existing == null) {
         await ref.read(staffShiftRepositoryProvider).createRange(
+              propertyId: ref.read(currentResortProvider)!.propertyId,
               staffId: staffId,
               range: range,
               start: _start,

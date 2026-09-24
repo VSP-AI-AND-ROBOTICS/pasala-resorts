@@ -7,7 +7,11 @@ import '../../core/errors.dart';
 import '../../core/supabase_client.dart';
 import '../models/maintenance_issue.dart';
 
-typedef MaintenanceFilter = ({String? assignedStaffId, MaintenanceStatus? status});
+typedef MaintenanceFilter = ({
+  String propertyId,
+  String? assignedStaffId,
+  MaintenanceStatus? status,
+});
 
 class MaintenanceRepository {
   MaintenanceRepository(this._db);
@@ -69,13 +73,15 @@ class MaintenanceRepository {
       });
 
   Future<List<MaintenanceIssue>> list({
+    required String propertyId,
     String? assignedStaffId,
     MaintenanceStatus? status,
   }) =>
       _guard(() async {
         dynamic query = _db
             .from('maintenance_issues')
-            .select('*, assignee:profiles!maintenance_issues_assigned_staff_id_fkey(full_name)');
+            .select('*, assignee:profiles!maintenance_issues_assigned_staff_id_fkey(full_name)')
+            .eq('property_id', propertyId);
         if (assignedStaffId != null) {
           query = query.eq('assigned_staff_id', assignedStaffId);
         }
@@ -108,6 +114,7 @@ final myMaintenanceIssuesProvider = FutureProvider.family<List<MaintenanceIssue>
 final maintenanceIssuesProvider =
     FutureProvider.family<List<MaintenanceIssue>, MaintenanceFilter>(
   (ref, filter) => ref.watch(maintenanceRepositoryProvider).list(
+        propertyId: filter.propertyId,
         assignedStaffId: filter.assignedStaffId,
         status: filter.status,
       ),

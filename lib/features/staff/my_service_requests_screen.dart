@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -32,7 +33,8 @@ class StaffServiceRequestsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider).value;
     final staffId = user?.id;
-    final filter = (assignedStaffId: staffId, status: null);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, assignedStaffId: staffId, status: null);
     final requestsAsync = staffId == null
         ? const AsyncValue<List<ServiceRequest>>.data([])
         : ref.watch(serviceRequestsProvider(filter));

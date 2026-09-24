@@ -10,7 +10,7 @@ import '../models/outbox_message.dart';
 /// `booking_repository.dart`, so tests can override just this provider
 /// with a fake instead of needing a real `SupabaseClient`.
 abstract class OutboxSource {
-  Future<List<OutboxMessage>> messages();
+  Future<List<OutboxMessage>> messages(String propertyId);
 }
 
 /// Reads `public.outbox`, staff-gated by RLS (`outbox_read`) -- a customer
@@ -36,10 +36,11 @@ class OutboxRepository implements OutboxSource {
   }
 
   @override
-  Future<List<OutboxMessage>> messages() => _guard(() async {
+  Future<List<OutboxMessage>> messages(String propertyId) => _guard(() async {
         final rows = await _db
             .from('outbox')
             .select()
+            .eq('property_id', propertyId)
             .order('created_at', ascending: false);
         return rows.map(OutboxMessage.fromJson).toList();
       });
