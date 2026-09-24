@@ -45,9 +45,39 @@ void main() {
     expect(find.text('Pasala Resorts'), findsNothing);
   });
 
+  // NOTE (round-1 review, see task-21-report.md "Fixes -- round 1"): this
+  // test checks the WIDGET TREE only -- that exactly one `Image` widget
+  // exists and its *layout box* starts at x = 0 on a narrow surface. It
+  // does **not** pin the "duplicated left strip" visual bug named in the
+  // brief (Step 3) and the design spec
+  // (docs/superpowers/specs/2026-09-24-resorthub-tenancy-design.md:286:
+  // "Fix the welcome screen rendering a strip of the hero image at the
+  // left edge"). That artifact, if real, would be a painted/CanvasKit-
+  // level duplicate within this single Image's render box, not a second
+  // widget or an offset layout box -- `tester.getTopLeft()` cannot see
+  // either kind of paint-level duplication, and this exact assertion
+  // already passed against the pre-fix code (see the RED run recorded in
+  // task-21-report.md). No code change in lib/core/widgets/
+  // hero_backdrop.dart, and none in the diff that produced commit
+  // 2a03f66, touches hero paint/rendering: there is exactly one
+  // `Image.asset` inside a `Stack(fit: StackFit.expand)` both before and
+  // after that commit.
+  //
+  // This assertion is kept because it does guard a real regression class
+  // (a second hero Image widget appearing, or the surviving one shifting
+  // off the left edge in the widget tree) -- but it must not be read as
+  // verification that the painted strip bug is fixed. This track's
+  // environment constraints prohibit starting the app or a server, so
+  // that verification could not be completed from this worktree.
+  //
+  // OPEN ITEM -- flagged to the controller: confirm with a live-browser
+  // (web/CanvasKit) or golden-image check once environment constraints
+  // allow it, before treating brief Step 3 ("find the cause of the
+  // duplicated left strip ... and fix it") as resolved.
   testWidgets(
-    'renders exactly one hero image, flush with the left edge, on a '
-    'narrow surface',
+    'hero image: no duplicate widget, and its layout box is flush with '
+    'the left edge on a narrow surface (layout-only check -- does not '
+    'pin the painted "duplicated left strip" bug; see NOTE above)',
     (tester) async {
       tester.view.physicalSize = const Size(400, 900);
       tester.view.devicePixelRatio = 1.0;
