@@ -4,10 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/food_sale.dart';
-import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/food_sale_repository.dart';
-import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/owner/food_sales_screen.dart';
 
 class _FixedResort extends CurrentResort {
@@ -22,6 +20,7 @@ class _FixedResort extends CurrentResort {
 class FakeFoodSaleRepository implements FoodSaleRepository {
   final List<FoodSale> store = [];
   final List<String> deletedIds = [];
+  final List<String> listedPropertyIds = [];
   int _idCounter = 0;
 
   /// Compares dates only, ignoring time-of-day -- matching the real
@@ -39,14 +38,18 @@ class FakeFoodSaleRepository implements FoodSaleRepository {
 
   @override
   Future<List<FoodSale>> list({
+    required String propertyId,
     required DateTime from,
     required DateTime to,
     SaleCategory? category,
-  }) async =>
-      store.where((s) {
-        if (category != null && s.category != category) return false;
-        return _inRange(s.saleDate, from, to);
-      }).toList();
+  }) async {
+    listedPropertyIds.add(propertyId);
+    return store.where((s) {
+      if (s.propertyId != propertyId) return false;
+      if (category != null && s.category != category) return false;
+      return _inRange(s.saleDate, from, to);
+    }).toList();
+  }
 
   @override
   Future<void> create(FoodSale sale) async {
@@ -88,19 +91,6 @@ class FakeFoodSaleRepository implements FoodSaleRepository {
   }
 }
 
-const _property = Property(
-  id: 'p1',
-  name: 'Pasala Farm House',
-  slug: 'pasala-farm-house',
-  description: null,
-  address: null,
-  images: [],
-  amenities: [],
-  checkInTime: '14:00',
-  checkOutTime: '11:00',
-  isActive: true,
-);
-
 const _adminM =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
 const _staffM =
@@ -128,7 +118,6 @@ Widget _appFor(
     ProviderScope(
       overrides: [
         foodSaleRepositoryProvider.overrideWithValue(repo),
-        propertiesProvider.overrideWith((ref) async => [_property]),
         currentResortProvider.overrideWith(
             () => _FixedResort(resort ?? user.memberships.first)),
       ],
@@ -201,7 +190,45 @@ void main() {
 
     expect(repo.store, hasLength(1));
     expect(repo.store.single.amount, 600);
+    expect(repo.store.single.propertyId, 'p1');
     expect(find.text('Breakfast platter'), findsOneWidget);
+  });
+
+  // Review Focus #1: a sale logged at a different resort must never show
+  // up while working in this resort.
+  testWidgets('a sale logged at a different resort never appears here', (
+    tester,
+  ) async {
+    const otherResort = ResortMembership(
+        propertyId: 'p2', resortName: 'Other Resort', role: ResortRole.admin);
+    final repo = FakeFoodSaleRepository()
+      ..store.add(FoodSale(
+        id: 's1',
+        propertyId: 'p1',
+        saleDate: DateTime.now(),
+        category: SaleCategory.food,
+        itemName: 'Pasala breakfast platter',
+        quantity: 2,
+        unitPrice: 300,
+        amount: 600,
+      ))
+      ..store.add(FoodSale(
+        id: 's2',
+        propertyId: 'p2',
+        saleDate: DateTime.now(),
+        category: SaleCategory.food,
+        itemName: 'Other resort breakfast platter',
+        quantity: 1,
+        unitPrice: 300,
+        amount: 300,
+      ));
+
+    await tester.pumpWidget(_appFor(repo, resort: otherResort));
+    await tester.pumpAndSettle();
+
+    expect(repo.listedPropertyIds, everyElement('p2'));
+    expect(find.text('Other resort breakfast platter'), findsOneWidget);
+    expect(find.text('Pasala breakfast platter'), findsNothing);
   });
 
   testWidgets('confirming delete removes the sale', (tester) async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
@@ -43,7 +44,15 @@ class _StaffPerformanceScreenState extends ConsumerState<StaffPerformanceScreen>
 
   @override
   Widget build(BuildContext context) {
-    final filter = (staffId: _staffId, from: _range.start, to: _range.end);
+    // A screen reached without a current resort is impossible after Task
+    // 14's redirect.
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (
+      propertyId: propertyId,
+      staffId: _staffId,
+      from: _range.start,
+      to: _range.end,
+    );
     final summary = ref.watch(staffPerformanceProvider(filter));
     final profiles = ref.watch(adminProfilesProvider);
 

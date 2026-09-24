@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/format.dart';
 import '../../core/greeting.dart';
 import '../../core/theme/app_assets.dart';
@@ -701,7 +702,10 @@ class _BusinessSnapshotCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final summaryAsync = ref.watch(dashboardSummaryProvider);
+    // A screen reached without a current resort is impossible after Task
+    // 14's redirect.
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final summaryAsync = ref.watch(dashboardSummaryProvider(propertyId));
     final bookings = ref.watch(allBookingsProvider).value ?? const [];
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;

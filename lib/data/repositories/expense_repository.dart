@@ -10,7 +10,7 @@ String _d(DateTime d) =>
     '${d.month.toString().padLeft(2, '0')}-'
     '${d.day.toString().padLeft(2, '0')}';
 
-typedef ExpenseFilter = ({DateTime from, DateTime to});
+typedef ExpenseFilter = ({String propertyId, DateTime from, DateTime to});
 
 /// Read access is admin/accountant/super_admin only (see
 /// `0027_expenses.sql`) -- a plain staff member never reaches this
@@ -30,6 +30,7 @@ class ExpenseRepository {
   }
 
   Future<List<Expense>> list({
+    required String propertyId,
     required DateTime from,
     required DateTime to,
   }) =>
@@ -37,6 +38,7 @@ class ExpenseRepository {
         final rows = await _db
             .from('expenses')
             .select()
+            .eq('property_id', propertyId)
             .gte('expense_date', _d(from))
             .lte('expense_date', _d(to))
             .order('expense_date', ascending: false);
@@ -61,6 +63,9 @@ final expenseRepositoryProvider = Provider<ExpenseRepository>(
 );
 
 final expensesProvider = FutureProvider.family<List<Expense>, ExpenseFilter>(
-  (ref, filter) =>
-      ref.watch(expenseRepositoryProvider).list(from: filter.from, to: filter.to),
+  (ref, filter) => ref.watch(expenseRepositoryProvider).list(
+        propertyId: filter.propertyId,
+        from: filter.from,
+        to: filter.to,
+      ),
 );

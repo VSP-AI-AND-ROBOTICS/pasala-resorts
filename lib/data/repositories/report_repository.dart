@@ -29,16 +29,18 @@ class ReportRepository {
     }
   }
 
-  Future<DashboardSummary> dashboard() => _guard(() async {
-        final json = await _db.rpc('dashboard_summary');
+  Future<DashboardSummary> dashboard(String propertyId) => _guard(() async {
+        final json = await _db.rpc('dashboard_summary', params: {
+          'p_property_id': propertyId,
+        });
         return DashboardSummary.fromJson(json as Map<String, dynamic>);
       });
 
   Future<List<RevenueRow>> revenue(
     DateTime from,
-    DateTime to, [
-    String? propertyId,
-  ]) =>
+    DateTime to,
+    String propertyId,
+  ) =>
       _guard(() async {
         final rows = await _db.rpc('report_revenue', params: {
           'p_from': _d(from),
@@ -52,9 +54,9 @@ class ReportRepository {
 
   Future<List<OccupancyRow>> occupancy(
     DateTime from,
-    DateTime to, [
-    String? propertyId,
-  ]) =>
+    DateTime to,
+    String propertyId,
+  ) =>
       _guard(() async {
         final rows = await _db.rpc('report_occupancy', params: {
           'p_from': _d(from),
@@ -68,9 +70,9 @@ class ReportRepository {
 
   Future<List<FoodSalesReportRow>> foodSales(
     DateTime from,
-    DateTime to, [
-    String? propertyId,
-  ]) =>
+    DateTime to,
+    String propertyId,
+  ) =>
       _guard(() async {
         final rows = await _db.rpc('report_food_sales', params: {
           'p_from': _d(from),
@@ -86,9 +88,9 @@ class ReportRepository {
   /// plain staff member calling this gets P0008, mapped to [NotPermitted].
   Future<List<ExpensesReportRow>> expenses(
     DateTime from,
-    DateTime to, [
-    String? propertyId,
-  ]) =>
+    DateTime to,
+    String propertyId,
+  ) =>
       _guard(() async {
         final rows = await _db.rpc('report_expenses', params: {
           'p_from': _d(from),

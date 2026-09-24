@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../admin/property_form_screen.dart';
@@ -25,15 +26,17 @@ class OwnerSettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final properties = ref.watch(propertiesProvider);
+    // A screen reached without a current resort is impossible after Task
+    // 14's redirect.
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final property = ref.watch(propertyProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: AsyncView(
-        value: properties,
-        onRetry: () => ref.invalidate(propertiesProvider),
-        data: (list) {
-          final property = list.isEmpty ? null : list.first;
+        value: property,
+        onRetry: () => ref.invalidate(propertyProvider(propertyId)),
+        data: (property) {
           final scheme = Theme.of(context).colorScheme;
           final textTheme = Theme.of(context).textTheme;
 
@@ -53,44 +56,36 @@ class OwnerSettingsScreen extends ConsumerWidget {
                 title: 'Farmhouse information',
                 subtitle: 'Name, description, address, amenities, check-in/out',
                 color: scheme.primary,
-                onTap: property == null
-                    ? null
-                    : () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => PropertyFormScreen(existing: property),
-                        )),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => PropertyFormScreen(existing: property),
+                )),
               ),
               _SettingsTile(
                 icon: Icons.sell_outlined,
                 title: 'Pricing',
                 subtitle: 'Rate rules per unit',
                 color: scheme.primary,
-                onTap: property == null
-                    ? null
-                    : () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => UnitsScreen(propertyId: property.id),
-                        )),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => UnitsScreen(propertyId: property.id),
+                )),
               ),
               _SettingsTile(
                 icon: Icons.percent_outlined,
                 title: 'Taxes',
                 subtitle: 'Tax rate and GSTIN',
                 color: scheme.primary,
-                onTap: property == null
-                    ? null
-                    : () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => TaxSettingsScreen(property: property),
-                        )),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => TaxSettingsScreen(property: property),
+                )),
               ),
               _SettingsTile(
                 icon: Icons.payments_outlined,
                 title: 'Payment configuration',
                 subtitle: 'Advance %, accepted methods shown to customers',
                 color: scheme.primary,
-                onTap: property == null
-                    ? null
-                    : () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => PaymentSettingsScreen(property: property),
-                        )),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => PaymentSettingsScreen(property: property),
+                )),
               ),
               const SizedBox(height: Spacing.md),
               eyebrow('POLICIES'),
@@ -99,22 +94,18 @@ class OwnerSettingsScreen extends ConsumerWidget {
                 title: 'Cancellation policy',
                 subtitle: 'Refund percentage by days before check-in',
                 color: scheme.tertiary,
-                onTap: property == null
-                    ? null
-                    : () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => CancellationPolicyScreen(property: property),
-                        )),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => CancellationPolicyScreen(property: property),
+                )),
               ),
               _SettingsTile(
                 icon: Icons.rule_outlined,
                 title: 'Booking rules',
                 subtitle: 'Minimum and maximum stay length',
                 color: scheme.tertiary,
-                onTap: property == null
-                    ? null
-                    : () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => BookingRulesScreen(property: property),
-                        )),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => BookingRulesScreen(property: property),
+                )),
               ),
               const SizedBox(height: Spacing.md),
               eyebrow('TEAM & NOTIFICATIONS'),
@@ -123,12 +114,9 @@ class OwnerSettingsScreen extends ConsumerWidget {
                 title: 'Notification settings',
                 subtitle: 'Enable or disable email, SMS, and WhatsApp',
                 color: scheme.onSurfaceVariant,
-                onTap: property == null
-                    ? null
-                    : () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) =>
-                              NotificationSettingsScreen(propertyId: property.id),
-                        )),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => NotificationSettingsScreen(propertyId: property.id),
+                )),
               ),
             ],
           );
