@@ -66,6 +66,19 @@ create policy resort_subscriptions_read on public.resort_subscriptions
   for select to authenticated
   using (public.has_resort_role(property_id, false, 'owner','admin'));
 
+-- Subscription audit rows are written at the resort and hold the whole
+-- plan (tier, status, dates, notes), so only the resort's owners and
+-- admins may read them, as with resort_subscriptions above. Staff and
+-- accountants keep reading every other resort event. Replaces the policy
+-- from 0044_resort_policies.sql, changing only the entity check.
+drop policy if exists audit_log_read on public.audit_log;
+create policy audit_log_read on public.audit_log
+  for select to authenticated
+  using (property_id is not null
+         and public.has_resort_role(property_id, false, 'owner','admin','staff','accountant')
+         and (entity <> 'subscription'
+              or public.has_resort_role(property_id, false, 'owner','admin')));
+
 -- Every resort that exists before this migration starts on Enterprise,
 -- active, with no end date (spec decision 9). supabase/seed.sql does the
 -- same for the seeded resort, because the seed runs after migrations.

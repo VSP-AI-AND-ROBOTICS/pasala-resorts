@@ -18,7 +18,7 @@
 --   P8 suspended resort, Starter active   -> active, in MRR
 --   P9 no subscription row                -> "No plan", counts for nothing
 begin;
-select plan(62);
+select plan(66);
 
 -- "Today" as the subscription functions see it.
 create function pg_temp.today() returns date
@@ -329,6 +329,27 @@ select is((select count(*)::int from public.audit_log
             where entity = 'subscription_plan' and property_id is null
               and action = 'price:7999.00->8999.00'),
   1, 'set_plan_price writes a platform audit row');
+
+-- A subscription audit row sits at its resort, but only the resort's owners
+-- and admins read it: staff and accountants see nothing of the plan.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select public.set_resort_subscription('f1000000-0000-4000-8000-000000000001',
+  'pro', 'active', null, pg_temp.today(), 'Paid by UPI');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select is((select count(*)::int from public.audit_log where entity = 'subscription'), 1,
+  'an owner reads their resort''s subscription audit rows');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is((select count(*)::int from public.audit_log where entity = 'subscription'), 1,
+  'an admin reads their resort''s subscription audit rows');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select is((select count(*)::int from public.audit_log where entity = 'subscription'), 0,
+  'staff read no subscription audit rows');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select is((select count(*)::int from public.audit_log where entity = 'subscription'), 0,
+  'accountants read no subscription audit rows');
+set local request.jwt.claims to '';
+reset role;
 
 select * from finish();
 rollback;
