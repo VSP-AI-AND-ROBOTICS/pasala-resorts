@@ -61,6 +61,7 @@ dependencies:
   # Remembers the signed-in staff member's chosen resort across restarts
   # (lib/core/current_resort.dart, key 'current_resort_id').
   shared_preferences: ^2.3.0
+  geolocator: ^14.0.3
 
 dev_dependencies:
   flutter_test:

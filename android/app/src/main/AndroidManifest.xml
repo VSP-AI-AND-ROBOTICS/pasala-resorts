@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Coarse-only: the browse hero's location badge shows a city/country
+         label (LocationService), never a precise position. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <!-- DEVELOPMENT ONLY: networkSecurityConfig below allows cleartext HTTP to
          the local Supabase stack (10.0.2.2 / 127.0.0.1). Remove before any
          deployed build; see res/xml/network_security_config.xml. -->

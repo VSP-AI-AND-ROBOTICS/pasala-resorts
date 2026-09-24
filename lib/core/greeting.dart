@@ -38,3 +38,15 @@ String greetingFor(DateTime now) {
 /// abbreviate for customer-facing booking dates).
 String fullDateFor(DateTime now) =>
     '${weekdayNames[now.weekday - 1]}, ${now.day} ${monthNames[now.month - 1]} ${now.year}';
+
+/// The guest browse hero's greeting (`_BrowseHero` in browse_screen.dart):
+/// [greetingFor] plus the signed-in user's first name, e.g.
+/// "Good Evening, Ravi". Falls back to a bare "Welcome" when signed out
+/// (`fullName` null) or the name is empty/whitespace-only. Takes [now]
+/// rather than reading a clock itself so it stays a pure, widget-free unit.
+String greetingLine(DateTime now, String? fullName) {
+  final trimmed = fullName?.trim() ?? '';
+  if (trimmed.isEmpty) return 'Welcome';
+  final firstName = trimmed.split(RegExp(r'\s+')).first;
+  return '${greetingFor(now)}, $firstName';
+}

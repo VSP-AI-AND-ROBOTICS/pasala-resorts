@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/greeting.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/hero_backdrop.dart';
 import '../../core/widgets/staggered_fade_in.dart';
+import '../../data/models/app_user.dart';
 import '../../data/models/property.dart';
+import '../../data/repositories/auth_repository.dart';
+import '../shell/app_shell.dart' show showAccountSheet;
+import 'location_badge.dart';
 import 'providers.dart';
 
 class BrowseScreen extends ConsumerStatefulWidget {
@@ -173,13 +178,16 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
   }
 }
 
-class _BrowseHero extends StatelessWidget {
+class _BrowseHero extends ConsumerWidget {
   const _BrowseHero({required this.wide});
 
   final bool wide;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(currentUserProvider).value;
+    final greeting = greetingLine(DateTime.now(), user?.fullName);
+
     return SizedBox(
       // Taller on wide/web layouts so the hero doesn't look like a thin
       // strip on a desktop-width browser window (spec section 7).
@@ -187,23 +195,79 @@ class _BrowseHero extends StatelessWidget {
       child: HeroBackdrop(
         imageAsset: AppAssets.heroDayAerial,
         scrimOpacity: 0.35,
-        child: const Padding(
-          padding: EdgeInsets.all(Spacing.lg),
-          child: Align(
-            alignment: Alignment.bottomLeft,
-            child: Text(
-              'Discover your stay',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: PasalaTokens.displayWeight,
-                letterSpacing: PasalaTokens.displayLetterSpacing,
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  // Reserved spot for `ThemeToggleButton` -- a separate
+                  // track adds it here, right before the profile button,
+                  // once `themeModeProvider` lands. Left empty rather than
+                  // a placeholder widget so it costs nothing until then.
+                  IconButton(
+                    key: const Key('browse-hero-profile'),
+                    tooltip: 'Account',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                    iconSize: 22,
+                    icon: const Icon(
+                      Icons.account_circle_outlined,
+                      color: Colors.white,
+                    ),
+                    onPressed: () => _openAccount(context, ref, user),
+                  ),
+                ],
               ),
-            ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    greeting,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: PasalaTokens.displayWeight,
+                      letterSpacing: PasalaTokens.displayLetterSpacing,
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.xs),
+                  Text(
+                    'Discover your stay',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.85),
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.xs),
+                  const LocationBadge(),
+                ],
+              ),
+            ],
           ),
         ),
       ),
     );
+  }
+
+  /// The hero's profile button: for a signed-in guest, the shared account
+  /// sheet (`showAccountSheet`, also used by `AppShell`'s customer/admin
+  /// profile avatars -- there is no separate account screen/route to push
+  /// to); for a signed-out guest, straight to `/login` rather than a sheet
+  /// with nothing signed-in to show.
+  void _openAccount(BuildContext context, WidgetRef ref, AppUser? user) {
+    if (user == null) {
+      context.go('/login');
+    } else {
+      showAccountSheet(context, ref);
+    }
   }
 }
 
