@@ -475,3 +475,48 @@ create policy profiles_update_self on public.profiles
   with check (id = auth.uid()
               and role = public.current_role()
               and (platform_role = 'platform_admin') = public.is_platform_admin());
+
+-- ---------------------------------------------------------------------
+-- outbox: rows derive their resort from the reservation, like the
+-- derivable tables in 0043, so outbox_read can see rows the (not yet
+-- rewritten) enqueue functions insert without property_id. Backfill
+-- first with user triggers disabled (same reasoning as 0043), then
+-- attach the trigger.
+
+alter table public.outbox disable trigger user;
+update public.outbox o
+   set property_id = r.property_id
+  from public.reservations r
+ where r.id = o.reservation_id
+   and o.property_id is null;
+alter table public.outbox enable trigger user;
+
+create trigger outbox_fill_property
+  before insert or update on public.outbox
+  for each row execute function public.fill_property_id('reservations', 'reservation_id');
+
+-- ---------------------------------------------------------------------
+-- properties.status is platform-controlled: properties_update lets a
+-- resort's owner/admin edit their resort, but not suspend, archive or
+-- reactivate it. No authenticated caller (migrations, admin SQL) is
+-- allowed through.
+
+create function public.properties_guard_status()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.status is distinct from old.status
+     and auth.uid() is not null
+     and not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger properties_guard_status
+  before update on public.properties
+  for each row execute function public.properties_guard_status();

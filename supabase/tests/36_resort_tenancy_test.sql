@@ -35,6 +35,9 @@ select ok(not public.has_resort_role('aaaaaaaa-1111-0000-0000-000000000001', tru
 select ok(not public.is_platform_admin(), 'staff is not platform admin');
 
 reset role;
+-- `reset role` keeps the JWT claims; clear them so the status change runs
+-- with no authenticated caller (properties_guard_status, 0044).
+set local request.jwt.claims to '';
 update public.properties set status = 'suspended'
   where id = 'aaaaaaaa-1111-0000-0000-000000000001';
 set local role authenticated;
