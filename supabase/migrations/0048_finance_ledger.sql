@@ -1,0 +1,245 @@
+-- Finance ledger and collections (REQ-07): how every payment was taken
+-- and by whom, and four read-only reports over one resort's money.
+-- See docs/superpowers/specs/2026-09-25-finance-ledger-design.md.
+--
+-- No new tables and no triggers: the reports work every figure out from
+-- payments, reservations, food_orders, activity_bookings and
+-- food_activity_sales. Error codes raised: P0008, P0002, P0009 (a guest
+-- recording a desk method, a wrong amount), P0020 not_a_member, P0022
+-- resort_suspended.
+
+create type public.payment_method as enum
+  ('gateway', 'cash', 'card', 'upi', 'bank_transfer', 'other');
+
+-- ---------------------------------------------------------------------
+-- payments: every payment so far went through the (mock) gateway, so the
+-- default is also the right backfill. `reference` is the receipt,
+-- card-slip or UTR number typed at the desk; it is not unique, because
+-- two resorts (or two bookings) can both issue receipt 001.
+-- `recorded_by` defaults to the caller, which for a gateway payment is
+-- the guest who paid. auth.uid() is null while this migration runs, so
+-- existing rows stay null (unknown).
+alter table public.payments
+  add column method public.payment_method not null default 'gateway',
+  add column reference text
+    constraint payments_reference_length check (reference is null or length(reference) <= 64),
+  add column recorded_by uuid default auth.uid()
+    references public.profiles(id) on delete set null;
+
+create index payments_property_created_idx on public.payments (property_id, created_at);
+
+-- ---------------------------------------------------------------------
+-- food_activity_sales.payment_method: free text (no screen ever set it)
+-- becomes the enum. Walk-in sales are front-desk money, so never gateway.
+create function public.payment_method_from_text(p_text text)
+returns public.payment_method
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select (case lower(btrim(p_text))
+    when 'cash'          then 'cash'
+    when 'card'          then 'card'
+    when 'upi'           then 'upi'
+    when 'bank transfer' then 'bank_transfer'
+    when 'bank_transfer' then 'bank_transfer'
+    when 'neft'          then 'bank_transfer'
+    when 'imps'          then 'bank_transfer'
+    else 'other'
+  end)::public.payment_method;
+$$;
+revoke execute on function public.payment_method_from_text(text) from public, anon;
+grant execute on function public.payment_method_from_text(text) to authenticated;
+
+alter table public.food_activity_sales
+  alter column payment_method type public.payment_method
+    using public.payment_method_from_text(payment_method);
+alter table public.food_activity_sales
+  alter column payment_method set default 'cash',
+  alter column payment_method set not null,
+  add constraint food_activity_sales_not_gateway check (payment_method <> 'gateway');
+
+-- ---------------------------------------------------------------------
+-- checkout_booking gains p_method. Postgres cannot add a parameter with
+-- CREATE OR REPLACE, so the three-argument function is dropped and the
+-- four-argument one created and re-granted, as 0045 did for the report
+-- functions. Existing three-argument callers (the app, pgTAP) resolve to
+-- it through the default. The body is copied from its latest definition,
+-- 0047_room_status.sql (it marks the room dirty); the method handling is
+-- added by Task 2 of the finance plan.
+drop function if exists public.checkout_booking(uuid, text, numeric);
+
+create function public.checkout_booking(
+  p_reservation_id uuid,
+  p_payment_ref    text,
+  p_amount         numeric,
+  p_method         public.payment_method default 'gateway'
+) returns public.reservations
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_row     public.reservations;
+  v_charges jsonb;
+  v_balance numeric(12,2);
+begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_row from public.reservations
+  where id = p_reservation_id for update;
+
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  if v_row.customer_id is distinct from v_uid then
+    perform public.assert_resort_role(v_row.property_id, true, 'owner','admin','staff','accountant');
+  end if;
+
+  if v_row.status = 'checked_out' then
+    return v_row;   -- idempotent: a retried checkout must not double-charge
+  end if;
+
+  if v_row.status <> 'checked_in' then
+    raise exception 'reservation is %', v_row.status using errcode = 'P0009';
+  end if;
+
+  v_charges := public.current_charges(p_reservation_id);
+  v_balance := (v_charges ->> 'balance')::numeric;
+
+  if v_balance > 0 and (p_amount is null or p_amount is distinct from v_balance) then
+    raise exception 'payment amount % does not match balance due %',
+      p_amount, v_balance
+      using errcode = 'P0009';
+  end if;
+
+  if v_balance > 0 then
+    insert into public.payments
+      (reservation_id, amount, kind, status, gateway, gateway_ref)
+    values (p_reservation_id, v_balance, 'balance', 'succeeded', 'mock', p_payment_ref);
+  end if;
+
+  update public.reservations
+     set status = 'checked_out', checked_out_at = clock_timestamp()
+   where id = p_reservation_id
+  returning * into v_row;
+
+  -- 0047: the room needs cleaning now.
+  insert into public.unit_room_status as s
+    (unit_id, property_id, state, reason, updated_by, updated_at)
+  values (v_row.unit_id, v_row.property_id, 'dirty', null, v_uid, now())
+  on conflict (unit_id) do update
+    set state      = 'dirty',
+        reason     = null,
+        updated_by = excluded.updated_by,
+        updated_at = excluded.updated_at
+    where s.state <> 'out_of_order';
+
+  return v_row;
+end;
+$$;
+
+revoke execute on function public.checkout_booking(uuid, text, numeric, public.payment_method) from public, anon;
+grant execute on function public.checkout_booking(uuid, text, numeric, public.payment_method) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- Reports. Owner, admin and accountant of p_property_id only; read-only,
+-- so a suspended resort can still read them. The signatures are the
+-- contract the app is built against; Tasks 3-5 replace the stub bodies.
+
+create function public.report_collections(p_from date, p_to date, p_property_id uuid)
+returns table (
+  day       date,
+  channel   text,
+  source    text,
+  method    public.payment_method,
+  txn_count int,
+  amount    numeric
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  raise exception 'report_collections is not implemented yet' using errcode = '0A000';
+end;
+$$;
+
+create function public.report_ledger(p_from date, p_to date, p_property_id uuid)
+returns table (
+  day      date,
+  category text,
+  source   text,
+  gross    numeric,
+  discount numeric,
+  taxable  numeric,
+  tax      numeric,
+  net      numeric
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  raise exception 'report_ledger is not implemented yet' using errcode = '0A000';
+end;
+$$;
+
+create function public.report_settlements(p_from date, p_to date, p_property_id uuid)
+returns table (
+  reservation_id   uuid,
+  guest_name       text,
+  unit_name        text,
+  arrival          date,
+  departure        date,
+  room             numeric,
+  cleaning_fee     numeric,
+  tax_pct          numeric,
+  tax              numeric,
+  food             numeric,
+  activities       numeric,
+  total            numeric,
+  advance_paid     numeric,
+  balance_online   numeric,
+  balance_desk     numeric,
+  desk_method      public.payment_method,
+  desk_reference   text,
+  recorded_by_name text,
+  outstanding      numeric
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  raise exception 'report_settlements is not implemented yet' using errcode = '0A000';
+end;
+$$;
+
+create function public.finance_summary(p_property_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  raise exception 'finance_summary is not implemented yet' using errcode = '0A000';
+end;
+$$;
+
+revoke execute on function public.report_collections(date, date, uuid) from public, anon;
+revoke execute on function public.report_ledger(date, date, uuid) from public, anon;
+revoke execute on function public.report_settlements(date, date, uuid) from public, anon;
+revoke execute on function public.finance_summary(uuid) from public, anon;
+grant execute on function public.report_collections(date, date, uuid) to authenticated;
+grant execute on function public.report_ledger(date, date, uuid) to authenticated;
+grant execute on function public.report_settlements(date, date, uuid) to authenticated;
+grant execute on function public.finance_summary(uuid) to authenticated;

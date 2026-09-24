@@ -430,6 +430,9 @@ select is(
         -- of the unit (or the resort) it is given.
         'room_status_board','set_room_status','dispatch_housekeeping',
         'list_dispatchable_staff',
+        -- 0048: finance reports. Each asserts owner/admin/accountant at the
+        -- resort it is given. (checkout_booking is already listed above.)
+        'report_collections','report_ledger','report_settlements','finance_summary',
         -- 0047: tasks_housekeeping_done is a trigger function (not callable
         -- as an RPC); it fires only on a task update that tasks_update RLS
         -- and tasks_enforce_write already allowed.
