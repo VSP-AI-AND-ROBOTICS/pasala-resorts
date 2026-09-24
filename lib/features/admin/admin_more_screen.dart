@@ -26,6 +26,12 @@ class AdminMoreScreen extends StatelessWidget {
       path: '/admin/dashboard',
     ),
     (
+      icon: Icons.account_balance_outlined,
+      title: 'Finance',
+      subtitle: 'Collections, ledger, tax and settlements',
+      path: '/finance',
+    ),
+    (
       icon: Icons.outbox_outlined,
       title: 'Outbox',
       subtitle: 'Queued booking notifications -- not yet sent to anyone',

@@ -45,6 +45,7 @@ Widget _appFor({
     routes: [
       GoRoute(path: '/owner', builder: (_, _) => const OwnerHomeScreen()),
       GoRoute(path: '/admin/bookings', builder: (_, _) => const Text('Bookings screen')),
+      GoRoute(path: '/finance', builder: (_, _) => const Text('Finance screen')),
     ],
   );
 
@@ -93,6 +94,7 @@ void main() {
 
     for (final title in [
       'Business dashboard',
+      'Finance',
       'Revenue',
       'Occupancy',
       'Bookings',
@@ -135,5 +137,23 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.textContaining('Priya'), findsOneWidget);
+  });
+
+  testWidgets('the Finance tile opens the Finance screen', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_appFor());
+    await tester.pumpAndSettle();
+
+    final financeTile = find.text('Finance');
+    await tester.ensureVisible(financeTile);
+    await tester.pumpAndSettle();
+    await tester.tap(financeTile);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Finance screen'), findsOneWidget);
   });
 }

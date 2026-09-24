@@ -31,6 +31,7 @@ import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
 import '../features/auth/welcome_screen.dart';
 import '../features/booking/confirmation_screen.dart';
+import '../features/finance/finance_screen.dart';
 import '../features/browse/browse_screen.dart';
 import '../features/browse/customer_reviews_screen.dart';
 import '../features/browse/property_screen.dart';
@@ -115,7 +116,8 @@ String? redirectFor({
   // them to `/404` as if they held no memberships at all.
   if ((path.startsWith('/admin') ||
           path.startsWith('/staff') ||
-          path.startsWith('/owner')) &&
+          path.startsWith('/owner') ||
+          path.startsWith('/finance')) &&
       resort == null &&
       user.memberships.isNotEmpty) {
     return '/choose-resort';
@@ -155,6 +157,15 @@ String? redirectFor({
     }
   }
   if (path.startsWith('/staff') && resort == null) return '/404';
+  // Finance (REQ-07): owner, admin and accountant at the current resort.
+  // report_collections, report_ledger, report_settlements and
+  // finance_summary assert the same roles in Postgres; plain staff keep
+  // their `/admin/reports` view and get /404 here.
+  if (path.startsWith('/finance') &&
+      !const {ResortRole.owner, ResortRole.admin, ResortRole.accountant}
+          .contains(resort?.role)) {
+    return '/404';
+  }
   // The Owner flow (Business Dashboard -> ... -> Settings) is a distinct,
   // more powerful surface than `/admin` -- Cancellation Policy and Booking
   // Rules write data (`refund_rules`, `properties.min_nights`/`max_nights`)
@@ -209,12 +220,10 @@ String landingPathFor(AppUser user, ResortMembership? resort) {
   return switch (resort.role) {
     ResortRole.owner => '/owner',
     ResortRole.admin => '/admin',
-    // Lands on the staff-operations hub, not `/admin/dashboard` (the
-    // financial summary `AdminHomeScreen` still links to for admin) --
-    // that route is no longer reachable from either role's own nav (see
-    // `AppShell._staffDestinations`), so landing there would strand them
-    // one tap short of the tabs they actually have.
-    ResortRole.accountant => '/staff/dashboard',
+    // Finance (REQ-07) is the accountant's own screen -- collections,
+    // ledger, tax and settlements -- and the first tab of their bar (see
+    // `AppShell._accountantDestinations`).
+    ResortRole.accountant => '/finance',
     ResortRole.staff => '/staff',
   };
 }
@@ -430,6 +439,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/owner/team',
             builder: (_, _) => const TeamScreen(),
+          ),
+          // Finance (REQ-07). Owner, admin and accountant only (see
+          // redirectFor); the report functions enforce the same in Postgres.
+          GoRoute(
+            path: '/finance',
+            builder: (_, _) => const FinanceScreen(),
           ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
           GoRoute(

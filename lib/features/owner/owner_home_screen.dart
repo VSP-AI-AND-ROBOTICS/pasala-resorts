@@ -33,6 +33,12 @@ class OwnerHomeScreen extends ConsumerWidget {
       path: '/owner/dashboard',
     ),
     (
+      icon: Icons.account_balance_outlined,
+      title: 'Finance',
+      subtitle: 'Collections, ledger, tax and settlements',
+      path: '/finance',
+    ),
+    (
       icon: Icons.trending_up_outlined,
       title: 'Revenue',
       subtitle: 'Revenue by date range and property',
