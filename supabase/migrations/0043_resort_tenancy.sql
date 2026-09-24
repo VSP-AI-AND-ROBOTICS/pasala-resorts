@@ -183,7 +183,7 @@ declare
   v_pasala uuid;
   t text;
 begin
-  select id into v_pasala from public.properties order by created_at limit 1;
+  select id into v_pasala from public.properties order by created_at, id limit 1;
   foreach t in array array['coupons','outbox','outbox_templates','staff_shifts',
                            'leave_requests','attendance_records','tasks','audit_log']
   loop
@@ -224,7 +224,7 @@ $$;
 
 -- Existing global staff roles become memberships at the first property.
 insert into public.resort_members (property_id, user_id, role)
-select (select id from public.properties order by created_at limit 1),
+select (select id from public.properties order by created_at, id limit 1),
        p.id,
        case p.role when 'super_admin' then 'owner'::public.resort_role
                    else p.role::text::public.resort_role end

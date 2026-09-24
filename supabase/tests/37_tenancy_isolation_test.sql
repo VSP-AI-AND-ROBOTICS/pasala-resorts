@@ -1,5 +1,5 @@
 begin;
-select plan(67);
+select plan(72);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -56,6 +56,15 @@ insert into public.expenses (property_id, category, amount, expense_date, record
 insert into public.tasks (property_id, title, assignee_id, created_by) values
   ('aaaaaaaa-0000-4000-8000-000000000001','Clean pool','a0000000-0000-0000-0000-00000000000c','a0000000-0000-0000-0000-00000000000b'),
   ('bbbbbbbb-0000-4000-8000-000000000001','Fix gate','b0000000-0000-0000-0000-00000000000a','b0000000-0000-0000-0000-00000000000a');
+
+-- B's menu and activity catalog, which a guest staying at A must not reach
+-- through A's reservation.
+insert into public.food_categories (id, property_id, name) values
+  ('bbbbbbbb-0000-4000-8000-000000000051','bbbbbbbb-0000-4000-8000-000000000001','B mains');
+insert into public.food_items (id, category_id, name, price) values
+  ('bbbbbbbb-0000-4000-8000-000000000052','bbbbbbbb-0000-4000-8000-000000000051','B thali',300);
+insert into public.activities (id, property_id, name, price_per_person, capacity_per_slot) values
+  ('bbbbbbbb-0000-4000-8000-000000000053','bbbbbbbb-0000-4000-8000-000000000001','B kayak',500,10);
 
 -- B's guest reviewed their stay. author_name is set by the trigger from the
 -- profile, whatever the insert supplies.
@@ -194,6 +203,9 @@ select is((select count(*)::int from public.search_availability(
   'suspended resort absent from availability search');
 -- Guests keep cancelling their own bookings at a suspended resort.
 set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+select is((select status from public.confirm_booking('bbbbbbbb-0000-4000-8000-000000000021','pay-retry',1000)),
+  'confirmed'::public.reservation_status,
+  'a retried confirm of an already-confirmed booking at a suspended resort returns the row');
 select is((select status from public.cancel_booking('bbbbbbbb-0000-4000-8000-000000000021','changed plans')),
   'cancelled'::public.reservation_status, 'guest cancels own booking at suspended resort');
 
@@ -209,6 +221,16 @@ select throws_ok($$select public.check_in_booking('bbbbbbbb-0000-4000-8000-00000
   'P0020', null, 'A staff cannot check in a B guest');
 select throws_ok($$select public.current_charges('bbbbbbbb-0000-4000-8000-000000000021')$$,
   'P0020', null, 'A staff cannot read B charges');
+-- A guest staying at A cannot use that stay to order from B's menu or book
+-- B's activities.
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+select throws_ok($$select public.place_food_order('aaaaaaaa-0000-4000-8000-000000000021',
+  '[{"food_item_id":"bbbbbbbb-0000-4000-8000-000000000052","quantity":1}]'::jsonb, null)$$,
+  'P0002', null, 'guest at A cannot order a B menu item under the A stay');
+select throws_ok($$select public.book_activity('aaaaaaaa-0000-4000-8000-000000000021',
+  'bbbbbbbb-0000-4000-8000-000000000053', '2027-02-01', '10:00', 1)$$,
+  'P0002', null, 'guest at A cannot book a B activity under the A stay');
+select is((select count(*)::int from public.food_orders), 0, 'guest at A: no order was created');
 reset role;
 set local request.jwt.claims to '';
 update public.properties set status = 'suspended' where id = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -254,11 +276,20 @@ insert into public.ical_feeds (id, unit_id, url, is_active) values
 -- through maintenance_issues.photo_url.
 insert into storage.buckets (id, name) values ('maintenance-photos','maintenance-photos')
   on conflict (id) do nothing;
+-- Guest A also has a stay at B; the photo in guest A's folder that is linked
+-- only to the B issue must stay out of A's staff's reach even though an A
+-- stay of the same guest exists.
+insert into public.reservations (id, unit_id, period, kind, status, customer_id, guests) values
+  ('bbbbbbbb-0000-4000-8000-000000000023','bbbbbbbb-0000-4000-8000-000000000011',
+   tstzrange('2027-06-01 14:00+05:30','2027-06-02 11:00+05:30','[)'),
+   'booking','confirmed','c0000000-0000-0000-0000-00000000000a',2);
 insert into storage.objects (bucket_id, name) values
   ('maintenance-photos','c0000000-0000-0000-0000-00000000000a/1_a.jpg'),
+  ('maintenance-photos','c0000000-0000-0000-0000-00000000000a/2_b.jpg'),
   ('maintenance-photos','c0000000-0000-0000-0000-00000000000b/1_b.jpg');
 insert into public.maintenance_issues (reservation_id, category, photo_url) values
   ('aaaaaaaa-0000-4000-8000-000000000021','ac','c0000000-0000-0000-0000-00000000000a/1_a.jpg'),
+  ('bbbbbbbb-0000-4000-8000-000000000023','ac','c0000000-0000-0000-0000-00000000000a/2_b.jpg'),
   ('bbbbbbbb-0000-4000-8000-000000000021','ac','c0000000-0000-0000-0000-00000000000b/1_b.jpg');
 insert into public.attendance_records (id, property_id, staff_id, work_date) values
   ('aaaaaaaa-0000-4000-8000-000000000041','aaaaaaaa-0000-4000-8000-000000000001',
@@ -286,6 +317,9 @@ select is((select count(*)::int from storage.objects
 select is((select count(*)::int from storage.objects
             where name = 'c0000000-0000-0000-0000-00000000000a/1_a.jpg'), 1,
   'A staff can read a maintenance photo from an A stay');
+select is((select count(*)::int from storage.objects
+            where name = 'c0000000-0000-0000-0000-00000000000a/2_b.jpg'), 0,
+  'A staff cannot read a photo linked only to a B issue, even from a guest who also stays at A');
 set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
 select is((select count(*)::int from storage.objects
             where name = 'c0000000-0000-0000-0000-00000000000b/1_b.jpg'), 1,

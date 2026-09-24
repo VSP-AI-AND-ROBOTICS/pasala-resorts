@@ -357,7 +357,8 @@ end;
 $$;
 
 -- The hold's own customer, or an admin of the hold's resort, confirms it --
--- and only while the resort is `active`.
+-- and only while the resort is `active` (a retry for a booking that is
+-- already confirmed still gets the row back).
 create or replace function public.confirm_booking(
   p_reservation_id uuid,
   p_payment_ref    text,
@@ -389,13 +390,16 @@ begin
     perform public.assert_resort_role(v_row.property_id, true, 'owner','admin');
   end if;
 
+  -- Before the resort-status check: a retried webhook for a booking that
+  -- was already paid must get the row back even if the resort has since
+  -- been suspended.
+  if v_row.status = 'confirmed' then
+    return v_row;   -- idempotent: a retried webhook must not double-charge
+  end if;
+
   if not exists (select 1 from public.properties
                   where id = v_row.property_id and status = 'active') then
     raise exception using errcode = 'P0022', message = 'resort_suspended';
-  end if;
-
-  if v_row.status = 'confirmed' then
-    return v_row;   -- idempotent: a retried webhook must not double-charge
   end if;
 
   if v_row.status <> 'hold' then
@@ -802,8 +806,11 @@ begin
   returning * into v_order;
 
   for v_item in select jsonb_array_elements(p_items) loop
+    -- Only the stay's own resort's menu: another resort's item id is
+    -- "not available" here, same as an unknown one.
     select * into v_food from public.food_items
-    where id = (v_item ->> 'food_item_id')::uuid and is_available;
+    where id = (v_item ->> 'food_item_id')::uuid and is_available
+      and property_id = v_res.property_id;
     if not found then
       raise exception 'menu item % is not available', v_item ->> 'food_item_id'
         using errcode = 'P0002';
@@ -878,8 +885,11 @@ begin
   -- advisory (see this function's own header comment) so contention across
   -- unrelated slots on a popular activity is an acceptable tradeoff for a
   -- correct, simple capacity check.
+  -- Only the stay's own resort's activities: another resort's activity id
+  -- is "not available" here, same as an unknown one.
   select * into v_activity from public.activities
   where id = p_activity_id and is_available
+    and property_id = v_res.property_id
   for update;
   if not found then
     raise exception 'activity is not available' using errcode = 'P0002';
@@ -2301,7 +2311,7 @@ declare
   v_first uuid;
   t text;
 begin
-  select id into v_first from public.properties order by created_at limit 1;
+  select id into v_first from public.properties order by created_at, id limit 1;
 
   alter table public.outbox disable trigger user;
   update public.outbox o
