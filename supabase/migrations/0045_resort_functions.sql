@@ -612,7 +612,7 @@ begin
     raise exception 'reservation not found' using errcode = 'P0002';
   end if;
 
-  perform public.assert_resort_role(v_row.property_id, true, 'owner','admin','staff');
+  perform public.assert_resort_role(v_row.property_id, true, 'owner','admin','staff','accountant');
 
   if v_row.status = 'checked_in' then
     return v_row;   -- idempotent: re-tapping Check In does nothing harmful
@@ -661,7 +661,7 @@ begin
 
   if v_res.customer_id is distinct from v_uid then
     perform public.assert_resort_role(v_res.property_id, false,
-      'owner','admin','staff');
+      'owner','admin','staff','accountant');
   end if;
 
   v_stay := coalesce((v_res.quote ->> 'total')::numeric, 0);
@@ -720,7 +720,7 @@ begin
   end if;
 
   if v_row.customer_id is distinct from v_uid then
-    perform public.assert_resort_role(v_row.property_id, true, 'owner','admin','staff');
+    perform public.assert_resort_role(v_row.property_id, true, 'owner','admin','staff','accountant');
   end if;
 
   if v_row.status = 'checked_out' then
@@ -978,7 +978,7 @@ begin
   end if;
 
   if v_res.customer_id is distinct from v_uid then
-    perform public.assert_resort_role(v_res.property_id, true, 'owner','admin','staff');
+    perform public.assert_resort_role(v_res.property_id, true, 'owner','admin','staff','accountant');
   end if;
 
   if v_res.status not in ('confirmed', 'checked_in') then

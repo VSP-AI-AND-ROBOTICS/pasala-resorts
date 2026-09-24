@@ -2,7 +2,7 @@
 -- storage policies, added in 0035_maintenance_issues.sql.
 
 begin;
-select plan(9);
+select plan(10);
 
 -- Rows a statement changed, run as the current role: an RLS-filtered
 -- write changes 0 rows without raising.
@@ -83,6 +83,19 @@ select lives_ok(
   $$update public.maintenance_issues set status = 'fixed'
     where reservation_id = '97700000-0000-0000-0000-000000000001'$$,
   'the assigned staff member can move the issue through its own statuses'
+);
+
+-- An accountant has the same Staff+ powers as staff over
+-- report_maintenance_issue (assert_resort_role must include 'accountant',
+-- not just 'staff' -- see the old guest-only check this function had
+-- before 0045, which the shared function inventory widened to Staff+).
+set local request.jwt.claims to
+  '{"sub":"10000000-0000-0000-0000-000000000004","role":"authenticated"}';
+
+select lives_ok(
+  $$select public.report_maintenance_issue('97700000-0000-0000-0000-000000000001',
+      'plumbing', 'accountant on duty spotted a leak', null, 'low')$$,
+  'an accountant of the resort can also report a maintenance issue'
 );
 
 reset role;

@@ -2,7 +2,7 @@
 -- 0037_stay_checkout.sql.
 
 begin;
-select plan(11);
+select plan(14);
 
 select has_function('public', 'check_in_booking', 'check_in_booking exists');
 select has_function('public', 'current_charges', 'current_charges exists');
@@ -28,6 +28,17 @@ values ('97900000-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-0000000
    jsonb_build_object('total', 8000));
 insert into public.payments (reservation_id, amount, kind, status, gateway, gateway_ref)
 values ('97900000-0000-0000-0000-000000000001', 8000, 'advance', 'succeeded', 'mock', 'ref-37-adv');
+
+-- A second reservation for the accountant-parity assertions at the end of
+-- this file (inserted here, as superuser, since a plain INSERT into
+-- reservations is not something an authenticated role may do directly).
+insert into public.reservations (id, unit_id, period, kind, status, customer_id, quote)
+values ('97900000-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000037',
+   public.build_period('bbbbbbbb-0000-0000-0000-000000000037', current_date+3, current_date+4),
+   'booking', 'confirmed', '10000000-0000-0000-0000-000000000006',
+   jsonb_build_object('total', 3000));
+insert into public.payments (reservation_id, amount, kind, status, gateway, gateway_ref)
+values ('97900000-0000-0000-0000-000000000002', 3000, 'advance', 'succeeded', 'mock', 'ref-37-adv2');
 
 insert into public.food_categories (id, property_id, name)
 values ('64000000-0000-0000-0000-000000000037', 'aaaaaaaa-0000-0000-0000-000000000037', 'Snacks');
@@ -95,6 +106,28 @@ select is(
     where reservation_id = '97900000-0000-0000-0000-000000000001' and kind = 'balance'),
   1,
   'a balance payment was recorded'
+);
+
+-- An accountant has the same Staff+ powers as staff over check_in_booking,
+-- current_charges and checkout_booking (assert_resort_role must include
+-- 'accountant', not just 'staff' -- see the old is_staff_or_above(), which
+-- these functions used before 0045 and which included accountant).
+set local request.jwt.claims to
+  '{"sub":"10000000-0000-0000-0000-000000000004","role":"authenticated"}';
+
+select lives_ok(
+  $$select public.check_in_booking('97900000-0000-0000-0000-000000000002')$$,
+  'an accountant of the resort can also check in a guest'
+);
+
+select lives_ok(
+  $$select public.current_charges('97900000-0000-0000-0000-000000000002')$$,
+  'an accountant of the resort can also read current charges'
+);
+
+select lives_ok(
+  $$select public.checkout_booking('97900000-0000-0000-0000-000000000002', 'ref-37-acct', 0)$$,
+  'an accountant of the resort can also check a guest out'
 );
 
 reset role;
