@@ -59,6 +59,7 @@ class _TaxSettingsScreenState extends ConsumerState<TaxSettingsScreen> {
         'gstin': gstin.isEmpty ? null : gstin,
       });
       ref.invalidate(propertiesProvider);
+      ref.invalidate(propertyProvider(widget.property.id));
       if (mounted) Navigator.of(context).pop();
     } on BookingFailure catch (e) {
       if (mounted) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/format.dart';
 import '../../core/greeting.dart';
 import '../../core/theme/tokens.dart';
@@ -89,7 +90,10 @@ class OwnerHomeScreen extends ConsumerWidget {
     final user = ref.watch(currentUserProvider).value;
     final firstName = user?.fullName?.split(' ').first ?? 'Owner';
     final now = DateTime.now();
-    final summaryAsync = ref.watch(dashboardSummaryProvider);
+    // A screen reached without a current resort is impossible after Task
+    // 14's redirect.
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final summaryAsync = ref.watch(dashboardSummaryProvider(propertyId));
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 

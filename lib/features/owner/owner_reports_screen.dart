@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
-import '../../data/models/property.dart';
-import '../browse/providers.dart';
 import '../reports/csv_download.dart';
 import '../reports/csv_export.dart';
 import '../reports/providers.dart';
@@ -41,14 +40,13 @@ class OwnerReportsScreen extends ConsumerStatefulWidget {
 
 class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
   DateTimeRange _range = _currentMonth();
-  String? _propertyId;
 
-  ReportFilter get _reportFilter =>
-      (from: _range.start, to: _range.end, propertyId: _propertyId);
-  FoodSalesReportFilter get _foodFilter =>
-      (from: _range.start, to: _range.end, propertyId: _propertyId);
-  ExpensesReportFilter get _expensesFilter =>
-      (from: _range.start, to: _range.end, propertyId: _propertyId);
+  ReportFilter _reportFilter(String propertyId) =>
+      (from: _range.start, to: _range.end, propertyId: propertyId);
+  FoodSalesReportFilter _foodFilter(String propertyId) =>
+      (from: _range.start, to: _range.end, propertyId: propertyId);
+  ExpensesReportFilter _expensesFilter(String propertyId) =>
+      (from: _range.start, to: _range.end, propertyId: propertyId);
 
   Future<void> _pickRange() async {
     final picked = await showDateRangePicker(
@@ -64,20 +62,21 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _export(_OwnerReportKind kind, Map<String, String> propertyName) async {
+  Future<void> _export(_OwnerReportKind kind, String propertyId, String resortName) async {
     final List<List<String>> rows;
     final String label;
 
     switch (kind) {
       case _OwnerReportKind.revenue:
-        final data = await ref.read(revenueReportProvider(_reportFilter).future);
+        final data =
+            await ref.read(revenueReportProvider(_reportFilter(propertyId)).future);
         label = 'revenue';
         rows = [
           ['Day', 'Property', 'Bookings', 'Gross', 'Refunded', 'Net'],
           for (final r in data)
             [
               formatDate(r.day),
-              propertyName[r.propertyId] ?? r.propertyId,
+              resortName,
               '${r.bookings}',
               formatInr(r.gross),
               formatInr(r.refunded),
@@ -85,7 +84,8 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
             ],
         ];
       case _OwnerReportKind.occupancy:
-        final data = await ref.read(occupancyReportProvider(_reportFilter).future);
+        final data =
+            await ref.read(occupancyReportProvider(_reportFilter(propertyId)).future);
         label = 'occupancy';
         rows = [
           ['Unit', 'Nights available', 'Nights booked', 'Occupancy %'],
@@ -93,7 +93,8 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
             [r.unitName, '${r.nightsAvailable}', '${r.nightsBooked}', '${r.occupancyPct}'],
         ];
       case _OwnerReportKind.foodSales:
-        final data = await ref.read(foodSalesReportProvider(_foodFilter).future);
+        final data =
+            await ref.read(foodSalesReportProvider(_foodFilter(propertyId)).future);
         label = 'food-activity-sales';
         rows = [
           ['Day', 'Category', 'Items sold', 'Gross'],
@@ -101,7 +102,8 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
             [formatDate(r.day), r.category.name, '${r.itemsSold}', formatInr(r.gross)],
         ];
       case _OwnerReportKind.expenses:
-        final data = await ref.read(expensesReportProvider(_expensesFilter).future);
+        final data =
+            await ref.read(expensesReportProvider(_expensesFilter(propertyId)).future);
         label = 'expenses';
         rows = [
           ['Day', 'Category', 'Total'],
@@ -120,8 +122,9 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final properties = ref.watch(propertiesProvider).value ?? const <Property>[];
-    final propertyName = {for (final p in properties) p.id: p.name};
+    // A screen reached without a current resort is impossible after Task
+    // 14's redirect.
+    final resort = ref.watch(currentResortProvider)!;
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
@@ -130,36 +133,19 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(Spacing.md),
         children: [
-          Text('DATE RANGE & PROPERTY',
+          Text('DATE RANGE',
               style: textTheme.labelMedium?.copyWith(
                   color: scheme.onSurfaceVariant, letterSpacing: 0.5)),
           const SizedBox(height: Spacing.sm),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(Spacing.md),
-              child: Wrap(
-                spacing: Spacing.md,
-                runSpacing: Spacing.sm,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: _pickRange,
-                    icon: const Icon(Icons.date_range_outlined),
-                    label: Text(
-                      '${formatDate(_range.start)} – ${formatDate(_range.end)}',
-                    ),
-                  ),
-                  DropdownButton<String?>(
-                    value: _propertyId,
-                    hint: const Text('All properties'),
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('All properties')),
-                      for (final p in properties)
-                        DropdownMenuItem(value: p.id, child: Text(p.name)),
-                    ],
-                    onChanged: (value) => setState(() => _propertyId = value),
-                  ),
-                ],
+              child: OutlinedButton.icon(
+                onPressed: _pickRange,
+                icon: const Icon(Icons.date_range_outlined),
+                label: Text(
+                  '${formatDate(_range.start)} – ${formatDate(_range.end)}',
+                ),
               ),
             ),
           ),
@@ -171,30 +157,34 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
           _ReportTile(
             icon: Icons.trending_up_outlined,
             title: 'Revenue',
-            subtitle: 'Bookings, gross and net revenue by day and property',
+            subtitle: 'Bookings, gross and net revenue by day',
             color: scheme.primary,
-            onExport: () => _export(_OwnerReportKind.revenue, propertyName),
+            onExport: () =>
+                _export(_OwnerReportKind.revenue, resort.propertyId, resort.resortName),
           ),
           _ReportTile(
             icon: Icons.pie_chart_outline,
             title: 'Occupancy',
             subtitle: 'Nights booked vs. available, by unit',
             color: scheme.tertiary,
-            onExport: () => _export(_OwnerReportKind.occupancy, propertyName),
+            onExport: () => _export(
+                _OwnerReportKind.occupancy, resort.propertyId, resort.resortName),
           ),
           _ReportTile(
             icon: Icons.restaurant_outlined,
             title: 'Food & activity sales',
             subtitle: 'Items sold and gross, by day and category',
             color: scheme.primary,
-            onExport: () => _export(_OwnerReportKind.foodSales, propertyName),
+            onExport: () => _export(
+                _OwnerReportKind.foodSales, resort.propertyId, resort.resortName),
           ),
           _ReportTile(
             icon: Icons.receipt_long_outlined,
             title: 'Expenses',
             subtitle: 'Totals by day and category',
             color: scheme.onSurfaceVariant,
-            onExport: () => _export(_OwnerReportKind.expenses, propertyName),
+            onExport: () => _export(
+                _OwnerReportKind.expenses, resort.propertyId, resort.resortName),
           ),
         ],
       ),

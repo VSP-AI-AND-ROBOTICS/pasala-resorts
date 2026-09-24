@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
-import '../../data/models/property.dart';
-import '../browse/providers.dart';
 import 'csv_download.dart';
 import 'csv_export.dart';
 import 'providers.dart';
@@ -37,11 +36,10 @@ class ReportsScreen extends ConsumerStatefulWidget {
 
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   DateTimeRange _range = _currentMonth();
-  String? _propertyId;
   ReportKind _kind = ReportKind.revenue;
 
-  ReportFilter get _filter =>
-      (from: _range.start, to: _range.end, propertyId: _propertyId);
+  ReportFilter _filterFor(String propertyId) =>
+      (from: _range.start, to: _range.end, propertyId: propertyId);
 
   Future<void> _pickRange() async {
     final picked = await showDateRangePicker(
@@ -64,12 +62,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   /// the table has not finished loading yet, which the export button
   /// cannot outrace -- it is right next to a table that is either showing
   /// data or an [EmptyState]/[LoadingState] already.
-  void _exportCsv(Map<String, String> propertyName) {
+  void _exportCsv(String propertyId, String resortName) {
     final List<List<String>> rows;
     final String kindLabel;
+    final filter = _filterFor(propertyId);
 
     if (_kind == ReportKind.revenue) {
-      final data = ref.read(revenueReportProvider(_filter)).value;
+      final data = ref.read(revenueReportProvider(filter)).value;
       if (data == null) {
         _showMessage('Still loading -- try again in a moment.');
         return;
@@ -80,7 +79,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         for (final r in data)
           [
             formatDate(r.day),
-            propertyName[r.propertyId] ?? r.propertyId,
+            resortName,
             '${r.bookings}',
             formatInr(r.gross),
             formatInr(r.refunded),
@@ -88,7 +87,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ],
       ];
     } else {
-      final data = ref.read(occupancyReportProvider(_filter)).value;
+      final data = ref.read(occupancyReportProvider(filter)).value;
       if (data == null) {
         _showMessage('Still loading -- try again in a moment.');
         return;
@@ -117,9 +116,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final properties =
-        ref.watch(propertiesProvider).value ?? const <Property>[];
-    final propertyName = {for (final p in properties) p.id: p.name};
+    // A screen reached without a current resort is impossible after Task
+    // 14's redirect.
+    final resort = ref.watch(currentResortProvider)!;
+    final filter = _filterFor(resort.propertyId);
 
     return Scaffold(
       appBar: AppBar(
@@ -129,7 +129,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             key: const Key('export-csv-button'),
             tooltip: 'Export CSV',
             icon: const Icon(Icons.download_outlined),
-            onPressed: () => _exportCsv(propertyName),
+            onPressed: () => _exportCsv(resort.propertyId, resort.resortName),
           ),
         ],
       ),
@@ -138,32 +138,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.all(Spacing.md),
-            child: Wrap(
-              spacing: Spacing.md,
-              runSpacing: Spacing.sm,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                OutlinedButton.icon(
-                  key: const Key('change-dates-button'),
-                  onPressed: _pickRange,
-                  icon: const Icon(Icons.date_range_outlined),
-                  label: Text(
-                    '${formatDate(_range.start)} – ${formatDate(_range.end)}',
-                  ),
-                ),
-                DropdownButton<String?>(
-                  key: const Key('property-filter'),
-                  value: _propertyId,
-                  hint: const Text('All properties'),
-                  items: [
-                    const DropdownMenuItem(
-                        value: null, child: Text('All properties')),
-                    for (final p in properties)
-                      DropdownMenuItem(value: p.id, child: Text(p.name)),
-                  ],
-                  onChanged: (value) => setState(() => _propertyId = value),
-                ),
-              ],
+            child: OutlinedButton.icon(
+              key: const Key('change-dates-button'),
+              onPressed: _pickRange,
+              icon: const Icon(Icons.date_range_outlined),
+              label: Text(
+                '${formatDate(_range.start)} – ${formatDate(_range.end)}',
+              ),
             ),
           ),
           Padding(
@@ -183,8 +164,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           const SizedBox(height: Spacing.sm),
           Expanded(
             child: _kind == ReportKind.revenue
-                ? _RevenueTable(filter: _filter, propertyName: propertyName)
-                : _OccupancyTable(filter: _filter),
+                ? _RevenueTable(filter: filter, resortName: resort.resortName)
+                : _OccupancyTable(filter: filter),
           ),
         ],
       ),
@@ -193,10 +174,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 }
 
 class _RevenueTable extends ConsumerWidget {
-  const _RevenueTable({required this.filter, required this.propertyName});
+  const _RevenueTable({required this.filter, required this.resortName});
 
   final ReportFilter filter;
-  final Map<String, String> propertyName;
+  final String resortName;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -208,7 +189,7 @@ class _RevenueTable extends ConsumerWidget {
       empty: () => const EmptyState(
         icon: Icons.bar_chart_outlined,
         title: 'No revenue in this period',
-        message: 'Try a wider date range or a different property.',
+        message: 'Try a wider date range.',
       ),
       data: (list) => SingleChildScrollView(
         padding: const EdgeInsets.all(Spacing.md),
@@ -227,7 +208,7 @@ class _RevenueTable extends ConsumerWidget {
               for (final r in list)
                 DataRow(cells: [
                   DataCell(Text(formatDate(r.day))),
-                  DataCell(Text(propertyName[r.propertyId] ?? r.propertyId)),
+                  DataCell(Text(resortName)),
                   DataCell(Text('${r.bookings}')),
                   DataCell(Text(formatInr(r.gross))),
                   DataCell(Text(formatInr(r.refunded))),
@@ -256,7 +237,7 @@ class _OccupancyTable extends ConsumerWidget {
       empty: () => const EmptyState(
         icon: Icons.pie_chart_outline,
         title: 'No occupancy data in this period',
-        message: 'Try a wider date range or a different property.',
+        message: 'Try a wider date range.',
       ),
       data: (list) => SingleChildScrollView(
         padding: const EdgeInsets.all(Spacing.md),

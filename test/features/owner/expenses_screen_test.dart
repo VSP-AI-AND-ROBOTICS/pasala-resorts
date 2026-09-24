@@ -4,10 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/expense.dart';
-import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/expense_repository.dart';
-import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/owner/expenses_screen.dart';
 
 class _FixedResort extends CurrentResort {
@@ -20,6 +18,7 @@ class _FixedResort extends CurrentResort {
 class FakeExpenseRepository implements ExpenseRepository {
   final List<Expense> store = [];
   final List<String> deletedIds = [];
+  final List<String> listedPropertyIds = [];
   int _idCounter = 0;
 
   /// Compares dates only, ignoring time-of-day -- see the identical
@@ -33,8 +32,16 @@ class FakeExpenseRepository implements ExpenseRepository {
   }
 
   @override
-  Future<List<Expense>> list({required DateTime from, required DateTime to}) async =>
-      store.where((e) => _inRange(e.expenseDate, from, to)).toList();
+  Future<List<Expense>> list({
+    required String propertyId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    listedPropertyIds.add(propertyId);
+    return store
+        .where((e) => e.propertyId == propertyId && _inRange(e.expenseDate, from, to))
+        .toList();
+  }
 
   @override
   Future<void> create(Expense expense) async {
@@ -72,19 +79,6 @@ class FakeExpenseRepository implements ExpenseRepository {
   }
 }
 
-const _property = Property(
-  id: 'p1',
-  name: 'Pasala Farm House',
-  slug: 'pasala-farm-house',
-  description: null,
-  address: null,
-  images: [],
-  amenities: [],
-  checkInTime: '14:00',
-  checkOutTime: '11:00',
-  isActive: true,
-);
-
 const _adminM =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
 const _accountantM = ResortMembership(
@@ -112,7 +106,6 @@ Widget _appFor(
     ProviderScope(
       overrides: [
         expenseRepositoryProvider.overrideWithValue(repo),
-        propertiesProvider.overrideWith((ref) async => [_property]),
         currentResortProvider.overrideWith(
             () => _FixedResort(resort ?? user.memberships.first)),
       ],
@@ -170,7 +163,42 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.store, hasLength(1));
+    expect(repo.store.single.propertyId, 'p1');
     expect(find.text('Electricity bill'), findsOneWidget);
+  });
+
+  // Review Focus #1: an admin with memberships at two resorts must never
+  // see resort B's expenses while working in resort A -- RLS alone would
+  // let them read both, so the screen must filter by the current resort.
+  testWidgets('an expense logged at a different resort never appears here', (
+    tester,
+  ) async {
+    const otherResort = ResortMembership(
+        propertyId: 'p2', resortName: 'Other Resort', role: ResortRole.admin);
+    final repo = FakeExpenseRepository()
+      ..store.add(Expense(
+        id: 'e1',
+        propertyId: 'p1',
+        expenseDate: DateTime.now(),
+        category: 'Utilities',
+        description: 'Pasala electricity bill',
+        amount: 5000,
+      ))
+      ..store.add(Expense(
+        id: 'e2',
+        propertyId: 'p2',
+        expenseDate: DateTime.now(),
+        category: 'Utilities',
+        description: 'Other resort electricity bill',
+        amount: 7000,
+      ));
+
+    await tester.pumpWidget(_appFor(repo, resort: otherResort));
+    await tester.pumpAndSettle();
+
+    expect(repo.listedPropertyIds, everyElement('p2'));
+    expect(find.text('Other resort electricity bill'), findsOneWidget);
+    expect(find.text('Pasala electricity bill'), findsNothing);
   });
 
   testWidgets('confirming delete removes the expense', (tester) async {

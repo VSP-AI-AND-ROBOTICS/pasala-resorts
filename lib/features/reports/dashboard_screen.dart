@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -16,15 +17,18 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final summary = ref.watch(dashboardSummaryProvider);
+    // A screen reached without a current resort is impossible after Task
+    // 14's redirect.
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final summary = ref.watch(dashboardSummaryProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Dashboard')),
       body: AsyncView(
         value: summary,
-        onRetry: () => ref.invalidate(dashboardSummaryProvider),
+        onRetry: () => ref.invalidate(dashboardSummaryProvider(propertyId)),
         data: (s) => RefreshIndicator(
-          onRefresh: () async => ref.invalidate(dashboardSummaryProvider),
+          onRefresh: () async => ref.invalidate(dashboardSummaryProvider(propertyId)),
           child: LayoutBuilder(
             builder: (context, constraints) {
               final cards = _statCards(s);

@@ -2,15 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/report.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/features/owner/owner_home_screen.dart';
 import 'package:pasala/features/reports/providers.dart';
 
+class _FixedResort extends CurrentResort {
+  _FixedResort(this._value);
+  final ResortMembership? _value;
+  @override
+  ResortMembership? build() => _value;
+}
+
+const _ownerM =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.owner);
+
 const _owner = AppUser(
   id: 'owner-1',
   email: 'super@pasala.test',
+  memberships: [_ownerM],
   fullName: 'Priya Owner',
 );
 
@@ -36,7 +49,8 @@ Widget _appFor({
   return ProviderScope(
     overrides: [
       currentUserProvider.overrideWith((ref) => Stream.value(_owner)),
-      dashboardSummaryProvider.overrideWith((ref) async => summary),
+      currentResortProvider.overrideWith(() => _FixedResort(_ownerM)),
+      dashboardSummaryProvider.overrideWith((ref, propertyId) async => summary),
     ],
     child: MaterialApp.router(routerConfig: router),
   );

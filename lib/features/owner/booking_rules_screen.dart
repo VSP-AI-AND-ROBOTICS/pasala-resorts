@@ -72,6 +72,7 @@ class _BookingRulesScreenState extends ConsumerState<BookingRulesScreen> {
         'max_nights': max,
       });
       ref.invalidate(propertiesProvider);
+      ref.invalidate(propertyProvider(widget.property.id));
       if (mounted) Navigator.of(context).pop();
     } on BookingFailure catch (e) {
       if (mounted) {

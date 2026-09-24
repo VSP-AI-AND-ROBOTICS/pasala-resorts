@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/quote.dart';
 import 'package:pasala/data/models/report.dart';
 import 'package:pasala/data/models/reservation.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/review.dart';
 import 'package:pasala/data/models/unit.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
@@ -15,6 +17,13 @@ import 'package:pasala/features/admin/admin_home_screen.dart';
 import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/reports/providers.dart';
 import 'package:pasala/features/staff/providers.dart';
+
+class _FixedResort extends CurrentResort {
+  _FixedResort(this._value);
+  final ResortMembership? _value;
+  @override
+  ResortMembership? build() => _value;
+}
 
 Reservation _booking(
   String id, {
@@ -237,9 +246,13 @@ void main() {
       isActive: true,
     );
 
+    const adminM = ResortMembership(
+        propertyId: 'p1', resortName: 'Pasala Farm House', role: ResortRole.admin);
+
     const admin = AppUser(
       id: 'admin-1',
       email: 'admin@pasala.test',
+      memberships: [adminM],
       fullName: 'Asha Admin',
     );
 
@@ -274,11 +287,12 @@ void main() {
       return ProviderScope(
         overrides: [
           currentUserProvider.overrideWith((ref) => Stream.value(admin)),
+          currentResortProvider.overrideWith(() => _FixedResort(adminM)),
           propertiesProvider.overrideWith((ref) async => [property]),
           unitsProvider(property.id).overrideWith((ref) async => [unit]),
           allBookingsProvider.overrideWith((ref) async => bookings),
           allReviewsProvider.overrideWith((ref) async => reviews),
-          dashboardSummaryProvider.overrideWith((ref) async => DashboardSummary(
+          dashboardSummaryProvider.overrideWith((ref, propertyId) async => DashboardSummary(
                 todayRevenue: 0,
                 monthRevenue: 52900,
                 occupancyPct: 0,

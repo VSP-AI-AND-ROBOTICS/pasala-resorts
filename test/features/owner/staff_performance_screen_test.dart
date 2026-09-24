@@ -1,22 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/admin_profile.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/staff_performance.dart';
 import 'package:pasala/data/repositories/profile_directory_repository.dart';
 import 'package:pasala/data/repositories/staff_performance_repository.dart';
 import 'package:pasala/features/owner/staff_performance_screen.dart';
 
+class _FixedResort extends CurrentResort {
+  _FixedResort(this._value);
+  final ResortMembership? _value;
+  @override
+  ResortMembership? build() => _value;
+}
+
 class FakeStaffPerformanceRepository implements StaffPerformanceRepository {
   List<StaffPerformance> results = const [];
+  final List<String> requestedPropertyIds = [];
 
   @override
   Future<List<StaffPerformance>> summary({
+    required String propertyId,
     String? staffId,
     required DateTime from,
     required DateTime to,
-  }) async =>
-      staffId == null ? results : results.where((r) => r.staffId == staffId).toList();
+  }) async {
+    requestedPropertyIds.add(propertyId);
+    return staffId == null
+        ? results
+        : results.where((r) => r.staffId == staffId).toList();
+  }
 }
 
 final _staffProfile = AdminProfile(
@@ -27,10 +42,18 @@ final _staffProfile = AdminProfile(
   createdAt: DateTime.utc(2026, 1, 1),
 );
 
-Widget _appFor(FakeStaffPerformanceRepository repo) => ProviderScope(
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.owner);
+
+Widget _appFor(
+  FakeStaffPerformanceRepository repo, {
+  ResortMembership resort = _resort,
+}) =>
+    ProviderScope(
       overrides: [
         staffPerformanceRepositoryProvider.overrideWithValue(repo),
         adminProfilesProvider.overrideWith((ref) async => [_staffProfile]),
+        currentResortProvider.overrideWith(() => _FixedResort(resort)),
       ],
       child: const MaterialApp(home: StaffPerformanceScreen()),
     );
@@ -65,5 +88,18 @@ void main() {
     expect(find.text('Sita Staff'), findsOneWidget);
     expect(find.text('3/5'), findsOneWidget);
     expect(find.text('60%'), findsOneWidget);
+  });
+
+  // Review Focus #1: the current resort's id must reach the RPC, not just
+  // some hardcoded or global property.
+  testWidgets('queries the summary scoped to the current resort', (tester) async {
+    const otherResort = ResortMembership(
+        propertyId: 'p2', resortName: 'Other Resort', role: ResortRole.owner);
+    final repo = FakeStaffPerformanceRepository();
+
+    await tester.pumpWidget(_appFor(repo, resort: otherResort));
+    await tester.pumpAndSettle();
+
+    expect(repo.requestedPropertyIds, everyElement('p2'));
   });
 }
