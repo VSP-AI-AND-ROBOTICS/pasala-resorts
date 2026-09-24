@@ -66,7 +66,7 @@ alter table public.food_activity_sales
 -- functions. Existing three-argument callers (the app, pgTAP) resolve to
 -- it through the default. The body is copied from its latest definition,
 -- 0047_room_status.sql (it marks the room dirty); the method handling is
--- added by Task 2 of the finance plan.
+-- marked 0048.
 drop function if exists public.checkout_booking(uuid, text, numeric);
 
 create function public.checkout_booking(
@@ -84,6 +84,7 @@ declare
   v_row     public.reservations;
   v_charges jsonb;
   v_balance numeric(12,2);
+  v_method  public.payment_method := coalesce(p_method, 'gateway');   -- 0048
 begin
   if v_uid is null then
     raise exception 'authentication required' using errcode = 'P0008';
@@ -98,6 +99,18 @@ begin
 
   if v_row.customer_id is distinct from v_uid then
     perform public.assert_resort_role(v_row.property_id, true, 'owner','admin','staff','accountant');
+  end if;
+
+  -- 0048: only resort staff record a desk method, and only at the
+  -- booking's own resort. A guest's own checkout (the branch above
+  -- skipped) can only be gateway; a staff member checking out their own
+  -- stay passes this check. Before the early return, so a guest never
+  -- gets a desk method accepted, even as a no-op.
+  if v_method <> 'gateway'
+     and not public.has_resort_role(v_row.property_id, true,
+                                    'owner','admin','staff','accountant') then
+    raise exception 'desk payment methods are recorded by resort staff'
+      using errcode = 'P0009';
   end if;
 
   if v_row.status = 'checked_out' then
@@ -118,9 +131,21 @@ begin
   end if;
 
   if v_balance > 0 then
-    insert into public.payments
-      (reservation_id, amount, kind, status, gateway, gateway_ref)
-    values (p_reservation_id, v_balance, 'balance', 'succeeded', 'mock', p_payment_ref);
+    if v_method = 'gateway' then
+      insert into public.payments
+        (reservation_id, amount, kind, status, gateway, gateway_ref, method, recorded_by)
+      values (p_reservation_id, v_balance, 'balance', 'succeeded', 'mock', p_payment_ref,
+              'gateway', v_uid);
+    else
+      -- 0048: one balance payment per booking, so 'desk-<id>' stays unique
+      -- under unique (gateway, gateway_ref) and doubles as a retry guard.
+      -- The receipt/UTR number goes in `reference`, which is not unique.
+      insert into public.payments
+        (reservation_id, amount, kind, status, gateway, gateway_ref, method, reference, recorded_by)
+      values (p_reservation_id, v_balance, 'balance', 'succeeded', 'desk',
+              'desk-' || p_reservation_id, v_method,
+              nullif(btrim(p_payment_ref), ''), v_uid);
+    end if;
   end if;
 
   update public.reservations

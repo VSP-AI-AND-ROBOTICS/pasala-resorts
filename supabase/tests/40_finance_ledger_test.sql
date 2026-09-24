@@ -13,7 +13,7 @@
 -- "August 2026" fixtures (B1-B7, SX, W1-W3) feed Collections and the
 -- Ledger, with every amount worked out in the test that reads it.
 begin;
-select plan(18);
+select plan(34);
 
 -- Before any fixture: every payment the seed already holds became gateway.
 select is((select count(*)::int from public.payments where method <> 'gateway'), 0,
@@ -288,6 +288,86 @@ select is((select count(*)::int
                'public.checkout_booking(uuid, text, numeric, public.payment_method)']::regprocedure[]) f
             where has_function_privilege('authenticated', f, 'execute')),
   5, 'authenticated can execute all five finance functions');
+
+-- === Task 2: checkout_booking records the payment method =================
+
+set local role authenticated;
+-- A guest cannot record a desk method, even for the exact balance.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000007","role":"authenticated"}';
+select throws_ok($$select public.checkout_booking('ffffffff-0000-4000-8000-000000000022', 'x', 1000, 'cash')$$,
+  'P0009', 'desk payment methods are recorded by resort staff',
+  'a guest passing a desk method is refused');
+-- Review Focus 1: Sara is an accountant, but at resort S, not here.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok($$select public.checkout_booking('ffffffff-0000-4000-8000-000000000026', null, 1200, 'cash')$$,
+  'P0009', 'desk payment methods are recorded by resort staff',
+  'a member of another resort cannot record a desk method here');
+
+-- Reception takes cash with a receipt number (typed with stray spaces).
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select lives_ok($$select public.checkout_booking('ffffffff-0000-4000-8000-000000000021', ' R-555 ', 2000, 'cash')$$,
+  'staff record a cash balance with a receipt number');
+select is((select gateway || '|' || gateway_ref || '|' || method::text || '|' || reference || '|'
+                  || amount::text || '|' || (recorded_by = 'f0000000-0000-0000-0000-000000000003')::text
+             from public.payments
+            where reservation_id = 'ffffffff-0000-4000-8000-000000000021' and kind = 'balance'),
+  'desk|desk-ffffffff-0000-4000-8000-000000000021|cash|R-555|2000.00|true',
+  'the desk row: gateway desk, one ref per booking, the method, the trimmed reference, who recorded it');
+
+-- Review Focus 2: a retry, even with another method, changes nothing.
+select lives_ok($$select public.checkout_booking('ffffffff-0000-4000-8000-000000000021', 'R-999', 2000, 'card')$$,
+  'a retried checkout returns the booking');
+select is((select count(*)::text || '|' || min(method::text) || '|' || min(reference)
+             from public.payments
+            where reservation_id = 'ffffffff-0000-4000-8000-000000000021' and kind = 'balance'),
+  '1|cash|R-555', 'the retry writes no second payment and changes nothing');
+select is((select state::text from public.unit_room_status
+            where unit_id = 'ffffffff-0000-4000-8000-000000000011'),
+  'dirty', 'checkout still marks the room for cleaning (0047)');
+
+-- Guest self-checkout is unchanged, and still takes three arguments.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000007","role":"authenticated"}';
+select lives_ok($$select public.checkout_booking('ffffffff-0000-4000-8000-000000000022', 'fin-c2-bal', 1000)$$,
+  'a guest''s own checkout still works with three arguments');
+select is((select gateway || '|' || gateway_ref || '|' || method::text || '|' || coalesce(reference, '-') || '|'
+                  || amount::text || '|' || (recorded_by = 'f0000000-0000-0000-0000-000000000007')::text
+             from public.payments
+            where reservation_id = 'ffffffff-0000-4000-8000-000000000022' and kind = 'balance'),
+  'mock|fin-c2-bal|gateway|-|1000.00|true', 'guest self-checkout is an online gateway payment');
+
+-- Another resort may issue the same receipt number.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select lives_ok($$select public.checkout_booking('ffffffff-0000-4000-8000-000000000023', 'R-555', 1000, 'card')$$,
+  'resort S''s accountant records a card payment with the same receipt number');
+reset role;
+set local request.jwt.claims to '';
+select is((select count(*)::text || '|' || count(distinct property_id)::text
+             from public.payments where reference = 'R-555'),
+  '2|2', 'two resorts using the same reference both succeed');
+set local role authenticated;
+
+-- Review Focus 4: nothing left to pay writes nothing.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select lives_ok($$select public.checkout_booking('ffffffff-0000-4000-8000-000000000024', null, 0, 'upi')$$,
+  'a fully paid booking checks out at the desk');
+select is((select count(*)::int from public.payments
+            where reservation_id = 'ffffffff-0000-4000-8000-000000000024' and kind = 'balance'),
+  0, 'nothing left to pay writes no payment');
+
+-- A staff member checking out their own stay may still use a desk method.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select lives_ok($$select public.checkout_booking('ffffffff-0000-4000-8000-000000000025', '   ', 800, 'cash')$$,
+  'a staff member checking out their own stay may record cash');
+select is((select method::text || '|' || coalesce(reference, '-') || '|' || amount::text
+             from public.payments
+            where reservation_id = 'ffffffff-0000-4000-8000-000000000025' and kind = 'balance'),
+  'cash|-|800.00', 'a blank reference is stored as none');
+select is((select status::text from public.reservations
+            where id = 'ffffffff-0000-4000-8000-000000000026'),
+  'checked_in', 'the refused desk checkout left the booking checked in');
+
+reset role;
+set local request.jwt.claims to '';
 
 select * from finish();
 rollback;
