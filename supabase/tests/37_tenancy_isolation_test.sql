@@ -426,6 +426,11 @@ select is(
         'ical_export_public','ical_import_event','ical_poll_feed','ical_poll_all_feeds',
         'list_resort_members','add_resort_member','set_member_role','remove_resort_member',
         'platform_resorts','set_resort_status','create_resort',
+        -- 0049: subscriptions. The platform functions check
+        -- is_platform_admin(); my_resort_subscription asserts owner/admin
+        -- at the resort it is given.
+        'platform_summary','my_resort_subscription','set_resort_subscription',
+        'set_plan_price',
         -- 0047: room status. Each asserts the caller's role at the resort
         -- of the unit (or the resort) it is given.
         'room_status_board','set_room_status','dispatch_housekeeping',

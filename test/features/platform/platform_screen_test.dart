@@ -4,60 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/format.dart';
 import 'package:pasala/core/theme/app_theme.dart';
 import 'package:pasala/core/theme/theme_toggle_button.dart';
+import 'package:pasala/data/models/subscription.dart';
 import 'package:pasala/data/repositories/platform_repository.dart';
 import 'package:pasala/features/platform/platform_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class FakePlatformRepository implements PlatformSource {
-  List<ResortSummary> store = [];
-  final List<(String, String)> statusCalls = [];
-  final List<(String, String)> createCalls = [];
-  int _idCounter = 0;
-
-  @override
-  Future<List<ResortSummary>> resorts() async => store;
-
-  @override
-  Future<void> setStatus(String propertyId, String status) async {
-    statusCalls.add((propertyId, status));
-    final i = store.indexWhere((r) => r.propertyId == propertyId);
-    if (i >= 0) {
-      final old = store[i];
-      store[i] = ResortSummary(
-        propertyId: old.propertyId,
-        name: old.name,
-        status: status,
-        ownerEmails: old.ownerEmails,
-        createdAt: old.createdAt,
-        bookings30d: old.bookings30d,
-        revenue30d: old.revenue30d,
-        bookings365d: old.bookings365d,
-        revenue365d: old.revenue365d,
-      );
-    }
-  }
-
-  @override
-  Future<String> createResort(String name, String ownerEmail) async {
-    createCalls.add((name, ownerEmail));
-    final id = 'resort-${_idCounter++}';
-    store = [
-      ...store,
-      ResortSummary(
-        propertyId: id,
-        name: name,
-        status: 'active',
-        ownerEmails: [ownerEmail],
-        createdAt: DateTime.now(),
-        bookings30d: 0,
-        revenue30d: 0,
-        bookings365d: 0,
-        revenue365d: 0,
-      ),
-    ];
-    return id;
-  }
-}
+import '../../support/fake_platform_source.dart';
 
 final _resortA = ResortSummary(
   propertyId: 'p1',
@@ -95,7 +47,7 @@ final _resortC = ResortSummary(
   revenue365d: 0,
 );
 
-Widget _appFor(FakePlatformRepository repo, {ThemeMode themeMode = ThemeMode.light}) =>
+Widget _appFor(FakePlatformSource repo, {ThemeMode themeMode = ThemeMode.light}) =>
     ProviderScope(
       overrides: [platformSourceProvider.overrideWithValue(repo)],
       child: MaterialApp(
@@ -112,7 +64,7 @@ void main() {
   });
 
   testWidgets('renders two resorts from a fake', (tester) async {
-    final repo = FakePlatformRepository()..store = [_resortA, _resortB];
+    final repo = FakePlatformSource()..store = [_resortA, _resortB];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
 
@@ -126,7 +78,7 @@ void main() {
   testWidgets('tapping Suspend then confirming calls setStatus(id, suspended)', (
     tester,
   ) async {
-    final repo = FakePlatformRepository()..store = [_resortA, _resortB];
+    final repo = FakePlatformSource()..store = [_resortA, _resortB];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
 
@@ -143,7 +95,7 @@ void main() {
   testWidgets('creating a resort calls createResort and refreshes the list', (
     tester,
   ) async {
-    final repo = FakePlatformRepository()..store = [_resortA, _resortB];
+    final repo = FakePlatformSource()..store = [_resortA, _resortB];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
 
@@ -157,13 +109,14 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pumpAndSettle();
 
-    expect(repo.createCalls, [('Resort E', 'owner@x.com')]);
+    expect(repo.createCalls,
+        [('Resort E', 'owner@x.com', SubscriptionTier.starter, 30)]);
     expect(find.text('Resort E'), findsOneWidget);
   });
 
   testWidgets('a suspended resort offers Reactivate, which sets it active',
       (tester) async {
-    final repo = FakePlatformRepository()..store = [_resortB];
+    final repo = FakePlatformSource()..store = [_resortB];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
 
@@ -180,7 +133,7 @@ void main() {
   // "Suspend" as if it were; it shows its status and no action at all.
   testWidgets('an archived resort shows its status and no status action',
       (tester) async {
-    final repo = FakePlatformRepository()..store = [_resortC];
+    final repo = FakePlatformSource()..store = [_resortC];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
 
@@ -193,7 +146,7 @@ void main() {
   testWidgets('shows the theme toggle in the platform app bar', (
     tester,
   ) async {
-    final repo = FakePlatformRepository()..store = [_resortA];
+    final repo = FakePlatformSource()..store = [_resortA];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
 
@@ -201,7 +154,7 @@ void main() {
   });
 
   testWidgets('renders in ThemeMode.dark without throwing', (tester) async {
-    final repo = FakePlatformRepository()..store = [_resortA, _resortB, _resortC];
+    final repo = FakePlatformSource()..store = [_resortA, _resortB, _resortC];
     await tester.pumpWidget(_appFor(repo, themeMode: ThemeMode.dark));
     await tester.pumpAndSettle();
 

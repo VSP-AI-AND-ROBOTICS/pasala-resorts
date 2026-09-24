@@ -96,10 +96,18 @@ select is((select array[bookings_30d, revenue_30d, bookings_365d, revenue_365d]:
             where property_id = 'dddddddd-0000-4000-8000-000000000001'),
   array[1, 1000, 2, 1500]::numeric[],
   'platform_resorts counts and sums confirmed bookings made in the last 30 and 365 days');
-select is(pg_get_function_result('public.platform_resorts()'::regprocedure),
-  'TABLE(property_id uuid, name text, status text, owner_emails text[], created_at timestamp with time zone, '
-  'bookings_30d integer, revenue_30d numeric, bookings_365d integer, revenue_365d numeric)',
-  'platform_resorts returns summary columns only -- no guest data');
+-- 0049 adds the plan columns; still summaries only, no guest data.
+select is((select array_agg(p.parameter_name::text order by p.ordinal_position)
+             from information_schema.parameters p
+             join information_schema.routines r
+               on r.specific_schema = p.specific_schema and r.specific_name = p.specific_name
+            where r.routine_schema = 'public' and r.routine_name = 'platform_resorts'
+              and p.parameter_mode = 'OUT'),
+  array['property_id','name','status','owner_emails','created_at',
+        'bookings_30d','revenue_30d','bookings_365d','revenue_365d',
+        'plan_tier','plan_name','plan_status','trial_ends_on','paid_through',
+        'lapsed','monthly_price_inr','plan_notes'],
+  'platform_resorts returns summary and plan columns only -- no guest data');
 select is((select status from public.platform_resorts()
             where property_id = 'dddddddd-0000-4000-8000-000000000001'),
   'suspended', 'the suspension is visible in the summary');
@@ -338,7 +346,7 @@ select is((select array_agg(f::text order by f::text)
                'public.remove_resort_member(uuid, uuid)',
                'public.platform_resorts()',
                'public.set_resort_status(uuid, text)',
-               'public.create_resort(text, text)']::regprocedure[]) f
+               'public.create_resort(text, text, public.subscription_tier, integer)']::regprocedure[]) f
             where has_function_privilege('anon', f, 'execute')),
   null, 'anon can execute none of the new functions');
 select is((select count(*)::int
@@ -349,7 +357,7 @@ select is((select count(*)::int
                'public.remove_resort_member(uuid, uuid)',
                'public.platform_resorts()',
                'public.set_resort_status(uuid, text)',
-               'public.create_resort(text, text)']::regprocedure[]) f
+               'public.create_resort(text, text, public.subscription_tier, integer)']::regprocedure[]) f
             where has_function_privilege('authenticated', f, 'execute')),
   7, 'authenticated can execute all seven');
 select hasnt_function('public', 'list_profiles', 'list_profiles() is dropped');
