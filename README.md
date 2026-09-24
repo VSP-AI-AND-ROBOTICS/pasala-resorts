@@ -327,6 +327,30 @@ should always be served over HTTPS, at which point neither exemption is
 needed; shipping them to production would leave the app willing to accept
 plaintext HTTP from those hosts.
 
+## Deploying the web build
+
+Build with:
+
+```
+flutter build web
+```
+
+`--pwa-strategy` was removed from `flutter build web` as of this project's
+Flutter version (3.44) — `flutter build web -h` no longer lists it, and
+Flutter 3.44 no longer registers a caching service worker at all, so there
+is nothing left for that flag to configure. `web/index.html` still carries a
+small inline script (before `flutter_bootstrap.js`) that unregisters any
+service worker a returning browser may have registered by an older build of
+this app and clears any Cache Storage entries that build left behind, so
+upgrading a previously-deployed install can't keep serving a stale bundle.
+
+That inline cleanup only helps once a new `index.html` has actually reached
+the browser, so the host must also be configured to send
+`Cache-Control: no-cache` for `index.html` and `flutter_bootstrap.js` (both
+change on every deploy and must always be revalidated); the hashed,
+content-addressed assets under `build/web/` (e.g. `main.dart.js`,
+`canvaskit/`) can still be cached aggressively/immutably as usual.
+
 ## Known limitations
 
 Carried forward from phase 1, plus everything phase 2 found or deferred.
