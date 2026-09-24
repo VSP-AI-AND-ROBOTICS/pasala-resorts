@@ -221,3 +221,13 @@ begin
   end loop;
 end;
 $$;
+
+-- Existing global staff roles become memberships at the first property.
+insert into public.resort_members (property_id, user_id, role)
+select (select id from public.properties order by created_at limit 1),
+       p.id,
+       case p.role when 'super_admin' then 'owner'::public.resort_role
+                   else p.role::text::public.resort_role end
+  from public.profiles p
+ where p.role <> 'customer'
+   and exists (select 1 from public.properties);
