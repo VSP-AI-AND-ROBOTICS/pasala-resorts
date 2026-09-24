@@ -993,3 +993,428 @@ begin
   return v_issue;
 end;
 $$;
+
+-- ---------------------------------------------------------------------
+-- Reports, dashboard, performance summary and shift listing.
+--
+-- `report_revenue`/`report_occupancy`/`report_food_sales`/`report_expenses`
+-- already accepted an optional `p_property_id` (added when the app was
+-- single-property, to let one owner compare figures across two of their
+-- own resorts). It becomes REQUIRED here, for the same reason `assert_staff`
+-- is retired in favour of `assert_resort_role`: an optional filter that
+-- silently defaults to "every resort" is exactly backwards once a caller
+-- can be staff at one resort and nothing at another -- the old
+-- `is_staff_or_above()` check would happily hand resort A's staff every
+-- other resort's revenue, occupancy and expenses the moment they omitted
+-- the filter.
+
+-- Staff-or-above of the resort only. Every inner query is now filtered to
+-- p_property_id -- dashboard_summary used to simply read whatever
+-- report_revenue/report_occupancy/report_food_sales and the reservations/
+-- expenses tables returned, which was safe only because there was ever
+-- just the one resort in reach.
+drop function if exists public.dashboard_summary();
+
+create function public.dashboard_summary(p_property_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_today date := (now() at time zone 'Asia/Kolkata')::date;
+  v_month_start date := date_trunc('month', v_today)::date;
+  v_food_sales_today numeric;
+  v_expenses_month numeric;
+begin
+  perform public.assert_resort_role(p_property_id, false, 'owner','admin','staff','accountant');
+
+  select coalesce(sum(gross), 0) into v_food_sales_today
+  from public.report_food_sales(v_today, v_today, p_property_id);
+
+  select coalesce(sum(amount), 0) into v_expenses_month
+  from public.expenses
+  where property_id = p_property_id
+    and expense_date between v_month_start and v_today;
+
+  return jsonb_build_object(
+    'today_revenue', coalesce((
+      select sum(net) from public.report_revenue(v_today, v_today, p_property_id)), 0),
+    'month_revenue', coalesce((
+      select sum(net) from public.report_revenue(v_month_start, v_today, p_property_id)), 0),
+    'occupancy_pct', coalesce((
+      select round(avg(occupancy_pct), 1)
+      from public.report_occupancy(v_month_start, v_today, p_property_id)), 0),
+    'upcoming_arrivals', (
+      select count(*)::int from public.reservations
+      where property_id = p_property_id
+        and kind = 'booking' and status = 'confirmed'
+        and lower(period) >= now()
+        and lower(period) < now() + interval '7 days'),
+    'cancellations_this_month', (
+      select count(*)::int from public.reservations
+      where property_id = p_property_id
+        and kind = 'booking' and status = 'cancelled'
+        and cancelled_at >= v_month_start),
+    'active_holds', (
+      select count(*)::int from public.reservations
+      where property_id = p_property_id
+        and status = 'hold' and hold_expires_at > now()),
+    'food_sales_today', v_food_sales_today,
+    'expenses_month_total', v_expenses_month,
+    'net_profit_month', coalesce((
+      select sum(net) from public.report_revenue(v_month_start, v_today, p_property_id)), 0)
+      - v_expenses_month,
+    'checked_in_today', (
+      select count(*)::int from public.reservations
+      where property_id = p_property_id
+        and kind = 'booking' and checked_in_at::date = v_today),
+    'checked_out_today', (
+      select count(*)::int from public.reservations
+      where property_id = p_property_id
+        and kind = 'booking' and checked_out_at::date = v_today),
+    'currently_in_house', (
+      select count(*)::int from public.reservations
+      where property_id = p_property_id
+        and kind = 'booking' and status = 'checked_in')
+  );
+end;
+$$;
+
+grant execute on function public.dashboard_summary(uuid) to authenticated;
+revoke execute on function public.dashboard_summary(uuid) from public;
+revoke execute on function public.dashboard_summary(uuid) from anon;
+
+-- p_property_id is now required (no default). The argument types are
+-- unchanged from 0042's, but Postgres refuses to drop a parameter default
+-- via CREATE OR REPLACE ("cannot remove parameter defaults from existing
+-- function"), so the old signature is dropped and recreated, then
+-- re-granted exactly as it was.
+drop function if exists public.report_revenue(date, date, uuid);
+
+create function public.report_revenue(p_from date, p_to date, p_property_id uuid)
+ returns table(day date, property_id uuid, bookings integer, gross numeric, refunded numeric, net numeric)
+ language plpgsql
+ stable security definer
+ set search_path to 'public', 'pg_temp'
+as $function$
+begin
+  perform public.assert_resort_role(p_property_id, false, 'owner','admin','staff','accountant');
+
+  return query
+  select
+    (lower(r.period) at time zone p.timezone)::date as day,
+    p.id,
+    count(*)::int,
+    coalesce(sum((r.quote ->> 'total')::numeric)
+             filter (where r.status in ('confirmed','checked_in','checked_out')), 0),
+    coalesce(sum(r.refund_amount)
+             filter (where r.status = 'cancelled'), 0),
+    coalesce(sum((r.quote ->> 'total')::numeric)
+             filter (where r.status in ('confirmed','checked_in','checked_out')), 0)
+    - coalesce(sum(r.refund_amount)
+               filter (where r.status = 'cancelled'), 0)
+  from public.reservations r
+  join public.units u on u.id = r.unit_id
+  join public.properties p on p.id = u.property_id
+  where r.kind = 'booking'
+    and r.quote is not null
+    and (lower(r.period) at time zone p.timezone)::date between p_from and p_to
+    and p.id = p_property_id
+  group by 1, 2
+  order by 1;
+end;
+$function$;
+
+grant execute on function public.report_revenue to authenticated;
+revoke execute on function public.report_revenue from public;
+revoke execute on function public.report_revenue from anon;
+
+-- Same treatment as report_revenue: p_property_id required, resort role
+-- required at that resort, old signature dropped and re-granted.
+drop function if exists public.report_occupancy(date, date, uuid);
+
+create function public.report_occupancy(p_from date, p_to date, p_property_id uuid)
+ returns table(unit_id uuid, unit_name text, nights_available integer, nights_booked integer, occupancy_pct numeric)
+ language plpgsql
+ stable security definer
+ set search_path to 'public', 'pg_temp'
+as $function$
+declare
+  v_span int := greatest((p_to - p_from), 1);
+begin
+  perform public.assert_resort_role(p_property_id, false, 'owner','admin','staff','accountant');
+
+  return query
+  select
+    u.id,
+    u.name,
+    v_span,
+    coalesce((
+      select sum(
+        least((upper(r.period) at time zone p.timezone)::date, p_to)
+        - greatest((lower(r.period) at time zone p.timezone)::date, p_from)
+      )::int
+      from public.reservations r
+      where r.unit_id = u.id
+        and r.kind = 'booking'
+        and r.status in ('confirmed','checked_in','checked_out')
+        and r.period && tstzrange(p_from::timestamp at time zone p.timezone,
+                                   p_to::timestamp at time zone p.timezone, '[)')
+    ), 0),
+    round(
+      coalesce((
+        select sum(
+          least((upper(r.period) at time zone p.timezone)::date, p_to)
+          - greatest((lower(r.period) at time zone p.timezone)::date, p_from)
+        )::numeric
+        from public.reservations r
+        where r.unit_id = u.id
+          and r.kind = 'booking'
+          and r.status in ('confirmed','checked_in','checked_out')
+          and r.period && tstzrange(p_from::timestamp at time zone p.timezone,
+                                     p_to::timestamp at time zone p.timezone, '[)')
+      ), 0) * 100 / v_span, 1)
+  from public.units u
+  join public.properties p on p.id = u.property_id
+  where u.is_active
+    and p.id = p_property_id
+  order by u.name;
+end;
+$function$;
+
+grant execute on function public.report_occupancy to authenticated;
+revoke execute on function public.report_occupancy from public;
+revoke execute on function public.report_occupancy from anon;
+
+-- Same treatment: p_property_id required, Staff+ at that resort (matching
+-- the food_activity_sales_read policy's own role list). Old signature
+-- dropped and re-granted, same reason as report_revenue above.
+drop function if exists public.report_food_sales(date, date, uuid);
+
+create function public.report_food_sales(
+  p_from        date,
+  p_to          date,
+  p_property_id uuid
+) returns table (
+  day         date,
+  category    public.sale_category,
+  items_sold  int,
+  gross       numeric
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.assert_resort_role(p_property_id, false, 'owner','admin','staff','accountant');
+
+  return query
+  select
+    s.sale_date,
+    s.category,
+    sum(s.quantity)::int,
+    sum(s.amount)
+  from public.food_activity_sales s
+  where s.sale_date between p_from and p_to
+    and s.property_id = p_property_id
+  group by 1, 2
+  order by 1, 2;
+end;
+$$;
+
+grant execute on function public.report_food_sales to authenticated;
+revoke execute on function public.report_food_sales from public;
+revoke execute on function public.report_food_sales from anon;
+
+-- p_property_id required; the role check moves from a plain global
+-- current_role() test to assert_resort_role at the resort itself -- same
+-- owner/admin/accountant role list as the expenses_read policy, still
+-- deliberately excluding plain staff. Old signature dropped and
+-- re-granted, same reason as report_revenue above.
+drop function if exists public.report_expenses(date, date, uuid);
+
+create function public.report_expenses(
+  p_from        date,
+  p_to          date,
+  p_property_id uuid
+) returns table (
+  day    date,
+  category text,
+  total  numeric
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.assert_resort_role(p_property_id, false, 'owner','admin','accountant');
+
+  return query
+  select
+    e.expense_date,
+    e.category,
+    sum(e.amount)
+  from public.expenses e
+  where e.expense_date between p_from and p_to
+    and e.property_id = p_property_id
+  group by 1, 2
+  order by 1, 2;
+end;
+$$;
+
+grant execute on function public.report_expenses to authenticated;
+revoke execute on function public.report_expenses from public;
+revoke execute on function public.report_expenses from anon;
+
+-- Staff performance reporting is resort-scoped: p_property_id is a new
+-- required first parameter, and the "which staff members exist" source
+-- switches from the global profiles.role column (a role that no longer
+-- means anything resort-specific) to this resort's own resort_members
+-- roster. Still security invoker -- relies on the caller's own RLS on
+-- tasks/attendance_records/leave_requests/staff_shifts, which is already
+-- resort-scoped (0044) -- plus an explicit assert_resort_role and
+-- property_id filter on every query so an admin who belongs to more than
+-- one resort never blends another resort's figures into this one.
+drop function if exists public.staff_performance_summary(uuid, date, date);
+
+create function public.staff_performance_summary(
+  p_property_id uuid,
+  p_staff_id    uuid default null,
+  p_from        date default (now() at time zone 'Asia/Kolkata')::date - 30,
+  p_to          date default (now() at time zone 'Asia/Kolkata')::date
+) returns table (
+  staff_id                  uuid,
+  staff_name                text,
+  tasks_assigned            int,
+  tasks_completed           int,
+  completion_rate_pct       numeric,
+  avg_completion_hours      numeric,
+  days_present              int,
+  leave_days_approved       int,
+  avg_checkin_delay_minutes numeric
+)
+language plpgsql
+stable
+security invoker
+as $$
+begin
+  perform public.assert_resort_role(p_property_id, false, 'owner','admin');
+
+  return query
+  with staff as (
+    select p.id, p.full_name
+    from public.resort_members m
+    join public.profiles p on p.id = m.user_id
+    where m.property_id = p_property_id
+      and (p_staff_id is null or p.id = p_staff_id)
+  ),
+  task_stats as (
+    select
+      t.assignee_id,
+      count(*)::int as assigned,
+      count(*) filter (where t.status = 'done')::int as completed,
+      avg(extract(epoch from (t.completed_at - t.created_at)) / 3600.0)
+        filter (where t.completed_at is not null) as avg_hours
+    from public.tasks t
+    where t.property_id = p_property_id
+      and t.created_at::date between p_from and p_to
+    group by t.assignee_id
+  ),
+  attendance_stats as (
+    select
+      a.staff_id,
+      count(*)::int as present,
+      avg(
+        extract(epoch from (
+          a.check_in_at - (a.work_date + s.start_time)
+        )) / 60.0
+      ) filter (where s.start_time is not null) as avg_delay
+    from public.attendance_records a
+    left join public.staff_shifts s
+      on s.staff_id = a.staff_id and s.shift_date = a.work_date
+         and s.property_id = p_property_id
+    where a.property_id = p_property_id
+      and a.work_date between p_from and p_to
+    group by a.staff_id
+  ),
+  leave_stats as (
+    select
+      l.staff_id,
+      sum(l.end_date - l.start_date + 1)::int as leave_days
+    from public.leave_requests l
+    where l.property_id = p_property_id
+      and l.status = 'approved'
+      and l.start_date <= p_to and l.end_date >= p_from
+    group by l.staff_id
+  )
+  select
+    s.id,
+    coalesce(s.full_name, ''),
+    coalesce(ts.assigned, 0),
+    coalesce(ts.completed, 0),
+    case when coalesce(ts.assigned, 0) = 0 then 0
+         else round(ts.completed * 100.0 / ts.assigned, 1) end,
+    round(ts.avg_hours, 1),
+    coalesce(ast.present, 0),
+    coalesce(ls.leave_days, 0),
+    round(ast.avg_delay, 1)
+  from staff s
+  left join task_stats ts on ts.assignee_id = s.id
+  left join attendance_stats ast on ast.staff_id = s.id
+  left join leave_stats ls on ls.staff_id = s.id
+  order by s.full_name nulls last;
+end;
+$$;
+
+grant execute on function public.staff_performance_summary to authenticated;
+revoke execute on function public.staff_performance_summary from public;
+revoke execute on function public.staff_performance_summary from anon;
+
+-- list_staff_shifts gains a required p_property_id first parameter and
+-- filters on it directly; it deliberately still runs (as before) without
+-- assert_resort_role or security definer -- RLS on staff_shifts (0044)
+-- already scopes every row to its own resort, exactly as this function's
+-- original 0021 header explained for the single-property RLS it relied on
+-- then.
+drop function if exists public.list_staff_shifts(uuid, date, date);
+
+create function public.list_staff_shifts(
+  p_property_id uuid,
+  p_staff_id    uuid default null,
+  p_from        date default null,
+  p_to          date default null
+) returns table(
+  id         uuid,
+  staff_id   uuid,
+  staff_name text,
+  shift_date date,
+  start_time time,
+  end_time   time,
+  notes      text,
+  created_at timestamptz
+)
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select s.id, s.staff_id, p.full_name, s.shift_date, s.start_time,
+         s.end_time, s.notes, s.created_at
+  from public.staff_shifts s
+  join public.profiles p on p.id = s.staff_id
+  where s.property_id = p_property_id
+    and (p_staff_id is null or s.staff_id = p_staff_id)
+    and (p_from is null or s.shift_date >= p_from)
+    and (p_to is null or s.shift_date <= p_to)
+  order by s.shift_date, s.start_time;
+$$;
+
+grant execute on function public.list_staff_shifts(uuid, uuid, date, date) to authenticated;
+-- C1-sweep convention (see 0018_ical.sql / 0019_user_admin.sql): a `grant`
+-- to `authenticated` never removes the default PUBLIC EXECUTE a function
+-- holds since creation, so `anon` (and PUBLIC) must be revoked explicitly.
+revoke execute on function public.list_staff_shifts(uuid, uuid, date, date) from public;
+revoke execute on function public.list_staff_shifts(uuid, uuid, date, date) from anon;

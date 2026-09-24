@@ -74,8 +74,9 @@ select is(
 );
 
 select throws_ok(
-  $$select public.report_expenses(current_date, current_date)$$,
-  'P0008', null, 'plain staff cannot call report_expenses'
+  $$select public.report_expenses(current_date, current_date,
+    'aaaaaaaa-0000-0000-0000-000000000023')$$,
+  'P0020', null, 'plain staff cannot call report_expenses'
 );
 
 -- === report_expenses aggregation ==============================================
@@ -103,7 +104,8 @@ select throws_ok(
 );
 
 select throws_ok(
-  $$select public.report_expenses(current_date, current_date)$$,
+  $$select public.report_expenses(current_date, current_date,
+    'aaaaaaaa-0000-0000-0000-000000000023')$$,
   '42501', null, 'anon cannot call report_expenses -- revoked at the grant layer'
 );
 

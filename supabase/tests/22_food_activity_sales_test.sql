@@ -111,8 +111,9 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000005","role":"authenticated"}';
 
 select throws_ok(
-  $$select public.report_food_sales(current_date, current_date)$$,
-  'P0008', null, 'a customer cannot call report_food_sales'
+  $$select public.report_food_sales(current_date, current_date,
+    'aaaaaaaa-0000-0000-0000-000000000022')$$,
+  'P0020', null, 'a customer cannot call report_food_sales'
 );
 
 reset role;
@@ -128,7 +129,8 @@ select throws_ok(
 );
 
 select throws_ok(
-  $$select public.report_food_sales(current_date, current_date)$$,
+  $$select public.report_food_sales(current_date, current_date,
+    'aaaaaaaa-0000-0000-0000-000000000022')$$,
   '42501', null, 'anon cannot call report_food_sales -- revoked at the grant layer'
 );
 

@@ -117,20 +117,23 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
 select is(
-  (select count(*)::int from public.list_staff_shifts()),
+  (select count(*)::int from public.list_staff_shifts(
+    'a0000000-0000-0000-0000-000000000001')),
   1,
   'a staff member calling list_staff_shifts() with no filter sees only '
   'their own shift');
 
 select is(
   (select count(*)::int from public.list_staff_shifts(
+    p_property_id => 'a0000000-0000-0000-0000-000000000001',
     p_staff_id => '10000000-0000-0000-0000-000000000004')),
   0,
   'passing another staff member''s id does not leak their shift -- RLS, '
   'not the function''s own filter, decides visibility');
 
 select is(
-  (select staff_name from public.list_staff_shifts()
+  (select staff_name from public.list_staff_shifts(
+    'a0000000-0000-0000-0000-000000000001')
     where id = '97111111-1111-1111-1111-111111111111'),
   'Sita Staff',
   'list_staff_shifts joins in the staff member''s full_name from profiles');
@@ -140,12 +143,15 @@ set local request.jwt.claims to
 
 select is(
   (select count(*)::int from public.list_staff_shifts(
+    p_property_id => 'a0000000-0000-0000-0000-000000000001',
     p_staff_id => '10000000-0000-0000-0000-000000000004')),
   1,
   'admin filtering by staff_id sees exactly that staff member''s shift');
 
 select is(
-  (select count(*)::int from public.list_staff_shifts(p_from => '2026-09-02')),
+  (select count(*)::int from public.list_staff_shifts(
+    p_property_id => 'a0000000-0000-0000-0000-000000000001',
+    p_from => '2026-09-02')),
   1,
   'admin filtering by p_from excludes earlier shifts');
 
@@ -179,7 +185,7 @@ set local role anon;
 set local request.jwt.claims to '{"role":"anon"}';
 
 select throws_ok(
-  $$select * from public.list_staff_shifts()$$,
+  $$select * from public.list_staff_shifts('a0000000-0000-0000-0000-000000000001')$$,
   '42501', null, 'anon cannot call list_staff_shifts');
 
 select * from finish();

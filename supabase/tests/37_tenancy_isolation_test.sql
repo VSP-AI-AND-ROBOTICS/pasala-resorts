@@ -1,5 +1,5 @@
 begin;
-select plan(43);
+select plan(46);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -219,6 +219,22 @@ select throws_ok($$select public.check_in_booking('aaaaaaaa-0000-4000-8000-00000
 set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
 select lives_ok($$select public.cancel_booking('aaaaaaaa-0000-4000-8000-000000000021','changed plans')$$,
   'guest can still cancel at a suspended resort');
+
+-- Reports, dashboard and staff listings (0045): p_property_id is now
+-- required, and staff-or-above must hold that role AT the resort being
+-- asked about -- not just anywhere. `reset role` keeps the JWT claims;
+-- clear them so this status change runs with no authenticated caller.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'active' where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000d","role":"authenticated"}';
+select throws_ok($$select * from public.report_revenue('2027-01-01','2027-12-31','bbbbbbbb-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'A accountant cannot read B revenue');
+select throws_ok($$select public.dashboard_summary('bbbbbbbb-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'A accountant cannot read B dashboard');
+select throws_ok($$select * from public.report_expenses('2027-01-01','2027-12-31','bbbbbbbb-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'A accountant cannot read B expenses report');
 
 select * from finish();
 rollback;

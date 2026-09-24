@@ -57,7 +57,8 @@ values
 
 insert into public.resort_members (property_id, user_id, role) values
   ('e0000000-0000-0000-0000-000000000001','cccc0000-0000-0000-0000-000000000002','staff'),
-  ('e0000000-0000-0000-0000-000000000002','cccc0000-0000-0000-0000-000000000002','staff');
+  ('e0000000-0000-0000-0000-000000000002','cccc0000-0000-0000-0000-000000000002','staff'),
+  ('e0000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000004','accountant');
 
 -- R1: a confirmed Property A booking on 2027-03-01 with a total this file
 -- controls directly -- report_revenue must echo this number back exactly.
@@ -155,16 +156,18 @@ set local request.jwt.claims to
   '{"sub":"cccc0000-0000-0000-0000-000000000001","role":"authenticated"}';
 
 select throws_ok(
-  $$select public.dashboard_summary()$$,
-  'P0008', null, 'a customer cannot read the dashboard');
+  $$select public.dashboard_summary('e0000000-0000-0000-0000-000000000001')$$,
+  'P0020', null, 'a customer cannot read the dashboard');
 
 select throws_ok(
-  $$select * from public.report_revenue(current_date, current_date)$$,
-  'P0008', null, 'a customer cannot call report_revenue directly');
+  $$select * from public.report_revenue(current_date, current_date,
+     'e0000000-0000-0000-0000-000000000001')$$,
+  'P0020', null, 'a customer cannot call report_revenue directly');
 
 select throws_ok(
-  $$select * from public.report_occupancy(current_date, current_date)$$,
-  'P0008', null, 'a customer cannot call report_occupancy directly');
+  $$select * from public.report_occupancy(current_date, current_date,
+     'e0000000-0000-0000-0000-000000000001')$$,
+  'P0020', null, 'a customer cannot call report_occupancy directly');
 
 -- === staff can ============================================================
 
@@ -172,11 +175,11 @@ set local request.jwt.claims to
   '{"sub":"cccc0000-0000-0000-0000-000000000002","role":"authenticated"}';
 
 select lives_ok(
-  $$select public.dashboard_summary()$$,
+  $$select public.dashboard_summary('e0000000-0000-0000-0000-000000000001')$$,
   'staff can read the dashboard');
 
 select is(
-  (select jsonb_typeof(public.dashboard_summary() -> 'month_revenue')),
+  (select jsonb_typeof(public.dashboard_summary('e0000000-0000-0000-0000-000000000001') -> 'month_revenue')),
   'number',
   'month_revenue is a number');
 
@@ -347,7 +350,7 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000004","role":"authenticated"}';
 
 select lives_ok(
-  $$select public.dashboard_summary()$$,
+  $$select public.dashboard_summary('e0000000-0000-0000-0000-000000000001')$$,
   'an accountant can read the dashboard');
 
 select * from finish();

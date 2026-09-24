@@ -80,6 +80,7 @@ set local request.jwt.claims to
 
 select is(
   (select tasks_assigned from public.staff_performance_summary(
+    'a0000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000003', current_date - 1, current_date + 1)),
   3,
   'tasks_assigned counts all three tasks'
@@ -87,6 +88,7 @@ select is(
 
 select is(
   (select tasks_completed from public.staff_performance_summary(
+    'a0000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000003', current_date - 1, current_date + 1)),
   2,
   'tasks_completed counts the two moved to done'
@@ -94,6 +96,7 @@ select is(
 
 select is(
   (select completion_rate_pct from public.staff_performance_summary(
+    'a0000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000003', current_date - 1, current_date + 1)),
   66.7::numeric,
   'completion_rate_pct is 2/3 rounded to one decimal'
@@ -101,12 +104,14 @@ select is(
 
 select ok(
   (select avg_completion_hours from public.staff_performance_summary(
+    'a0000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000003', current_date - 1, current_date + 1)) >= 0,
   'avg_completion_hours is a non-negative number'
 );
 
 select is(
   (select days_present from public.staff_performance_summary(
+    'a0000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000003', current_date - 1, current_date + 1)),
   1,
   'days_present counts today''s check-in'
@@ -114,12 +119,14 @@ select is(
 
 select ok(
   (select avg_checkin_delay_minutes from public.staff_performance_summary(
+    'a0000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000003', current_date - 1, current_date + 1)) > 0,
   'avg_checkin_delay_minutes is positive against a midnight-start shift'
 );
 
 select is(
   (select leave_days_approved from public.staff_performance_summary(
+    'a0000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000003', current_date - 1, current_date + 1)),
   3,
   'leave_days_approved counts the 3-day approved request'
@@ -131,8 +138,8 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
 select throws_ok(
-  $$select public.staff_performance_summary()$$,
-  'P0008', null, 'a plain staff member cannot call staff_performance_summary'
+  $$select public.staff_performance_summary('a0000000-0000-0000-0000-000000000001')$$,
+  'P0020', null, 'a plain staff member cannot call staff_performance_summary'
 );
 
 reset role;
