@@ -8,7 +8,7 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/staff_task.dart';
-import '../../data/repositories/profile_directory_repository.dart';
+import '../../data/repositories/resort_member_repository.dart';
 import '../../data/repositories/task_repository.dart';
 
 String statusLabel(TaskStatus status) => switch (status) {
@@ -39,7 +39,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     final propertyId = ref.watch(currentResortProvider)!.propertyId;
     final filter = (propertyId: propertyId, assigneeId: _assigneeId, status: _statusFilter);
     final tasks = ref.watch(tasksProvider(filter));
-    final profiles = ref.watch(adminProfilesProvider);
+    final profiles = ref.watch(resortMembersProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Tasks')),
@@ -54,17 +54,15 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                     loading: () => const SizedBox.shrink(),
                     error: (_, _) => const SizedBox.shrink(),
                     data: (list) {
-                      final staffOrAbove =
-                          list.where((p) => p.isStaffOrAbove).toList();
                       return DropdownButtonFormField<String?>(
                         key: const Key('task-staff-picker'),
                         initialValue: _assigneeId,
                         decoration: const InputDecoration(labelText: 'Staff member'),
                         items: [
                           const DropdownMenuItem(value: null, child: Text('All staff')),
-                          for (final p in staffOrAbove)
+                          for (final p in list)
                             DropdownMenuItem(
-                              value: p.id,
+                              value: p.userId,
                               child: Text(p.fullName ?? p.email),
                             ),
                         ],
@@ -279,7 +277,9 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final profiles = ref.watch(adminProfilesProvider);
+    final profiles = ref.watch(
+      resortMembersProvider(ref.watch(currentResortProvider)!.propertyId),
+    );
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.existing == null ? 'New task' : 'Edit task')),
@@ -294,15 +294,13 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
                 loading: () => const SizedBox.shrink(),
                 error: (_, _) => const SizedBox.shrink(),
                 data: (list) {
-                  final staffOrAbove =
-                      list.where((p) => p.isStaffOrAbove).toList();
                   return DropdownButtonFormField<String>(
                     key: const Key('task-form-assignee-picker'),
                     initialValue: _assigneeId,
                     decoration: const InputDecoration(labelText: 'Staff member'),
                     items: [
-                      for (final p in staffOrAbove)
-                        DropdownMenuItem(value: p.id, child: Text(p.fullName ?? p.email)),
+                      for (final p in list)
+                        DropdownMenuItem(value: p.userId, child: Text(p.fullName ?? p.email)),
                     ],
                     onChanged: (value) => setState(() => _assigneeId = value),
                   );

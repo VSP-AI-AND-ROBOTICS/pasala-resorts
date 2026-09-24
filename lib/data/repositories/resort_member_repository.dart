@@ -8,7 +8,8 @@ import '../models/resort_membership.dart';
 /// One row of `list_resort_members(p_property)` -- an existing account's
 /// membership at a resort, joined server-side with its profile and
 /// `auth.users` email (see 0045_resort_functions.sql), same shape as the
-/// old `AdminProfile` but resort-scoped instead of global.
+/// deleted `AdminProfile` but resort-scoped instead of global. Also backs
+/// the staff pickers on the admin and owner staff-ops screens.
 class ResortMember {
   const ResortMember({
     required this.userId,

@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/current_resort.dart';
-import 'package:pasala/data/models/admin_profile.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/staff_task.dart';
-import 'package:pasala/data/repositories/profile_directory_repository.dart';
 import 'package:pasala/data/repositories/task_repository.dart';
 import 'package:pasala/features/admin/tasks_screen.dart';
+
+import '../../support/resort_roster.dart';
 
 /// In-memory stand-in for [TaskRepository], mirroring
 /// `FakeStaffShiftRepository` in `staff_shifts_screen_test.dart`. Each row
@@ -112,14 +112,6 @@ class FakeTaskRepository implements TaskRepository {
   }
 }
 
-final _staffProfile = AdminProfile(
-  id: 'staff-1',
-  email: 'staff@pasala.test',
-  isStaffOrAbove: true,
-  fullName: 'Sita Staff',
-  createdAt: DateTime.utc(2026, 1, 1),
-);
-
 const _resort =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
 
@@ -131,7 +123,7 @@ class _FixedResort extends CurrentResort {
 Widget _appFor(FakeTaskRepository repo) => ProviderScope(
       overrides: [
         taskRepositoryProvider.overrideWithValue(repo),
-        adminProfilesProvider.overrideWith((ref) async => [_staffProfile]),
+        rosterOverride,
         currentResortProvider.overrideWith(_FixedResort.new),
       ],
       child: const MaterialApp(home: TasksScreen()),
@@ -287,5 +279,32 @@ void main() {
     expect(find.text('Resort A task'), findsOneWidget);
     expect(find.text('Resort B task'), findsNothing);
     expect(repo.listedPropertyIds, everyElement('p1'));
+  });
+
+  // Final review C1: the picker lists `list_resort_members` for the current
+  // resort only -- never another resort's staff.
+  testWidgets("the staff filter lists only the current resort's members", (tester) async {
+    await tester.pumpWidget(_appFor(FakeTaskRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('task-staff-picker')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sita Staff'), findsWidgets);
+    expect(find.text('Olga Otherresort'), findsNothing);
+  });
+
+  testWidgets("the create form's assignee picker lists only the current "
+      "resort's members", (tester) async {
+    await tester.pumpWidget(_appFor(FakeTaskRepository()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('task-form-assignee-picker')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sita Staff'), findsWidgets);
+    expect(find.text('Olga Otherresort'), findsNothing);
   });
 }

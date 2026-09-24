@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/current_resort.dart';
-import 'package:pasala/data/models/admin_profile.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/service_request.dart';
-import 'package:pasala/data/repositories/profile_directory_repository.dart';
 import 'package:pasala/data/repositories/service_request_repository.dart';
 import 'package:pasala/features/admin/service_requests_screen.dart';
+
+import '../../support/resort_roster.dart';
 
 /// In-memory stand-in for [ServiceRequestRepository], mirroring
 /// `FakeTaskRepository` in `tasks_screen_test.dart`. Each row is tracked
@@ -90,14 +90,6 @@ class FakeServiceRequestRepository implements ServiceRequestRepository {
   }
 }
 
-final _staffProfile = AdminProfile(
-  id: 'staff-1',
-  email: 'staff@pasala.test',
-  isStaffOrAbove: true,
-  fullName: 'Sita Staff',
-  createdAt: DateTime.utc(2026, 1, 1),
-);
-
 const _resort =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
 
@@ -109,7 +101,7 @@ class _FixedResort extends CurrentResort {
 Widget _appFor(FakeServiceRequestRepository repo) => ProviderScope(
       overrides: [
         serviceRequestRepositoryProvider.overrideWithValue(repo),
-        adminProfilesProvider.overrideWith((ref) async => [_staffProfile]),
+        rosterOverride,
         currentResortProvider.overrideWith(_FixedResort.new),
       ],
       child: const MaterialApp(home: ServiceRequestsScreen()),
@@ -170,5 +162,27 @@ void main() {
     expect(find.text('Resort A request'), findsOneWidget);
     expect(find.text('Resort B request'), findsNothing);
     expect(repo.listedPropertyIds, everyElement('p1'));
+  });
+
+  // Final review C1: "Assign to" lists `list_resort_members` for the current
+  // resort only -- never another resort's staff.
+  testWidgets("the assign-to picker lists only the current resort's members",
+      (tester) async {
+    final repo = FakeServiceRequestRepository()
+      ..addToResort('p1', const ServiceRequest(
+        id: 'r1',
+        reservationId: 'res-1',
+        category: ServiceRequestCategory.cleaning,
+        description: 'Extra towels please',
+        status: ServiceRequestStatus.requested,
+      ));
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Unassigned'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sita Staff'), findsWidgets);
+    expect(find.text('Olga Otherresort'), findsNothing);
   });
 }

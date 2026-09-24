@@ -77,7 +77,7 @@ TodayLists partitionToday(List<Reservation> all, DateTime today) {
   return (arrivals: arrivals, departures: departures, staying: staying);
 }
 
-/// `/staff` landing page. Reachable only by `isStaffOrAbove` users -- the
+/// `/staff` landing page. Reachable only by members of a resort -- the
 /// router redirects everyone else to `/404`, and RLS on `reservations` is
 /// what actually enforces that a customer's `allBookings()` call only ever
 /// returns their own rows regardless.

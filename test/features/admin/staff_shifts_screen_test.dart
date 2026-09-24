@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/current_resort.dart';
-import 'package:pasala/data/models/admin_profile.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/staff_shift.dart';
-import 'package:pasala/data/repositories/profile_directory_repository.dart';
 import 'package:pasala/data/repositories/staff_shift_repository.dart';
 import 'package:pasala/features/admin/staff_shifts_screen.dart';
+
+import '../../support/resort_roster.dart';
 
 /// In-memory stand-in for [StaffShiftRepository], mirroring
 /// `FakeRateRepository` in `rate_rules_screen_test.dart`.
@@ -71,14 +71,6 @@ class FakeStaffShiftRepository implements StaffShiftRepository {
   }
 }
 
-final _staffProfile = AdminProfile(
-  id: 'staff-1',
-  email: 'staff@pasala.test',
-  isStaffOrAbove: true,
-  fullName: 'Sita Staff',
-  createdAt: DateTime.utc(2026, 1, 1),
-);
-
 const _resort =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
 
@@ -90,7 +82,7 @@ class _FixedResort extends CurrentResort {
 Widget _appFor(FakeStaffShiftRepository repo) => ProviderScope(
       overrides: [
         staffShiftRepositoryProvider.overrideWithValue(repo),
-        adminProfilesProvider.overrideWith((ref) async => [_staffProfile]),
+        rosterOverride,
         currentResortProvider.overrideWith(_FixedResort.new),
       ],
       child: const MaterialApp(home: StaffShiftsScreen()),
@@ -191,5 +183,18 @@ void main() {
 
     expect(repo.deletedIds, ['s1']);
     expect(find.text('Sita Staff'), findsNothing);
+  });
+
+  // Final review C1: the picker lists `list_resort_members` for the current
+  // resort only -- never another resort's staff.
+  testWidgets("the staff filter lists only the current resort's members", (tester) async {
+    await tester.pumpWidget(_appFor(FakeStaffShiftRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('shift-staff-picker')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sita Staff'), findsWidgets);
+    expect(find.text('Olga Otherresort'), findsNothing);
   });
 }

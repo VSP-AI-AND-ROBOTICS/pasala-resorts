@@ -6,7 +6,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../data/models/staff_performance.dart';
-import '../../data/repositories/profile_directory_repository.dart';
+import '../../data/repositories/resort_member_repository.dart';
 import '../../data/repositories/staff_performance_repository.dart';
 
 DateTimeRange _last30Days() {
@@ -16,8 +16,9 @@ DateTimeRange _last30Days() {
 
 /// `/owner/staff-performance` -- task completion, attendance and
 /// punctuality per staff member, over a chosen date range. Mirrors
-/// `TasksScreen`'s filter-bar shape (a staff picker sourced from
-/// `adminProfilesProvider`, same as the Tasks admin screen), but the data
+/// `TasksScreen`'s filter-bar shape (a staff picker sourced from the
+/// current resort's `resortMembersProvider`, same as the Tasks admin
+/// screen), but the data
 /// itself is entirely read-only: there is nothing to create, edit, or
 /// delete here.
 class StaffPerformanceScreen extends ConsumerStatefulWidget {
@@ -54,7 +55,7 @@ class _StaffPerformanceScreenState extends ConsumerState<StaffPerformanceScreen>
       to: _range.end,
     );
     final summary = ref.watch(staffPerformanceProvider(filter));
-    final profiles = ref.watch(adminProfilesProvider);
+    final profiles = ref.watch(resortMembersProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Staff performance')),
@@ -72,17 +73,15 @@ class _StaffPerformanceScreenState extends ConsumerState<StaffPerformanceScreen>
                         loading: () => const SizedBox.shrink(),
                         error: (_, _) => const SizedBox.shrink(),
                         data: (list) {
-                          final staffOrAbove =
-                              list.where((p) => p.isStaffOrAbove).toList();
                           return DropdownButtonFormField<String?>(
                             key: const Key('performance-staff-picker'),
                             initialValue: _staffId,
                             decoration: const InputDecoration(labelText: 'Staff member'),
                             items: [
                               const DropdownMenuItem(value: null, child: Text('All staff')),
-                              for (final p in staffOrAbove)
+                              for (final p in list)
                                 DropdownMenuItem(
-                                  value: p.id,
+                                  value: p.userId,
                                   child: Text(p.fullName ?? p.email),
                                 ),
                             ],

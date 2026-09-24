@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/current_resort.dart';
-import 'package:pasala/data/models/admin_profile.dart';
 import 'package:pasala/data/models/leave_request.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/leave_request_repository.dart';
-import 'package:pasala/data/repositories/profile_directory_repository.dart';
 import 'package:pasala/features/admin/leave_requests_screen.dart';
+
+import '../../support/resort_roster.dart';
 
 /// In-memory stand-in for [LeaveRequestRepository], mirroring
 /// `FakeStaffShiftRepository` in `staff_shifts_screen_test.dart`.
@@ -59,14 +59,6 @@ class FakeLeaveRequestRepository implements LeaveRequestRepository {
   }
 }
 
-final _staffProfile = AdminProfile(
-  id: 'staff-1',
-  email: 'staff@pasala.test',
-  isStaffOrAbove: true,
-  fullName: 'Sita Staff',
-  createdAt: DateTime(2026, 1, 1),
-);
-
 const _resort =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
 
@@ -78,7 +70,7 @@ class _FixedResort extends CurrentResort {
 Widget _appFor(FakeLeaveRequestRepository repo) => ProviderScope(
       overrides: [
         leaveRequestRepositoryProvider.overrideWithValue(repo),
-        adminProfilesProvider.overrideWith((ref) async => [_staffProfile]),
+        rosterOverride,
         currentResortProvider.overrideWith(_FixedResort.new),
       ],
       child: const MaterialApp(home: LeaveRequestsScreen()),
@@ -169,5 +161,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('leave-row-l2')), findsOneWidget);
+  });
+
+  // Final review C1: the picker lists `list_resort_members` for the current
+  // resort only -- never another resort's staff.
+  testWidgets("the staff filter lists only the current resort's members", (tester) async {
+    await tester.pumpWidget(_appFor(FakeLeaveRequestRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('leave-staff-picker')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sita Staff'), findsWidgets);
+    expect(find.text('Olga Otherresort'), findsNothing);
   });
 }

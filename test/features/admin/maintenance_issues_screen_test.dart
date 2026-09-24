@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/current_resort.dart';
-import 'package:pasala/data/models/admin_profile.dart';
 import 'package:pasala/data/models/maintenance_issue.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/maintenance_repository.dart';
-import 'package:pasala/data/repositories/profile_directory_repository.dart';
 import 'package:pasala/features/admin/maintenance_issues_screen.dart';
+
+import '../../support/resort_roster.dart';
 
 /// In-memory stand-in for [MaintenanceRepository], mirroring
 /// `FakeTaskRepository` in `tasks_screen_test.dart`. Each row is tracked
@@ -106,14 +106,6 @@ class FakeMaintenanceRepository implements MaintenanceRepository {
   }
 }
 
-final _staffProfile = AdminProfile(
-  id: 'staff-1',
-  email: 'staff@pasala.test',
-  isStaffOrAbove: true,
-  fullName: 'Sita Staff',
-  createdAt: DateTime.utc(2026, 1, 1),
-);
-
 const _resort =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
 
@@ -125,7 +117,7 @@ class _FixedResort extends CurrentResort {
 Widget _appFor(FakeMaintenanceRepository repo) => ProviderScope(
       overrides: [
         maintenanceRepositoryProvider.overrideWithValue(repo),
-        adminProfilesProvider.overrideWith((ref) async => [_staffProfile]),
+        rosterOverride,
         currentResortProvider.overrideWith(_FixedResort.new),
       ],
       child: const MaterialApp(home: MaintenanceIssuesScreen()),
@@ -189,5 +181,28 @@ void main() {
     expect(find.text('Resort A issue'), findsOneWidget);
     expect(find.text('Resort B issue'), findsNothing);
     expect(repo.listedPropertyIds, everyElement('p1'));
+  });
+
+  // Final review C1: "Assign to" lists `list_resort_members` for the current
+  // resort only -- never another resort's staff.
+  testWidgets("the assign-to picker lists only the current resort's members",
+      (tester) async {
+    final repo = FakeMaintenanceRepository()
+      ..addToResort('p1', const MaintenanceIssue(
+        id: 'i1',
+        reservationId: 'res-1',
+        category: MaintenanceCategory.ac,
+        description: 'AC not cooling',
+        priority: MaintenancePriority.high,
+        status: MaintenanceStatus.reported,
+      ));
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Unassigned'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sita Staff'), findsWidgets);
+    expect(find.text('Olga Otherresort'), findsNothing);
   });
 }

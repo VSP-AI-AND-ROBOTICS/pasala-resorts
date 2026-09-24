@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/current_resort.dart';
-import 'package:pasala/data/models/admin_profile.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/staff_performance.dart';
-import 'package:pasala/data/repositories/profile_directory_repository.dart';
 import 'package:pasala/data/repositories/staff_performance_repository.dart';
 import 'package:pasala/features/owner/staff_performance_screen.dart';
+
+import '../../support/resort_roster.dart';
 
 class _FixedResort extends CurrentResort {
   _FixedResort(this._value);
@@ -34,14 +34,6 @@ class FakeStaffPerformanceRepository implements StaffPerformanceRepository {
   }
 }
 
-final _staffProfile = AdminProfile(
-  id: 'staff-1',
-  email: 'staff@pasala.test',
-  isStaffOrAbove: true,
-  fullName: 'Sita Staff',
-  createdAt: DateTime.utc(2026, 1, 1),
-);
-
 const _resort =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.owner);
 
@@ -52,7 +44,7 @@ Widget _appFor(
     ProviderScope(
       overrides: [
         staffPerformanceRepositoryProvider.overrideWithValue(repo),
-        adminProfilesProvider.overrideWith((ref) async => [_staffProfile]),
+        rosterOverride,
         currentResortProvider.overrideWith(() => _FixedResort(resort)),
       ],
       child: const MaterialApp(home: StaffPerformanceScreen()),
@@ -101,5 +93,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.requestedPropertyIds, everyElement('p2'));
+  });
+
+  // Final review C1: the picker lists `list_resort_members` for the current
+  // resort only -- never another resort's staff.
+  testWidgets("the staff picker lists only the current resort's members", (tester) async {
+    await tester.pumpWidget(_appFor(FakeStaffPerformanceRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('performance-staff-picker')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sita Staff'), findsWidgets);
+    expect(find.text('Olga Otherresort'), findsNothing);
   });
 }

@@ -9,7 +9,7 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/staff_shift.dart';
-import '../../data/repositories/profile_directory_repository.dart';
+import '../../data/repositories/resort_member_repository.dart';
 import '../../data/repositories/staff_shift_repository.dart';
 
 final _dateFormat = DateFormat('d MMM yyyy');
@@ -50,7 +50,7 @@ class _StaffShiftsScreenState extends ConsumerState<StaffShiftsScreen> {
       to: _dateRange?.end,
     );
     final shifts = ref.watch(staffShiftsProvider(filter));
-    final profiles = ref.watch(adminProfilesProvider);
+    final profiles = ref.watch(resortMembersProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Staff shifts')),
@@ -65,17 +65,15 @@ class _StaffShiftsScreenState extends ConsumerState<StaffShiftsScreen> {
                     loading: () => const SizedBox.shrink(),
                     error: (_, _) => const SizedBox.shrink(),
                     data: (list) {
-                      final staffOrAbove =
-                          list.where((p) => p.isStaffOrAbove).toList();
                       return DropdownButtonFormField<String?>(
                         key: const Key('shift-staff-picker'),
                         initialValue: _staffId,
                         decoration: const InputDecoration(labelText: 'Staff member'),
                         items: [
                           const DropdownMenuItem(value: null, child: Text('All staff')),
-                          for (final p in staffOrAbove)
+                          for (final p in list)
                             DropdownMenuItem(
-                              value: p.id,
+                              value: p.userId,
                               child: Text(p.fullName ?? p.email),
                             ),
                         ],
@@ -328,7 +326,9 @@ class _StaffShiftFormScreenState extends ConsumerState<StaffShiftFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final profiles = ref.watch(adminProfilesProvider);
+    final profiles = ref.watch(
+      resortMembersProvider(ref.watch(currentResortProvider)!.propertyId),
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -345,15 +345,13 @@ class _StaffShiftFormScreenState extends ConsumerState<StaffShiftFormScreen> {
                 loading: () => const SizedBox.shrink(),
                 error: (_, _) => const SizedBox.shrink(),
                 data: (list) {
-                  final staffOrAbove =
-                      list.where((p) => p.isStaffOrAbove).toList();
                   return DropdownButtonFormField<String>(
                     key: const Key('shift-form-staff-picker'),
                     initialValue: _staffId,
                     decoration: const InputDecoration(labelText: 'Staff member'),
                     items: [
-                      for (final p in staffOrAbove)
-                        DropdownMenuItem(value: p.id, child: Text(p.fullName ?? p.email)),
+                      for (final p in list)
+                        DropdownMenuItem(value: p.userId, child: Text(p.fullName ?? p.email)),
                     ],
                     onChanged: widget.existing == null
                         ? (value) => setState(() => _staffId = value)

@@ -8,7 +8,7 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/service_request.dart';
-import '../../data/repositories/profile_directory_repository.dart';
+import '../../data/repositories/resort_member_repository.dart';
 import '../../data/repositories/service_request_repository.dart';
 
 /// `/admin/service-requests` -- every request, assignable to any staff
@@ -42,7 +42,7 @@ class _ServiceRequestsScreenState extends ConsumerState<ServiceRequestsScreen> {
     final propertyId = ref.watch(currentResortProvider)!.propertyId;
     final filter = (propertyId: propertyId, assignedStaffId: null, status: _statusFilter);
     final requestsAsync = ref.watch(serviceRequestsProvider(filter));
-    final profiles = ref.watch(adminProfilesProvider);
+    final profiles = ref.watch(resortMembersProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Service Requests')),
@@ -92,17 +92,14 @@ class _ServiceRequestsScreenState extends ConsumerState<ServiceRequestsScreen> {
                                   loading: () => const SizedBox.shrink(),
                                   error: (_, _) => const SizedBox.shrink(),
                                   data: (list) {
-                                    final staffOrAbove = list
-                                        .where((p) => p.isStaffOrAbove)
-                                        .toList();
                                     return DropdownButtonFormField<String?>(
                                       initialValue: r.assignedStaffId,
                                       decoration: const InputDecoration(labelText: 'Assign to'),
                                       items: [
                                         const DropdownMenuItem(value: null, child: Text('Unassigned')),
-                                        for (final p in staffOrAbove)
+                                        for (final p in list)
                                           DropdownMenuItem(
-                                              value: p.id, child: Text(p.fullName ?? p.email)),
+                                              value: p.userId, child: Text(p.fullName ?? p.email)),
                                       ],
                                       onChanged: (staffId) =>
                                           staffId == null ? null : _assign(r.id, staffId),
