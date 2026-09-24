@@ -11,6 +11,7 @@ import '../../core/widgets/brand_mark.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/resort_membership.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../resorts/resort_switcher.dart';
 
 /// Responsive chrome shared by every signed-in screen: a bottom navigation
 /// bar on narrow layouts, a navigation rail on wide ones. Destinations vary
@@ -103,7 +104,13 @@ class AppShell extends ConsumerWidget {
         title: const BrandMark(),
         actionsPadding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
         actions: [
-          if (user != null)
+          if (user != null) ...[
+            // Renders nothing for a user with 0 or 1 memberships (see
+            // `ResortSwitcher`'s own doc comment) -- shown for every
+            // signed-in staff role (owner/admin/staff/accountant), never
+            // the customer bar below, since a customer holds no resort
+            // membership to switch between.
+            if (resort != null) const ResortSwitcher(),
             if (resort == null)
               // Customers get a bell + profile avatar instead of a bare
               // sign-out icon -- there is no notifications feature or
@@ -124,6 +131,7 @@ class AppShell extends ConsumerWidget {
                 icon: const Icon(Icons.logout),
                 onPressed: () => _signOut(context, ref),
               ),
+          ],
         ],
       ),
       body: wide

@@ -41,6 +41,20 @@ class ResortSuspended extends BookingFailure {
       : super('This resort is suspended — changes are disabled.');
 }
 
+/// `P0002` from `add_resort_member` specifically -- the email typed into
+/// Team's "Add member" dialog doesn't match any signed-up account. The
+/// server sends this as a bare `not_found` code with no user-facing text,
+/// same shape as every other `P0002` site in this app (`mapPostgrestError`
+/// maps those generically to [NotFound], "That item no longer exists.") --
+/// but that message is wrong here (nothing "existed" to go missing; the
+/// email was just never signed up), so `ResortMemberRepository.add` catches
+/// this one `P0002` itself and throws this instead, with the specific
+/// next-step copy the Team screen needs.
+class NoAccountFound extends BookingFailure {
+  const NoAccountFound()
+      : super('No account with that email — ask them to sign up first.');
+}
+
 /// A 400/422 from Supabase auth: a mistyped password on sign-in, or a
 /// duplicate email on sign-up. Kept distinct from [NotPermitted] (I7) --
 /// without this, every one of those looked identical to "you don't have
