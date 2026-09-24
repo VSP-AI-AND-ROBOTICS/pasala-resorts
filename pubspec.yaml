@@ -75,6 +75,9 @@ dev_dependencies:
   build_runner: ^2.15.1
   freezed: ^3.2.3
   json_serializable: ^6.11.2
+  # Used directly (not just transitively via shared_preferences) by
+  # theme_mode_provider_test.dart to fake a SharedPreferences failure.
+  shared_preferences_platform_interface: ^2.4.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
