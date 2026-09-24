@@ -13,7 +13,7 @@
 -- "August 2026" fixtures (B1-B7, SX, W1-W3) feed Collections and the
 -- Ledger, with every amount worked out in the test that reads it.
 begin;
-select plan(47);
+select plan(63);
 
 -- Before any fixture: every payment the seed already holds became gateway.
 select is((select count(*)::int from public.payments where method <> 'gateway'), 0,
@@ -429,6 +429,79 @@ select is((select c.method::text || '|' || c.txn_count || '|' || c.amount
                                             'ffffffff-0000-4000-8000-000000000001') c
             where c.channel = 'front_desk' and c.source = 'checkout_balance'),
   'cash|2|2800.00', 'today''s desk checkouts are collected under cash');
+
+reset role;
+set local request.jwt.claims to '';
+
+-- === Task 4: report_ledger ==================================================
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select is((select count(*)::int
+             from public.report_ledger('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')),
+  11, 'August has 11 ledger lines');
+select is((select l.gross || '|' || l.discount || '|' || l.taxable || '|' || l.tax || '|' || l.net
+             from public.report_ledger('2026-08-10', '2026-08-10', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.category = 'room'),
+  '10000.00|1000.00|9000.00|1080.00|10080.00',
+  'nightly rates and extra guests are room gross; the coupon is its discount; tax is on what is left');
+select is((select l.gross || '|' || l.discount || '|' || l.taxable || '|' || l.tax || '|' || l.net
+             from public.report_ledger('2026-08-10', '2026-08-10', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.source = 'cleaning_fee'),
+  '500.00|0.00|500.00|60.00|560.00', 'the cleaning fee is ancillary revenue with its share of the tax');
+select is((select sum(l.tax)
+             from public.report_ledger('2026-08-10', '2026-08-10', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.source in ('booking', 'cleaning_fee')),
+  1140.00::numeric, 'room + cleaning tax equals the quote''s tax_amount (1,140)');
+select is((select sum(l.net)
+             from public.report_ledger('2026-08-10', '2026-08-10', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.source in ('booking', 'cleaning_fee')),
+  10640.00::numeric, 'room + cleaning net equals the quote total (10,640)');
+select is((select l.gross || '|' || l.discount || '|' || l.taxable || '|' || l.tax || '|' || l.net
+             from public.report_ledger('2026-08-13', '2026-08-13', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.category = 'room'),
+  '1000.00|1000.00|0.00|0.00|0.00', 'a coupon larger than the subtotal takes the whole room line');
+select is((select l.gross || '|' || l.discount || '|' || l.taxable || '|' || l.tax || '|' || l.net
+             from public.report_ledger('2026-08-13', '2026-08-13', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.source = 'cleaning_fee'),
+  '500.00|200.00|300.00|36.00|336.00', 'the rest of the coupon spills onto the cleaning fee, which carries the tax');
+select is((select string_agg(l.category || '|' || l.source || '|' || l.gross || '|' || l.discount || '|'
+                             || l.taxable || '|' || l.tax || '|' || l.net, ';')
+             from public.report_ledger('2026-08-14', '2026-08-14', 'ffffffff-0000-4000-8000-000000000001') l),
+  'room|booking|2000.00|0.00|2000.00|0.00|2000.00', 'a total-only quote is all room gross, untaxed');
+select is((select l.gross
+             from public.report_ledger('2026-08-11', '2026-08-11', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.category = 'food_beverage' and l.source = 'in_stay_order'),
+  700.00::numeric, 'in-stay food orders are F&B; a cancelled order is not');
+select is((select l.gross
+             from public.report_ledger('2026-08-11', '2026-08-11', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.category = 'spa_activities' and l.source = 'activity_booking'),
+  1200.00::numeric, 'activity bookings are Spa/Activities; a cancelled one is not');
+select is((select string_agg(l.category || '|' || l.gross, ';' order by l.category)
+             from public.report_ledger('2026-08-10', '2026-08-10', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.source = 'walk_in'),
+  'food_beverage|550.00;spa_activities|300.00', 'walk-in food is F&B and walk-in activities are Spa/Activities');
+select is((select l.gross
+             from public.report_ledger('2026-08-05', '2026-08-05', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.source = 'cancellation_fee'),
+  500.00::numeric, 'the part of a paid booking kept on cancellation is an ancillary fee');
+select is((select count(*)::int
+             from public.report_ledger('2026-08-06', '2026-08-07', 'ffffffff-0000-4000-8000-000000000001')),
+  0, 'no fee is kept from an unpaid hold or from a refund that took everything paid');
+select is((select l.gross
+             from public.report_ledger('2026-08-20', '2026-08-20', 'ffffffff-0000-4000-8000-000000000001') l
+            where l.category = 'room'),
+  3000.00::numeric, 'a cancelled booking is not room revenue');
+select is((select bool_and(l.taxable = l.gross - l.discount and l.net = l.taxable + l.tax)
+             from public.report_ledger('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') l),
+  true, 'every line has taxable = gross - discount and net = taxable + tax');
+-- Today: B9 arrives with 2,000 of room at 12%.
+select is((select l.tax
+             from public.report_ledger((now() at time zone 'Asia/Kolkata')::date,
+                                       (now() at time zone 'Asia/Kolkata')::date,
+                                       'ffffffff-0000-4000-8000-000000000001') l
+            where l.category = 'room'),
+  240.00::numeric, 'today''s arrival carries its room tax on today');
 
 reset role;
 set local request.jwt.claims to '';

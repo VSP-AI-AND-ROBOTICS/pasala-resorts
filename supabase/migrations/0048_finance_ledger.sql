@@ -262,8 +262,105 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_tz text;
 begin
-  raise exception 'report_ledger is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property_id, false, 'owner','admin','accountant');
+
+  select p.timezone into v_tz from public.properties p where p.id = p_property_id;
+
+  -- Accrual basis: revenue earned, by category. Room revenue falls on the
+  -- arrival date (as in report_revenue). Tax is room tax only, exactly as
+  -- fixed in each booking's quote (get_quote taxes subtotal + cleaning_fee
+  -- - discount); it is split between the room line and the cleaning-fee
+  -- line so the two add up to the quote's tax_amount and total.
+  return query
+  with bk as (
+    select (lower(r.period) at time zone v_tz)::date as b_day,
+           coalesce(r.quote ? 'subtotal', false) as b_itemised,
+           coalesce((r.quote ->> 'subtotal')::numeric, (r.quote ->> 'total')::numeric, 0) as b_sub,
+           coalesce((r.quote ->> 'cleaning_fee')::numeric, 0) as b_clean,
+           coalesce((r.quote -> 'coupon' ->> 'discount')::numeric, 0) as b_disc,
+           coalesce((r.quote ->> 'tax_pct')::numeric, 0) as b_pct,
+           coalesce((r.quote ->> 'tax_amount')::numeric, 0) as b_tax
+      from public.reservations r
+     where r.property_id = p_property_id
+       and r.kind = 'booking'
+       and r.quote is not null
+       and r.status in ('confirmed', 'checked_in', 'checked_out')
+       and (lower(r.period) at time zone v_tz)::date between p_from and p_to
+  ),
+  bk2 as (
+    select b.*,
+           case when b.b_itemised then least(b.b_disc, b.b_sub) else 0 end as room_disc
+      from bk b
+  ),
+  bk3 as (
+    select b.*,
+           case when b.b_itemised
+                then round((b.b_sub - b.room_disc) * b.b_pct / 100, 2) else 0 end as room_tax,
+           case when b.b_itemised
+                then least(b.b_disc - b.room_disc, b.b_clean) else 0 end as clean_disc
+      from bk2 b
+  ),
+  paid as (
+    select pm.reservation_id as res_id, sum(pm.amount) as paid_total
+      from public.payments pm
+     where pm.property_id = p_property_id and pm.status = 'succeeded'
+     group by pm.reservation_id
+  ),
+  lines as (
+    select b.b_day as l_day, 'room' as l_cat, 'booking' as l_src,
+           b.b_sub as l_gross, b.room_disc as l_disc, b.room_tax as l_tax
+      from bk3 b
+    union all
+    select b.b_day, 'ancillary', 'cleaning_fee',
+           b.b_clean, b.clean_disc, b.b_tax - b.room_tax
+      from bk3 b
+     where b.b_itemised and (b.b_clean > 0 or b.b_tax - b.room_tax <> 0)
+    union all
+    select (r.cancelled_at at time zone v_tz)::date, 'ancillary', 'cancellation_fee',
+           coalesce(pd.paid_total, 0) - least(coalesce(r.refund_amount, 0), coalesce(pd.paid_total, 0)),
+           0, 0
+      from public.reservations r
+      left join paid pd on pd.res_id = r.id
+     where r.property_id = p_property_id
+       and r.status = 'cancelled'
+       and r.cancelled_at >= (p_from::timestamp at time zone v_tz)
+       and r.cancelled_at <  ((p_to + 1)::timestamp at time zone v_tz)
+       and coalesce(pd.paid_total, 0)
+           - least(coalesce(r.refund_amount, 0), coalesce(pd.paid_total, 0)) > 0
+    union all
+    select (fo.created_at at time zone v_tz)::date, 'food_beverage', 'in_stay_order',
+           fo.total, 0, 0
+      from public.food_orders fo
+     where fo.property_id = p_property_id
+       and fo.status <> 'cancelled'
+       and fo.created_at >= (p_from::timestamp at time zone v_tz)
+       and fo.created_at <  ((p_to + 1)::timestamp at time zone v_tz)
+    union all
+    select s.sale_date,
+           case s.category when 'food' then 'food_beverage' else 'spa_activities' end,
+           'walk_in', s.amount, 0, 0
+      from public.food_activity_sales s
+     where s.property_id = p_property_id
+       and s.sale_date between p_from and p_to
+    union all
+    select ab.booking_date, 'spa_activities', 'activity_booking', ab.amount, 0, 0
+      from public.activity_bookings ab
+     where ab.property_id = p_property_id
+       and ab.status = 'booked'
+       and ab.booking_date between p_from and p_to
+  )
+  select l.l_day, l.l_cat, l.l_src,
+         round(sum(l.l_gross), 2),
+         round(sum(l.l_disc), 2),
+         round(sum(l.l_gross - l.l_disc), 2),
+         round(sum(l.l_tax), 2),
+         round(sum(l.l_gross - l.l_disc + l.l_tax), 2)
+    from lines l
+   group by l.l_day, l.l_cat, l.l_src
+   order by l.l_day, l.l_cat, l.l_src;
 end;
 $$;
 
