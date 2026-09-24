@@ -8,6 +8,8 @@ import '../../core/greeting.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/models/reservation.dart';
+import '../../data/models/room_status.dart';
+import '../../data/repositories/room_status_repository.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/review_repository.dart';
 import '../browse/providers.dart';
@@ -99,6 +101,25 @@ String relativeTime(DateTime from, DateTime now) {
     return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
   }
   return 'Just now';
+}
+
+/// Whether every room's stored state is `ready` -- an occupied room counts
+/// as ready unless someone marked it for cleaning or maintenance.
+bool allRoomsReady(List<RoomBoardEntry> rooms) =>
+    rooms.every((r) => r.state == RoomState.ready);
+
+/// The Preparation line of Today's Focus, from the room board's stored
+/// states (not the derived status, so an occupied room that needs cleaning
+/// still counts).
+String roomReadinessLabel(List<RoomBoardEntry> rooms) {
+  if (rooms.isEmpty) return 'No rooms set up';
+  final toClean = rooms.where((r) => r.state == RoomState.dirty).length;
+  final maintenance = rooms.where((r) => r.state == RoomState.outOfOrder).length;
+  if (toClean == 0 && maintenance == 0) return 'All rooms ready ✓';
+  return [
+    if (toClean > 0) '$toClean to clean',
+    if (maintenance > 0) '$maintenance in maintenance',
+  ].join(' · ');
 }
 
 /// This screen shows exactly one resort -- the signed-in admin's current
@@ -301,8 +322,7 @@ class _FarmhouseStatusCard extends ConsumerWidget {
 
 /// Arrival and Payment both describe the SAME soonest upcoming booking (see
 /// [nextArrival]) -- one coherent story rather than two unrelated figures.
-/// Preparation is the one deliberately decorative line here, matching
-/// [_FarmhouseReadinessCard]'s always-ready state.
+/// Preparation reads the room board -- see [roomReadinessLabel].
 class _TodaysFocus extends ConsumerWidget {
   const _TodaysFocus();
 
@@ -311,6 +331,11 @@ class _TodaysFocus extends ConsumerWidget {
     final propertyId = ref.watch(currentResortProvider)!.propertyId;
     final bookings = ref.watch(allBookingsProvider(propertyId)).value ?? const [];
     final arrival = nextArrival(bookings, DateTime.now());
+    final preparation = ref.watch(roomBoardProvider(propertyId)).when(
+          data: roomReadinessLabel,
+          loading: () => 'Checking rooms…',
+          error: (_, _) => 'Room status unavailable',
+        );
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
@@ -418,7 +443,9 @@ class _TodaysFocus extends ConsumerWidget {
                 iconColor: scheme.tertiary,
                 background: scheme.tertiaryContainer,
                 label: 'Preparation',
-                content: Text('Farmhouse ready ✓', style: textTheme.bodySmall),
+                content: Text(preparation,
+                    key: const Key('preparation-rooms'),
+                    style: textTheme.bodySmall),
               ),
             ],
           ),
@@ -470,6 +497,10 @@ class _QuickActions extends ConsumerWidget {
       (
         (icon: Icons.logout_outlined, label: 'Check-out', color: scheme.tertiary),
         () => context.push('/admin/check-out'),
+      ),
+      (
+        (icon: Icons.meeting_room_outlined, label: 'Rooms', color: Colors.teal),
+        () => context.push('/staff/rooms'),
       ),
       (
         (icon: Icons.restaurant_outlined, label: 'Food Order', color: Colors.deepOrange),
@@ -554,27 +585,38 @@ class _QuickActionTile extends StatelessWidget {
   }
 }
 
-/// A fixed, always-ready checklist -- there is no real per-item readiness
-/// state anywhere in the app (no housekeeping/maintenance toggle backs any
-/// of "Rooms", "Pool", etc.), so unlike every other card on this screen,
-/// this one is decorative bundled content, the same way the property
-/// page's "About the Farmhouse" blurb is. It intentionally never reads as
-/// "not ready" -- there is nothing behind it that could ever turn it red.
-class _FarmhouseReadinessCard extends StatelessWidget {
+/// A readiness checklist. Only "Rooms / Cottages" is backed by data -- the
+/// room board's stored states (see [allRoomsReady]); Pool, Garden, Kitchen
+/// and Wi-Fi have no status anywhere in the app and stay a fixed checklist.
+/// The Overall Status pill follows the rooms line: READY, ATTENTION when a
+/// room needs cleaning or is out of order, or a dash while the board is
+/// loading or unavailable.
+class _FarmhouseReadinessCard extends ConsumerWidget {
   const _FarmhouseReadinessCard();
 
-  static const _items = [
-    'Rooms / Cottages',
-    'Pool',
-    'Garden',
-    'Kitchen',
-    'Wi-Fi',
-  ];
+  static const _fixedItems = ['Pool', 'Garden', 'Kitchen', 'Wi-Fi'];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final rooms = ref.watch(roomBoardProvider(propertyId)).value;
+    final roomsReady = rooms == null ? null : allRoomsReady(rooms);
+
+    Widget row(String item, IconData icon, Color color, {Key? key}) => Padding(
+          key: key,
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Expanded(
+                  child: Text(item,
+                      style: textTheme.bodySmall,
+                      overflow: TextOverflow.ellipsis)),
+              Icon(icon, size: 16, color: color),
+            ],
+          ),
+        );
 
     return _SectionCard(
       child: Column(
@@ -582,18 +624,22 @@ class _FarmhouseReadinessCard extends StatelessWidget {
         children: [
           _eyebrow(context, 'FARMHOUSE READINESS'),
           const SizedBox(height: Spacing.sm),
-          for (final item in _items)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                      child: Text(item,
-                          style: textTheme.bodySmall, overflow: TextOverflow.ellipsis)),
-                  Icon(Icons.check_circle, size: 16, color: scheme.primary),
-                ],
-              ),
-            ),
+          row(
+            'Rooms / Cottages',
+            switch (roomsReady) {
+              true => Icons.check_circle,
+              false => Icons.error_outline,
+              null => Icons.remove_circle_outline,
+            },
+            switch (roomsReady) {
+              true => scheme.primary,
+              false => RoomStatus.cleaning.color,
+              null => scheme.onSurfaceVariant,
+            },
+            key: const Key('readiness-rooms'),
+          ),
+          for (final item in _fixedItems)
+            row(item, Icons.check_circle, scheme.primary),
           const SizedBox(height: Spacing.sm),
           Container(
             padding: const EdgeInsets.symmetric(
@@ -609,10 +655,17 @@ class _FarmhouseReadinessCard extends StatelessWidget {
                     style: textTheme.labelSmall
                         ?.copyWith(color: scheme.onPrimaryContainer)),
                 const Spacer(),
-                Text('READY',
-                    style: textTheme.labelSmall?.copyWith(
-                        color: scheme.onPrimaryContainer,
-                        fontWeight: FontWeight.w700)),
+                Text(
+                  switch (roomsReady) {
+                    true => 'READY',
+                    false => 'ATTENTION',
+                    null => '—',
+                  },
+                  key: const Key('readiness-overall'),
+                  style: textTheme.labelSmall?.copyWith(
+                      color: scheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w700),
+                ),
               ],
             ),
           ),
