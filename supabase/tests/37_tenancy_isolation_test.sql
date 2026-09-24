@@ -1,5 +1,5 @@
 begin;
-select plan(64);
+select plan(67);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -326,6 +326,62 @@ set local role authenticated;
 set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000c","role":"authenticated"}';
 select throws_ok($$select public.check_out_attendance('aaaaaaaa-0000-4000-8000-000000000041')$$,
   'P0022', null, 'staff cannot check out at a suspended resort');
+
+-- Catalog guards: fail the suite when a future table, policy or security
+-- definer function is added without resort scoping.
+reset role;
+select is(
+  (select array_agg(c.relname::text order by c.relname)
+     from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity
+      and exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = c.relname
+                     and column_name = 'property_id')),
+  null, 'every table with property_id has row security enabled');
+
+-- No policy on a resort-owned table currently relies on a bare `true`, so
+-- it is left out of the pattern; widen it only if a real need shows up.
+select is(
+  (select array_agg(tablename || '.' || policyname order by 1)
+     from pg_policies
+    where schemaname = 'public'
+      and tablename in (select table_name from information_schema.columns
+                         where table_schema = 'public' and column_name = 'property_id')
+      and coalesce(qual,'') || coalesce(with_check,'') not similar to
+          '%(has_resort_role|auth.uid\(\)|status = ''active'')%'),
+  null, 'every policy on a resort-owned table checks the resort or the guest');
+
+select is(
+  (select array_agg(p.proname::text order by 1)
+     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prosecdef
+      and p.proname <> all (array[
+        'is_platform_admin','resort_role','has_resort_role','assert_resort_role',
+        'fill_property_id','handle_new_user',
+        'search_availability','get_quote','create_hold','resolve_coupon','confirm_booking',
+        'compute_refund','cancel_booking','block_dates','release_expired_holds',
+        'release_reservation_coupon','check_in_booking','checkout_booking','current_charges',
+        'place_food_order','book_activity','create_service_request','report_maintenance_issue',
+        'dashboard_summary','report_revenue','report_occupancy','report_food_sales',
+        'report_expenses','staff_shifts_enforce_admin_write','leave_requests_enforce_admin_decision',
+        'attendance_records_enforce_own_checkout','attendance_records_force_checkin_time',
+        'check_out_attendance','tasks_enforce_write','service_requests_enforce_write',
+        'maintenance_issues_enforce_write','enqueue_reservation_outbox','enqueue_outbox_message',
+        'render_template','record_reservation_transition','sync_unit_calendar_event',
+        'ical_provision_token','rotate_ical_token','ical_export','ical_build_document',
+        'ical_export_public','ical_import_event','ical_poll_feed','ical_poll_all_feeds',
+        'list_resort_members','add_resort_member','set_member_role','remove_resort_member',
+        'platform_resorts','set_resort_status','create_resort',
+        -- 0044: properties_guard_status checks is_platform_admin() directly
+        -- before allowing a status change; reviews_set_author_name has no
+        -- check of its own, but it only ever fires on a row the reviews_insert
+        -- policy already restricted to customer_id = auth.uid(), so it just
+        -- re-reads the inserting guest's own profile.
+        'properties_guard_status','reviews_set_author_name',
+        -- Legacy helpers still present until Task 12 (migration 0046) drops
+        -- them; remove this block when that task lands.
+        'current_role','is_staff_or_above','is_admin','is_super_admin','assert_staff'])),
+  null, 'every security definer function is on the reviewed allow-list');
 
 select * from finish();
 rollback;
