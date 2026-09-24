@@ -322,4 +322,36 @@ void main() {
       expect(repo.totalsCalls, 2);
     });
   });
+
+  group('adding a resort', () {
+    testWidgets('the add button is labelled Add resort', (tester) async {
+      final repo = FakePlatformSource()..store = [_resortA];
+      await tester.pumpWidget(_appFor(repo));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('add-resort-fab')), findsOneWidget);
+      expect(find.widgetWithText(FloatingActionButton, 'Add resort'),
+          findsOneWidget);
+    });
+
+    testWidgets('a new resort refreshes the list and the cards',
+        (tester) async {
+      final repo = FakePlatformSource()..store = [_resortA];
+      await tester.pumpWidget(_appFor(repo));
+      await tester.pumpAndSettle();
+      expect(repo.totalsCalls, 1);
+
+      await tester.tap(find.byKey(const Key('add-resort-fab')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('new-resort-name')), 'Resort E');
+      await tester.enterText(
+          find.byKey(const Key('new-resort-owner-email')), 'owner@x.com');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Resort E'), findsOneWidget);
+      expect(repo.totalsCalls, 2);
+    });
+  });
 }
