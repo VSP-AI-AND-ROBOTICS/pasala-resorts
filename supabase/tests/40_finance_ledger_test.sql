@@ -13,7 +13,7 @@
 -- "August 2026" fixtures (B1-B7, SX, W1-W3) feed Collections and the
 -- Ledger, with every amount worked out in the test that reads it.
 begin;
-select plan(63);
+select plan(91);
 
 -- Before any fixture: every payment the seed already holds became gateway.
 select is((select count(*)::int from public.payments where method <> 'gateway'), 0,
@@ -502,6 +502,139 @@ select is((select l.tax
                                        'ffffffff-0000-4000-8000-000000000001') l
             where l.category = 'room'),
   240.00::numeric, 'today''s arrival carries its room tax on today');
+
+reset role;
+set local request.jwt.claims to '';
+
+-- === Task 5: settlements, the day's summary, and who may read them ==========
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select is((select count(*)::int
+             from public.report_settlements('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')),
+  2, 'two bookings were checked out in August');
+select is((select s.guest_name || '|' || s.unit_name || '|' || s.arrival || '|' || s.departure || '|'
+                  || s.room || '|' || s.cleaning_fee || '|' || s.tax_pct || '|' || s.tax || '|'
+                  || s.food || '|' || s.activities || '|' || s.total || '|' || s.advance_paid || '|'
+                  || s.balance_online || '|' || s.balance_desk || '|' || coalesce(s.desk_method::text, '-') || '|'
+                  || coalesce(s.desk_reference, '-') || '|' || coalesce(s.recorded_by_name, '-') || '|' || s.outstanding
+             from public.report_settlements('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') s
+            where s.reservation_id = 'ffffffff-0000-4000-8000-000000000031'),
+  'Gita Guest|Cottage 1|2026-08-10|2026-08-12|9000.00|500.00|12.00|1140.00|700.00|1200.00|12540.00|5000.00|0.00|7540.00|cash|R-101|Sita Staff|0.00',
+  'a desk settlement: its parts add up to the total, with the method, reference and who took it');
+select is((select s.room || '|' || s.cleaning_fee || '|' || s.tax_pct || '|' || s.tax || '|' || s.total || '|'
+                  || s.advance_paid || '|' || s.balance_online || '|' || s.balance_desk || '|'
+                  || coalesce(s.desk_method::text, '-') || '|' || s.outstanding
+             from public.report_settlements('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001') s
+            where s.reservation_id = 'ffffffff-0000-4000-8000-000000000037'),
+  '3000.00|0.00|0.00|0.00|3000.00|1000.00|2000.00|0.00|-|0.00',
+  'an online settlement has no desk method');
+select is((select count(*)::int
+             from public.report_settlements((now() at time zone 'Asia/Kolkata')::date,
+                                            (now() at time zone 'Asia/Kolkata')::date,
+                                            'ffffffff-0000-4000-8000-000000000001')),
+  4, 'today''s four checkouts at R are settled today');
+select is((select coalesce(s.desk_method::text, '-') || '|' || coalesce(s.desk_reference, '-') || '|'
+                  || s.advance_paid || '|' || s.balance_desk || '|' || coalesce(s.recorded_by_name, '-') || '|' || s.outstanding
+             from public.report_settlements((now() at time zone 'Asia/Kolkata')::date,
+                                            (now() at time zone 'Asia/Kolkata')::date,
+                                            'ffffffff-0000-4000-8000-000000000001') s
+            where s.reservation_id = 'ffffffff-0000-4000-8000-000000000021'),
+  'cash|R-555|1000.00|2000.00|Sita Staff|0.00', 'the desk method and reference show on the settlement');
+select is((select bool_and(s.outstanding = 0)
+             from public.report_settlements((now() at time zone 'Asia/Kolkata')::date,
+                                            (now() at time zone 'Asia/Kolkata')::date,
+                                            'ffffffff-0000-4000-8000-000000000001') s),
+  true, 'nothing is outstanding after a normal checkout');
+
+select is((select (x.s -> 'resort' ->> 'name') || '|' || (x.s -> 'resort' ->> 'slug') || '|'
+                  || (x.s -> 'resort' ->> 'gstin') || '|' || (x.s -> 'resort' ->> 'tax_pct') || '|'
+                  || (x.s -> 'resort' ->> 'timezone')
+             from (select public.finance_summary('ffffffff-0000-4000-8000-000000000001') as s) x),
+  'Resort R|fin-r|29ABCDE1234F1Z5|12.00|Asia/Kolkata', 'the summary carries the export header');
+select is((select (public.finance_summary('ffffffff-0000-4000-8000-000000000001') -> 'resort' ->> 'today')::date),
+  (now() at time zone 'Asia/Kolkata')::date, 'today is the resort''s own date');
+select is((select (x.s ->> 'online_collected') || '|' || (x.s -> 'desk_collected' ->> 'total') || '|'
+                  || (x.s ->> 'refunds') || '|' || (x.s ->> 'net_collected')
+             from (select public.finance_summary('ffffffff-0000-4000-8000-000000000001') as s) x),
+  '1000.00|2920.00|600.00|3320.00', 'online, desk, refunds and net for today');
+select is((select (x.s -> 'desk_collected' ->> 'cash') || '|' || (x.s -> 'desk_collected' ->> 'card') || '|'
+                  || (x.s -> 'desk_collected' ->> 'upi') || '|' || (x.s -> 'desk_collected' ->> 'bank_transfer') || '|'
+                  || (x.s -> 'desk_collected' ->> 'other')
+             from (select public.finance_summary('ffffffff-0000-4000-8000-000000000001') as s) x),
+  '2800.00|120.00|0.00|0.00|0.00', 'desk money by method, zero where none');
+select is((select public.finance_summary('ffffffff-0000-4000-8000-000000000001') ->> 'room_tax'),
+  '240.00', 'today''s room tax');
+select is((select (x.s ->> 'in_house_count') || '|' || (x.s ->> 'in_house_balance')
+             from (select public.finance_summary('ffffffff-0000-4000-8000-000000000001') as s) x),
+  '1|1200.00', 'one guest in house, owing 1,200');
+
+-- Who may read. Owner and admin as well as the accountant.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select lives_ok($$select * from public.report_ledger('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')$$,
+  'the owner reads the ledger');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select lives_ok($$select * from public.report_settlements('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')$$,
+  'an admin reads settlements');
+-- Plain staff keep their revenue and occupancy view, but no finance.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select * from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'plain staff cannot read collections');
+select throws_ok($$select * from public.report_ledger('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'plain staff cannot read the ledger');
+select throws_ok($$select * from public.report_settlements('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'plain staff cannot read settlements');
+select throws_ok($$select public.finance_summary('ffffffff-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'plain staff cannot read the summary');
+-- Other resorts, guests, no resort, anon.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok($$select * from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'resort S''s accountant cannot read resort R');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select public.finance_summary('ffffffff-0000-4000-8000-000000000002')$$,
+  'P0020', null, 'resort R''s accountant cannot read resort S');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select throws_ok($$select * from public.report_ledger('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'a guest cannot read the ledger');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select * from public.report_collections('2026-08-01', '2026-08-31', null)$$,
+  'P0020', null, 'no resort id, no report');
+set local role anon;
+select throws_ok($$select public.finance_summary('ffffffff-0000-4000-8000-000000000001')$$,
+  '42501', null, 'anon cannot call the finance functions');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select is((select string_agg(c.channel || '|' || c.source || '|' || c.method::text || '|' || c.txn_count || '|' || c.amount, ';')
+             from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000002') c
+            where c.day = '2026-08-01'),
+  'online|booking_advance|gateway|1|9999.00', 'resort S''s accountant sees resort S''s money, and only it');
+
+-- Suspended: reads work, checkout does not. `reset role` keeps the
+-- claims; clear them so the status change runs with no caller.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'suspended'
+ where id = 'ffffffff-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select is((select count(*)::int
+             from public.report_ledger('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')),
+  11, 'a suspended resort''s ledger is still readable');
+select lives_ok($$select public.finance_summary('ffffffff-0000-4000-8000-000000000001')$$,
+  'a suspended resort''s summary is still readable');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.checkout_booking('ffffffff-0000-4000-8000-000000000026', null, 1200, 'cash')$$,
+  'P0022', null, 'no desk checkout at a suspended resort');
+
+-- Archived: closed.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'archived'
+ where id = 'ffffffff-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select * from public.report_collections('2026-08-01', '2026-08-31', 'ffffffff-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'an archived resort''s finance is closed');
 
 reset role;
 set local request.jwt.claims to '';

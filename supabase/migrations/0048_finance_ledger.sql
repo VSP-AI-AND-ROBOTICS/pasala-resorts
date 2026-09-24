@@ -391,8 +391,85 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_tz text;
 begin
-  raise exception 'report_settlements is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property_id, false, 'owner','admin','accountant');
+
+  select p.timezone into v_tz from public.properties p where p.id = p_property_id;
+
+  -- One row per booking checked out in the range. room + cleaning_fee +
+  -- tax + food + activities = total, where total is what current_charges
+  -- bills (quote total + food + activities), and outstanding is total
+  -- minus every succeeded payment.
+  return query
+  select r.id,
+         coalesce(nullif(btrim(pr.full_name), ''), 'Guest'),
+         u.name,
+         (lower(r.period) at time zone v_tz)::date,
+         (upper(r.period) at time zone v_tz)::date,
+         round(q.q_room, 2),
+         round(q.q_clean, 2),
+         round(q.q_pct, 2),
+         round(q.q_tax, 2),
+         round(f.f_total, 2),
+         round(a.a_total, 2),
+         round(q.q_total + f.f_total + a.a_total, 2),
+         round(pay.adv, 2),
+         round(pay.bal_online, 2),
+         round(pay.bal_desk, 2),
+         case when bal.b_method <> 'gateway' then bal.b_method end,
+         case when bal.b_method <> 'gateway' then bal.b_reference end,
+         rb.full_name,
+         round(q.q_total + f.f_total + a.a_total - pay.paid_all, 2)
+    from public.reservations r
+    join public.units u on u.id = r.unit_id
+    left join public.profiles pr on pr.id = r.customer_id
+    cross join lateral (
+      select case when v.it then v.sub - least(v.disc, v.sub) else v.tot end as q_room,
+             case when v.it then v.clean - least(v.disc - least(v.disc, v.sub), v.clean) else 0 end as q_clean,
+             case when v.it then v.pct else 0 end as q_pct,
+             case when v.it then v.taxamt else 0 end as q_tax,
+             v.tot as q_total
+        from (select coalesce(r.quote ? 'subtotal', false) as it,
+                     coalesce((r.quote ->> 'subtotal')::numeric, 0) as sub,
+                     coalesce((r.quote ->> 'cleaning_fee')::numeric, 0) as clean,
+                     coalesce((r.quote -> 'coupon' ->> 'discount')::numeric, 0) as disc,
+                     coalesce((r.quote ->> 'tax_pct')::numeric, 0) as pct,
+                     coalesce((r.quote ->> 'tax_amount')::numeric, 0) as taxamt,
+                     coalesce((r.quote ->> 'total')::numeric, 0) as tot) v
+    ) q
+    cross join lateral (
+      select coalesce(sum(fo.total), 0) as f_total
+        from public.food_orders fo
+       where fo.reservation_id = r.id and fo.status <> 'cancelled'
+    ) f
+    cross join lateral (
+      select coalesce(sum(ab.amount), 0) as a_total
+        from public.activity_bookings ab
+       where ab.reservation_id = r.id and ab.status <> 'cancelled'
+    ) a
+    cross join lateral (
+      select coalesce(sum(pm.amount) filter (where pm.kind = 'advance'), 0) as adv,
+             coalesce(sum(pm.amount) filter (where pm.kind = 'balance' and pm.method = 'gateway'), 0) as bal_online,
+             coalesce(sum(pm.amount) filter (where pm.kind = 'balance' and pm.method <> 'gateway'), 0) as bal_desk,
+             coalesce(sum(pm.amount), 0) as paid_all
+        from public.payments pm
+       where pm.reservation_id = r.id and pm.status = 'succeeded'
+    ) pay
+    left join lateral (
+      select pm.method as b_method, pm.reference as b_reference, pm.recorded_by as b_by
+        from public.payments pm
+       where pm.reservation_id = r.id and pm.status = 'succeeded' and pm.kind = 'balance'
+       order by pm.created_at desc
+       limit 1
+    ) bal on true
+    left join public.profiles rb on rb.id = bal.b_by
+   where r.property_id = p_property_id
+     and r.kind = 'booking'
+     and r.checked_out_at >= (p_from::timestamp at time zone v_tz)
+     and r.checked_out_at <  ((p_to + 1)::timestamp at time zone v_tz)
+   order by r.checked_out_at, r.id;
 end;
 $$;
 
@@ -403,8 +480,88 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_prop       public.properties;
+  v_today      date;
+  v_online     numeric;
+  v_desk       numeric;
+  v_cash       numeric;
+  v_card       numeric;
+  v_upi        numeric;
+  v_bank       numeric;
+  v_other      numeric;
+  v_refunds    numeric;
+  v_room_tax   numeric;
+  v_in_count   int;
+  v_in_balance numeric;
 begin
-  raise exception 'finance_summary is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property_id, false, 'owner','admin','accountant');
+
+  select * into v_prop from public.properties where id = p_property_id;
+  v_today := (now() at time zone v_prop.timezone)::date;
+
+  -- From today's Collections, so the Today tab and the Collections tab
+  -- can never disagree. Refunds are reported as a positive amount.
+  select coalesce(sum(c.amount) filter (where c.channel = 'online' and c.source <> 'refund'), 0),
+         coalesce(sum(c.amount) filter (where c.channel = 'front_desk'), 0),
+         coalesce(sum(c.amount) filter (where c.channel = 'front_desk' and c.method = 'cash'), 0),
+         coalesce(sum(c.amount) filter (where c.channel = 'front_desk' and c.method = 'card'), 0),
+         coalesce(sum(c.amount) filter (where c.channel = 'front_desk' and c.method = 'upi'), 0),
+         coalesce(sum(c.amount) filter (where c.channel = 'front_desk' and c.method = 'bank_transfer'), 0),
+         coalesce(sum(c.amount) filter (where c.channel = 'front_desk' and c.method = 'other'), 0),
+         coalesce(-sum(c.amount) filter (where c.source = 'refund'), 0)
+    into v_online, v_desk, v_cash, v_card, v_upi, v_bank, v_other, v_refunds
+    from public.report_collections(v_today, v_today, p_property_id) c;
+
+  -- Tax exists only on bookings: the room and cleaning-fee lines together.
+  select coalesce(sum(l.tax), 0) into v_room_tax
+    from public.report_ledger(v_today, v_today, p_property_id) l;
+
+  -- Checked-in guests and what they still owe, worked out as
+  -- current_charges does, but in one query rather than one call each.
+  select count(*)::int,
+         coalesce(sum(greatest(coalesce((r.quote ->> 'total')::numeric, 0)
+                               + coalesce(fo.t, 0) + coalesce(ab.t, 0) - coalesce(pm.t, 0), 0)), 0)
+    into v_in_count, v_in_balance
+    from public.reservations r
+    left join (select o.reservation_id, sum(o.total) as t
+                 from public.food_orders o
+                where o.property_id = p_property_id and o.status <> 'cancelled'
+                group by o.reservation_id) fo on fo.reservation_id = r.id
+    left join (select b.reservation_id, sum(b.amount) as t
+                 from public.activity_bookings b
+                where b.property_id = p_property_id and b.status <> 'cancelled'
+                group by b.reservation_id) ab on ab.reservation_id = r.id
+    left join (select p.reservation_id, sum(p.amount) as t
+                 from public.payments p
+                where p.property_id = p_property_id and p.status = 'succeeded'
+                group by p.reservation_id) pm on pm.reservation_id = r.id
+   where r.property_id = p_property_id
+     and r.kind = 'booking'
+     and r.status = 'checked_in';
+
+  return jsonb_build_object(
+    'resort', jsonb_build_object(
+      'name',     v_prop.name,
+      'slug',     v_prop.slug,
+      'gstin',    v_prop.gstin,
+      'tax_pct',  v_prop.tax_pct,
+      'timezone', v_prop.timezone,
+      'today',    to_char(v_today, 'YYYY-MM-DD')),
+    'online_collected', round(v_online, 2),
+    'desk_collected', jsonb_build_object(
+      'total',         round(v_desk, 2),
+      'cash',          round(v_cash, 2),
+      'card',          round(v_card, 2),
+      'upi',           round(v_upi, 2),
+      'bank_transfer', round(v_bank, 2),
+      'other',         round(v_other, 2)),
+    'refunds',          round(v_refunds, 2),
+    'net_collected',    round(v_online + v_desk - v_refunds, 2),
+    'room_tax',         round(v_room_tax, 2),
+    'in_house_count',   v_in_count,
+    'in_house_balance', round(v_in_balance, 2)
+  );
 end;
 $$;
 
