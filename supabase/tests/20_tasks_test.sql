@@ -6,6 +6,18 @@
 begin;
 select plan(24);
 
+-- Rows a statement changed, run as the current role: an RLS-filtered
+-- write changes 0 rows without raising.
+create function pg_temp.rows_affected(p_sql text) returns int
+language plpgsql as $f$
+declare n int;
+begin
+  execute p_sql;
+  get diagnostics n = row_count;
+  return n;
+end;
+$f$;
+
 select has_table('public', 'tasks', 'tasks table exists');
 select has_function('public', 'tasks_enforce_write',
   'the write-enforcement trigger function exists');
@@ -17,8 +29,8 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000002","role":"authenticated"}';
 
 select lives_ok(
-  $$insert into public.tasks (id, assignee_id, title, description)
-    values ('97111111-1111-1111-1111-111111111111',
+  $$insert into public.tasks (property_id, id, assignee_id, title, description)
+    values ('a0000000-0000-0000-0000-000000000001', '97111111-1111-1111-1111-111111111111',
             '10000000-0000-0000-0000-000000000003',
             'Restock minibar', 'Villa 2 is out of water bottles')$$,
   'admin can create a task assigned to a staff member');
@@ -27,8 +39,8 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
 select throws_ok(
-  $$insert into public.tasks (assignee_id, title)
-    values ('10000000-0000-0000-0000-000000000003', 'Self-assigned task')$$,
+  $$insert into public.tasks (property_id, assignee_id, title)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'Self-assigned task')$$,
   '42501', null, 'a staff member cannot create their own task');
 
 -- === select: own rows only for staff, everything for admin ==================
@@ -50,8 +62,8 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000002","role":"authenticated"}';
 
 select lives_ok(
-  $$insert into public.tasks (id, assignee_id, title, description)
-    values ('97222222-2222-2222-2222-222222222222',
+  $$insert into public.tasks (property_id, id, assignee_id, title, description)
+    values ('a0000000-0000-0000-0000-000000000001', '97222222-2222-2222-2222-222222222222',
             '10000000-0000-0000-0000-000000000004',
             'Reconcile petty cash', '')$$,
   'admin can create a second task for a different assignee');
@@ -147,9 +159,10 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
-select throws_ok(
-  $$delete from public.tasks where id = '97111111-1111-1111-1111-111111111111'$$,
-  '42501', null,
+-- RLS (tasks_delete is admin-only) filters this: no error, no row removed.
+select is(pg_temp.rows_affected(
+  $$delete from public.tasks where id = '97111111-1111-1111-1111-111111111111'$$),
+  0,
   'a staff member cannot delete their own task -- delete is admin-only');
 
 set local request.jwt.claims to
@@ -175,8 +188,8 @@ select throws_ok(
   '42501', null, 'anon cannot select tasks');
 
 select throws_ok(
-  $$insert into public.tasks (assignee_id, title)
-    values ('10000000-0000-0000-0000-000000000003', 'x')$$,
+  $$insert into public.tasks (property_id, assignee_id, title)
+    values ('a0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'x')$$,
   '42501', null, 'anon cannot insert into tasks');
 
 select * from finish();

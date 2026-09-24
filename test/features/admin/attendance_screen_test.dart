@@ -1,31 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pasala/data/models/admin_profile.dart';
-import 'package:pasala/data/models/app_user.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/attendance_record.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/attendance_repository.dart';
-import 'package:pasala/data/repositories/user_admin_repository.dart';
 import 'package:pasala/features/admin/attendance_screen.dart';
+
+import '../../support/resort_roster.dart';
 
 /// In-memory stand-in for [AttendanceRepository], mirroring
 /// `FakeLeaveRequestRepository` in `leave_requests_screen_test.dart`.
 class FakeAttendanceRepository implements AttendanceRepository {
   final List<AttendanceRecord> store = [];
+  final List<String> listedPropertyIds = [];
 
   @override
   Future<List<AttendanceRecord>> list({
+    required String propertyId,
     String? staffId,
     DateTime? date,
-  }) async =>
-      store.where((r) {
-        if (staffId != null && r.staffId != staffId) return false;
-        if (date != null && !DateUtils.isSameDay(r.workDate, date)) return false;
-        return true;
-      }).toList();
+  }) async {
+    listedPropertyIds.add(propertyId);
+    return store.where((r) {
+      if (staffId != null && r.staffId != staffId) return false;
+      if (date != null && !DateUtils.isSameDay(r.workDate, date)) return false;
+      return true;
+    }).toList();
+  }
 
   @override
-  Future<void> checkIn({required String staffId}) async {
+  Future<void> checkIn({required String propertyId, required String staffId}) async {
     throw UnimplementedError('admin never checks anyone in');
   }
 
@@ -35,18 +40,19 @@ class FakeAttendanceRepository implements AttendanceRepository {
   }
 }
 
-final _staffProfile = AdminProfile(
-  id: 'staff-1',
-  email: 'staff@pasala.test',
-  role: UserRole.staff,
-  fullName: 'Sita Staff',
-  createdAt: DateTime(2026, 1, 1),
-);
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
+
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _resort;
+}
 
 Widget _appFor(FakeAttendanceRepository repo) => ProviderScope(
       overrides: [
         attendanceRepositoryProvider.overrideWithValue(repo),
-        adminProfilesProvider.overrideWith((ref) async => [_staffProfile]),
+        rosterOverride,
+        currentResortProvider.overrideWith(_FixedResort.new),
       ],
       child: const MaterialApp(home: AttendanceScreen()),
     );
@@ -79,6 +85,9 @@ void main() {
 
     expect(find.byKey(const Key('attendance-row-a1')), findsOneWidget);
     expect(find.byKey(const Key('attendance-row-a2')), findsNothing);
+    // Review Focus #1: the screen must pass the current resort's id
+    // through to the repository, not rely on RLS alone.
+    expect(repo.listedPropertyIds, everyElement('p1'));
   });
 
   testWidgets('shows an empty state when nobody has checked in that day', (
@@ -106,5 +115,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Still checked in'), findsOneWidget);
+  });
+
+  // Final review C1: the picker lists `list_resort_members` for the current
+  // resort only -- never another resort's staff.
+  testWidgets("the staff filter lists only the current resort's members", (tester) async {
+    await tester.pumpWidget(_appFor(FakeAttendanceRepository()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('attendance-staff-picker')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sita Staff'), findsWidgets);
+    expect(find.text('Olga Otherresort'), findsNothing);
   });
 }

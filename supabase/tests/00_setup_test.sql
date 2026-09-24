@@ -8,10 +8,7 @@ select enum_has_labels(
   array['hold','pending_payment','confirmed','checked_in','checked_out','cancelled']
 );
 
-select enum_has_labels(
-  'public', 'user_role',
-  array['customer','staff','admin','accountant','super_admin']
-);
+select enum_has_labels('public', 'platform_role', array['customer','platform_admin']);
 
 select * from finish();
 rollback;

@@ -9,18 +9,26 @@ select plan(6);
 insert into public.properties (id, name, slug)
 values ('aaaaaaaa-0000-0000-0000-000000000026','P26','p26');
 
+-- The seed users' roles are memberships at the seed resort only; give them
+-- the same roles at this file's property.
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000026','10000000-0000-0000-0000-000000000001','owner'),
+  ('aaaaaaaa-0000-0000-0000-000000000026','10000000-0000-0000-0000-000000000002','admin'),
+  ('aaaaaaaa-0000-0000-0000-000000000026','10000000-0000-0000-0000-000000000003','staff'),
+  ('aaaaaaaa-0000-0000-0000-000000000026','10000000-0000-0000-0000-000000000004','accountant');
+
 set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
 select is(
-  ((public.dashboard_summary()) ->> 'food_sales_today')::numeric,
+  ((public.dashboard_summary('aaaaaaaa-0000-0000-0000-000000000026')) ->> 'food_sales_today')::numeric,
   0::numeric,
   'food_sales_today is zero with no sales logged yet'
 );
 
 select is(
-  ((public.dashboard_summary()) ->> 'expenses_month_total')::numeric,
+  ((public.dashboard_summary('aaaaaaaa-0000-0000-0000-000000000026')) ->> 'expenses_month_total')::numeric,
   0::numeric,
   'expenses_month_total is zero with no expenses logged yet'
 );
@@ -38,28 +46,28 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000003","role":"authenticated"}';
 
 select is(
-  ((public.dashboard_summary()) ->> 'food_sales_today')::numeric,
+  ((public.dashboard_summary('aaaaaaaa-0000-0000-0000-000000000026')) ->> 'food_sales_today')::numeric,
   800::numeric,
   'food_sales_today reflects the sale just logged'
 );
 
 select is(
-  ((public.dashboard_summary()) ->> 'expenses_month_total')::numeric,
+  ((public.dashboard_summary('aaaaaaaa-0000-0000-0000-000000000026')) ->> 'expenses_month_total')::numeric,
   200::numeric,
   'expenses_month_total reflects the expense just logged, even called by plain staff'
 );
 
 select is(
-  ((public.dashboard_summary()) ->> 'net_profit_month')::numeric,
-  ((public.dashboard_summary()) ->> 'month_revenue')::numeric - 200,
+  ((public.dashboard_summary('aaaaaaaa-0000-0000-0000-000000000026')) ->> 'net_profit_month')::numeric,
+  ((public.dashboard_summary('aaaaaaaa-0000-0000-0000-000000000026')) ->> 'month_revenue')::numeric - 200,
   'net_profit_month is month_revenue minus expenses_month_total'
 );
 
 -- Every existing key is untouched -- the extension is purely additive.
 select ok(
-  (public.dashboard_summary()) ? 'today_revenue'
-    and (public.dashboard_summary()) ? 'occupancy_pct'
-    and (public.dashboard_summary()) ? 'active_holds',
+  (public.dashboard_summary('aaaaaaaa-0000-0000-0000-000000000026')) ? 'today_revenue'
+    and (public.dashboard_summary('aaaaaaaa-0000-0000-0000-000000000026')) ? 'occupancy_pct'
+    and (public.dashboard_summary('aaaaaaaa-0000-0000-0000-000000000026')) ? 'active_holds',
   'every pre-existing dashboard_summary key is still present'
 );
 

@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/tokens.dart';
-import '../../core/widgets/brand_mark.dart';
 import '../../core/widgets/hero_backdrop.dart';
 
 /// The Sign In / Sign Up chooser shown after the splash screen. Both
@@ -28,20 +27,15 @@ class WelcomeScreen extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const BrandMark(
-                    size: BrandMarkSize.splash,
-                    showWordmark: false,
-                  ),
-                  const SizedBox(height: Spacing.md),
                   Text(
-                    'Pasala Resorts',
+                    'ResortHub',
                     style: textTheme.headlineMedium
                         ?.copyWith(color: Colors.white),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: Spacing.xs),
                   Text(
-                    'A boutique farmhouse getaway',
+                    'Book stays at independent resorts',
                     style: textTheme.bodyLarge?.copyWith(color: Colors.white70),
                     textAlign: TextAlign.center,
                   ),

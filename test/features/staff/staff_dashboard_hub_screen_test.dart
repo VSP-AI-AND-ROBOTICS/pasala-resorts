@@ -2,23 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pasala/data/models/app_user.dart';
-import 'package:pasala/data/repositories/auth_repository.dart';
+import 'package:pasala/core/current_resort.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/features/staff/staff_dashboard_hub_screen.dart';
 
-const _staff = AppUser(
-  id: 'staff-1',
-  email: 'staff@pasala.test',
-  role: UserRole.staff,
-  fullName: 'Sita Staff',
-);
+const _staffM =
+    ResortMembership(propertyId: 'r1', resortName: 'R1', role: ResortRole.staff);
+const _accountantM = ResortMembership(
+    propertyId: 'r1', resortName: 'R1', role: ResortRole.accountant);
 
-const _accountant = AppUser(
-  id: 'accountant-1',
-  email: 'accounts@pasala.test',
-  role: UserRole.accountant,
-  fullName: 'Anil Accounts',
-);
+class _FixedResort extends CurrentResort {
+  _FixedResort(this._value);
+  final ResortMembership? _value;
+  @override
+  ResortMembership? build() => _value;
+}
 
 void main() {
   group('staffHubSections', () {
@@ -52,7 +50,7 @@ void main() {
     });
   });
 
-  Widget appFor({AppUser user = _staff}) {
+  Widget appFor({ResortMembership resort = _staffM}) {
     final router = GoRouter(
       initialLocation: '/hub',
       routes: [
@@ -98,7 +96,7 @@ void main() {
     );
     return ProviderScope(
       overrides: [
-        currentUserProvider.overrideWith((ref) => Stream.value(user)),
+        currentResortProvider.overrideWith(() => _FixedResort(resort)),
       ],
       child: MaterialApp.router(routerConfig: router),
     );
@@ -148,7 +146,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(appFor(user: _staff));
+    await tester.pumpWidget(appFor(resort: _staffM));
     await tester.pumpAndSettle();
 
     expect(find.text('Check-In'), findsOneWidget);
@@ -166,7 +164,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(appFor(user: _accountant));
+    await tester.pumpWidget(appFor(resort: _accountantM));
     await tester.pumpAndSettle();
 
     expect(find.text('Check-In'), findsOneWidget);

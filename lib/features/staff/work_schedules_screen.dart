@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../data/models/staff_shift.dart';
@@ -70,11 +71,11 @@ class _WorkSchedulesScreenState extends ConsumerState<WorkSchedulesScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider).value;
     final staffId = user?.id;
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, staffId: staffId, from: null, to: null);
     final shiftsAsync = staffId == null
         ? AsyncValue<List<StaffShift>>.data(const [])
-        : ref.watch(
-            staffShiftsProvider((staffId: staffId, from: null, to: null)),
-          );
+        : ref.watch(staffShiftsProvider(filter));
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -83,9 +84,7 @@ class _WorkSchedulesScreenState extends ConsumerState<WorkSchedulesScreen> {
         value: shiftsAsync,
         onRetry: staffId == null
             ? null
-            : () => ref.invalidate(
-                staffShiftsProvider((staffId: staffId, from: null, to: null)),
-              ),
+            : () => ref.invalidate(staffShiftsProvider(filter)),
         data: (shifts) {
           final first = DateTime(_month.year, _month.month, 1);
           final daysInMonth = DateTime(_month.year, _month.month + 1, 0).day;

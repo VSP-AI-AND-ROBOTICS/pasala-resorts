@@ -26,11 +26,16 @@ Review _review(
     );
 
 void main() {
+  // Resort p1 has [reviews]; any other resort has only a review that must
+  // never show up on p1's page.
   Widget app(List<Review> reviews) => ProviderScope(
         overrides: [
-          allReviewsProvider.overrideWith((ref) async => reviews),
+          propertyReviewsProvider.overrideWith((ref, propertyId) async =>
+              propertyId == 'p1'
+                  ? reviews
+                  : [_review('x', feedback: 'Review of another resort')]),
         ],
-        child: const MaterialApp(home: CustomerReviewsScreen()),
+        child: const MaterialApp(home: CustomerReviewsScreen(propertyId: 'p1')),
       );
 
   testWidgets('an empty result shows a clear message, not a blank screen',
@@ -55,5 +60,14 @@ void main() {
     expect(find.text('Guest'), findsOneWidget);
     expect(find.text('Wonderful stay!'), findsOneWidget);
     expect(find.text('It was okay.'), findsOneWidget);
+  });
+
+  testWidgets("lists only this property's reviews, never another resort's",
+      (tester) async {
+    await tester.pumpWidget(app([_review('1', feedback: 'Lovely pool.')]));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Lovely pool.'), findsOneWidget);
+    expect(find.text('Review of another resort'), findsNothing);
   });
 }

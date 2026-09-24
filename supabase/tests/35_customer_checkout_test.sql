@@ -26,7 +26,7 @@ set local request.jwt.claims to
 
 select throws_ok(
   $$select public.checkout_booking('97b00000-0000-0000-0000-000000000001', 'ref-39-x', 0)$$,
-  'P0008', null,
+  'P0020', null,
   'a different customer cannot check someone else out'
 );
 

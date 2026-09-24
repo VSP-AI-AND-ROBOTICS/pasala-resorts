@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
@@ -58,7 +59,8 @@ class OutboxScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final messagesAsync = ref.watch(outboxMessagesProvider);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final messagesAsync = ref.watch(outboxMessagesProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Outbox')),
@@ -69,7 +71,7 @@ class OutboxScreen extends ConsumerWidget {
           Expanded(
             child: AsyncView(
               value: messagesAsync,
-              onRetry: () => ref.invalidate(outboxMessagesProvider),
+              onRetry: () => ref.invalidate(outboxMessagesProvider(propertyId)),
               empty: () => const EmptyState(
                 icon: Icons.mail_outline,
                 title: 'Nothing queued yet',

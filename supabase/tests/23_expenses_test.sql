@@ -10,6 +10,14 @@ select has_function('public', 'report_expenses', 'report_expenses exists');
 insert into public.properties (id, name, slug)
 values ('aaaaaaaa-0000-0000-0000-000000000023','P23','p23');
 
+-- The seed users' roles are memberships at the seed resort only; give them
+-- the same roles at this file's property.
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000023','10000000-0000-0000-0000-000000000001','owner'),
+  ('aaaaaaaa-0000-0000-0000-000000000023','10000000-0000-0000-0000-000000000002','admin'),
+  ('aaaaaaaa-0000-0000-0000-000000000023','10000000-0000-0000-0000-000000000003','staff'),
+  ('aaaaaaaa-0000-0000-0000-000000000023','10000000-0000-0000-0000-000000000004','accountant');
+
 -- === insert/write: admin-only =================================================
 
 set local role authenticated;
@@ -66,8 +74,9 @@ select is(
 );
 
 select throws_ok(
-  $$select public.report_expenses(current_date, current_date)$$,
-  'P0008', null, 'plain staff cannot call report_expenses'
+  $$select public.report_expenses(current_date, current_date,
+    'aaaaaaaa-0000-0000-0000-000000000023')$$,
+  'P0020', null, 'plain staff cannot call report_expenses'
 );
 
 -- === report_expenses aggregation ==============================================
@@ -95,7 +104,8 @@ select throws_ok(
 );
 
 select throws_ok(
-  $$select public.report_expenses(current_date, current_date)$$,
+  $$select public.report_expenses(current_date, current_date,
+    'aaaaaaaa-0000-0000-0000-000000000023')$$,
   '42501', null, 'anon cannot call report_expenses -- revoked at the grant layer'
 );
 

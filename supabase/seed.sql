@@ -38,16 +38,6 @@ from (values
   ('10000000-0000-0000-0000-000000000006'::uuid,'meera@example.com')
 ) as u(id, email);
 
--- The signup trigger created customer profiles; promote the staff accounts.
-update public.profiles set role = 'super_admin'
-  where id = '10000000-0000-0000-0000-000000000001';
-update public.profiles set role = 'admin'
-  where id = '10000000-0000-0000-0000-000000000002';
-update public.profiles set role = 'staff'
-  where id = '10000000-0000-0000-0000-000000000003';
-update public.profiles set role = 'accountant'
-  where id = '10000000-0000-0000-0000-000000000004';
-
 insert into public.properties
   (id, name, slug, description, address, check_in_time, check_out_time, amenities)
 values
@@ -55,6 +45,12 @@ values
    'A boutique farmhouse resort with a private pool and themed cottages.',
    '- Bommalaramaram Rd, Rangapuram, Telangana',
    '14:00','11:00', array['Pool','Wi-Fi','Barbecue','Parking','Spacious','Garden']);
+
+insert into public.resort_members (property_id, user_id, role) values
+  ('a0000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','owner'),
+  ('a0000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','admin'),
+  ('a0000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000003','staff'),
+  ('a0000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000004','accountant');
 
 insert into public.slot_types (id, property_id, code, start_time, end_time)
 values

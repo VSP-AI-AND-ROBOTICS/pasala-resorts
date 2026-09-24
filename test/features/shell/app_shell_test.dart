@@ -2,42 +2,50 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/core/widgets/brand_mark.dart';
 import 'package:pasala/data/models/app_user.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/features/shell/app_shell.dart';
 
-const _admin = AppUser(
-  id: 'admin-id',
-  email: 'admin@pasala.test',
-  role: UserRole.admin,
-);
+const _adminM =
+    ResortMembership(propertyId: 'r1', resortName: 'R1', role: ResortRole.admin);
+const _staffM =
+    ResortMembership(propertyId: 'r1', resortName: 'R1', role: ResortRole.staff);
+const _accountantM = ResortMembership(
+    propertyId: 'r1', resortName: 'R1', role: ResortRole.accountant);
+const _ownerM =
+    ResortMembership(propertyId: 'r1', resortName: 'R1', role: ResortRole.owner);
 
-const _customer = AppUser(
-  id: 'customer-id',
-  email: 'ravi@example.com',
-  role: UserRole.customer,
-);
+const _admin =
+    AppUser(id: 'admin-id', email: 'admin@pasala.test', memberships: [_adminM]);
 
-const _staff = AppUser(
-  id: 'staff-id',
-  email: 'staff@pasala.test',
-  role: UserRole.staff,
-);
+const _customer = AppUser(id: 'customer-id', email: 'ravi@example.com');
+
+const _staff =
+    AppUser(id: 'staff-id', email: 'staff@pasala.test', memberships: [_staffM]);
 
 const _accountant = AppUser(
-  id: 'accountant-id',
-  email: 'accounts@pasala.test',
-  role: UserRole.accountant,
-);
+    id: 'accountant-id',
+    email: 'accounts@pasala.test',
+    memberships: [_accountantM]);
 
-const _owner = AppUser(
-  id: 'owner-id',
-  email: 'super@pasala.test',
-  role: UserRole.superAdmin,
-);
+const _owner =
+    AppUser(id: 'owner-id', email: 'super@pasala.test', memberships: [_ownerM]);
+
+/// Test-only [CurrentResort] that always resolves to a fixed value,
+/// mirroring how every other provider here is overridden with a fixture
+/// instead of exercising the real (SharedPreferences-backed) notifier.
+class _FixedResort extends CurrentResort {
+  _FixedResort(this._value);
+  final ResortMembership? _value;
+  @override
+  ResortMembership? build() => _value;
+}
 
 Widget _appFor(AppUser user) {
+  final resort = user.memberships.isEmpty ? null : user.memberships.first;
   final router = GoRouter(
     initialLocation: '/',
     routes: [
@@ -56,8 +64,10 @@ Widget _appFor(AppUser user) {
   return ProviderScope(
     overrides: [
       // Override rather than hitting Supabase: this proves the shell reads
-      // role off currentUserProvider without any network dependency.
+      // role off currentUserProvider/currentResortProvider without any
+      // network dependency.
       currentUserProvider.overrideWith((ref) => Stream.value(user)),
+      currentResortProvider.overrideWith(() => _FixedResort(resort)),
     ],
     child: MaterialApp.router(routerConfig: router),
   );

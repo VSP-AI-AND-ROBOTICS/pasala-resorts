@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
-import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/property.dart';
 import '../../data/repositories/catalog_repository.dart';
@@ -118,6 +118,7 @@ class _PropertyFormScreenState extends ConsumerState<PropertyFormScreen> {
           .read(catalogRepositoryProvider)
           .upsertProperty(property, id: existing?.id);
       ref.invalidate(propertiesProvider);
+      if (existing != null) ref.invalidate(propertyProvider(existing.id));
       if (mounted) Navigator.of(context).pop();
     } on BookingFailure catch (e) {
       if (mounted) {
@@ -214,62 +215,49 @@ class _PropertyFormScreenState extends ConsumerState<PropertyFormScreen> {
   );
 }
 
-/// Admin's property list at `/admin/properties`, reusing `PropertyCard` from
-/// the customer browse screen. Tapping a card manages its units; the edit
-/// button opens `PropertyFormScreen` for that property.
+/// Admin's property screen at `/admin/properties`, reusing `PropertyCard`
+/// from the customer browse screen. Shows only the signed-in admin's
+/// current resort (`currentResortProvider`) -- a resort's admin/staff
+/// belongs to exactly one resort at a time, and creating a new one is a
+/// platform-admin action (`/platform`), not something this screen offers.
+/// Tapping the card manages its units; the edit button opens
+/// `PropertyFormScreen` for it.
 class AdminPropertiesScreen extends ConsumerWidget {
   const AdminPropertiesScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final properties = ref.watch(propertiesProvider);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final property = ref.watch(propertyProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Properties')),
       body: AsyncView(
-        value: properties,
-        onRetry: () => ref.invalidate(propertiesProvider),
-        empty: () => const EmptyState(
-          icon: Icons.home_work_outlined,
-          title: 'No properties yet',
-          message: 'Add one with the button below.',
-        ),
-        data: (list) => ListView.builder(
+        value: property,
+        onRetry: () => ref.invalidate(propertyProvider(propertyId)),
+        data: (property) => Padding(
           padding: const EdgeInsets.all(Spacing.md),
-          itemCount: list.length,
-          itemBuilder: (context, i) {
-            final property = list[i];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: Spacing.sm),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: PropertyCard(
-                      property: property,
-                      onTap: () => context.push('/admin/units/${property.id}'),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Edit',
-                    icon: const Icon(Icons.edit_outlined),
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => PropertyFormScreen(existing: property),
-                      ),
-                    ),
-                  ),
-                ],
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: PropertyCard(
+                  property: property,
+                  onTap: () => context.push('/admin/units/${property.id}'),
+                ),
               ),
-            );
-          },
+              IconButton(
+                tooltip: 'Edit',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => PropertyFormScreen(existing: property),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const PropertyFormScreen())),
-        child: const Icon(Icons.add),
       ),
     );
   }

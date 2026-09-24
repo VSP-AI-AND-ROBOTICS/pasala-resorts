@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/report.dart';
 import '../../data/repositories/report_repository.dart';
 
-final dashboardSummaryProvider = FutureProvider<DashboardSummary>(
-  (ref) => ref.watch(reportRepositoryProvider).dashboard(),
+/// Keyed by the current resort's property id, so switching resorts cannot
+/// show another resort's cached dashboard figures.
+final dashboardSummaryProvider = FutureProvider.family<DashboardSummary, String>(
+  (ref, propertyId) => ref.watch(reportRepositoryProvider).dashboard(propertyId),
 );
 
 /// The two report kinds [ReportsScreen] can show, backing its
@@ -13,10 +15,9 @@ final dashboardSummaryProvider = FutureProvider<DashboardSummary>(
 enum ReportKind { revenue, occupancy }
 
 /// Keys [revenueReportProvider]/[occupancyReportProvider]. A plain record
-/// gets free structural equality, so re-selecting the same range/property
-/// does not trigger a refetch -- exactly what a `FutureProvider.family` key
-/// needs.
-typedef ReportFilter = ({DateTime from, DateTime to, String? propertyId});
+/// gets free structural equality, so re-selecting the same range does not
+/// trigger a refetch -- exactly what a `FutureProvider.family` key needs.
+typedef ReportFilter = ({DateTime from, DateTime to, String propertyId});
 
 final revenueReportProvider =
     FutureProvider.family<List<RevenueRow>, ReportFilter>(

@@ -28,7 +28,7 @@ class _FakeReviewRepository implements ReviewRepository {
   Future<Review?> forReservation(String reservationId) async => null;
 
   @override
-  Future<List<Review>> all() async => const [];
+  Future<List<Review>> forProperty(String propertyId) async => const [];
 }
 
 void main() {

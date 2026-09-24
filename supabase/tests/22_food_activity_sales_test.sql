@@ -10,6 +10,14 @@ select has_function('public', 'report_food_sales', 'report_food_sales exists');
 insert into public.properties (id, name, slug)
 values ('aaaaaaaa-0000-0000-0000-000000000022','P22','p22');
 
+-- The seed users' roles are memberships at the seed resort only; give them
+-- the same roles at this file's property.
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000022','10000000-0000-0000-0000-000000000001','owner'),
+  ('aaaaaaaa-0000-0000-0000-000000000022','10000000-0000-0000-0000-000000000002','admin'),
+  ('aaaaaaaa-0000-0000-0000-000000000022','10000000-0000-0000-0000-000000000003','staff'),
+  ('aaaaaaaa-0000-0000-0000-000000000022','10000000-0000-0000-0000-000000000004','accountant');
+
 -- === insert: staff-or-above ==================================================
 
 set local role authenticated;
@@ -103,8 +111,9 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000005","role":"authenticated"}';
 
 select throws_ok(
-  $$select public.report_food_sales(current_date, current_date)$$,
-  'P0008', null, 'a customer cannot call report_food_sales'
+  $$select public.report_food_sales(current_date, current_date,
+    'aaaaaaaa-0000-0000-0000-000000000022')$$,
+  'P0020', null, 'a customer cannot call report_food_sales'
 );
 
 reset role;
@@ -120,7 +129,8 @@ select throws_ok(
 );
 
 select throws_ok(
-  $$select public.report_food_sales(current_date, current_date)$$,
+  $$select public.report_food_sales(current_date, current_date,
+    'aaaaaaaa-0000-0000-0000-000000000022')$$,
   '42501', null, 'anon cannot call report_food_sales -- revoked at the grant layer'
 );
 

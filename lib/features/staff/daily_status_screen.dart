@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -49,7 +50,9 @@ class _DailyStatusScreenState extends ConsumerState<DailyStatusScreen> {
   Future<void> _checkIn(String staffId, AttendanceFilter filter) async {
     setState(() => _busy = true);
     try {
-      await ref.read(attendanceRepositoryProvider).checkIn(staffId: staffId);
+      await ref
+          .read(attendanceRepositoryProvider)
+          .checkIn(propertyId: filter.propertyId, staffId: staffId);
       ref.invalidate(attendanceRecordsProvider(filter));
     } on BookingFailure catch (e) {
       if (mounted) {
@@ -89,7 +92,8 @@ class _DailyStatusScreenState extends ConsumerState<DailyStatusScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final filter = (staffId: staffId, date: null);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, staffId: staffId, date: null);
     final recordsAsync = ref.watch(attendanceRecordsProvider(filter));
 
     return Scaffold(

@@ -30,8 +30,6 @@ insert into auth.users (id, email) values
   ('c1111111-1111-1111-1111-111111111111', 'refundcust1@example.com'),
   ('c2222222-2222-2222-2222-222222222222', 'refundadmin@example.com'),
   ('c3333333-3333-3333-3333-333333333333', 'refundcust2@example.com');
-update public.profiles set role = 'admin'
-  where id = 'c2222222-2222-2222-2222-222222222222';
 
 -- P1: the default ladder, exercised at 10/5/1 days out.
 insert into public.properties (id, name, slug)
@@ -79,6 +77,12 @@ values ('b1000000-0000-0000-0000-000000000004',
 insert into public.rate_rules
   (unit_id, kind, price, extra_guest_price, cleaning_fee, priority)
 values ('b1000000-0000-0000-0000-000000000004', 'base', 10000, 0, 0, 0);
+
+insert into public.resort_members (property_id, user_id, role) values
+  ('a1000000-0000-0000-0000-000000000001','c2222222-2222-2222-2222-222222222222','admin'),
+  ('a1000000-0000-0000-0000-000000000002','c2222222-2222-2222-2222-222222222222','admin'),
+  ('a1000000-0000-0000-0000-000000000003','c2222222-2222-2222-2222-222222222222','admin'),
+  ('a1000000-0000-0000-0000-000000000004','c2222222-2222-2222-2222-222222222222','admin');
 
 select is(
   (select advance_pct from public.properties
@@ -215,6 +219,8 @@ values ('a1000000-0000-0000-0000-000000000009',
 insert into public.units (id, property_id, name, capacity_base, capacity_max)
 values ('b1000000-0000-0000-0000-000000000009',
         'a1000000-0000-0000-0000-000000000009', 'RefundHonoluluUnit', 2, 4);
+insert into public.resort_members (property_id, user_id, role) values
+  ('a1000000-0000-0000-0000-000000000009','c2222222-2222-2222-2222-222222222222','admin');
 insert into public.reservations
   (id, unit_id, period, kind, status, customer_id, guests, quote, source)
 values
@@ -343,7 +349,7 @@ set local request.jwt.claims to
   '{"sub":"c3333333-3333-3333-3333-333333333333","role":"authenticated"}';
 select throws_ok(
   $$select public.compute_refund('d1000000-0000-0000-0000-000000000001')$$,
-  'P0008', null,
+  'P0020', null,
   'a different customer cannot preview another customer''s refund');
 
 set local request.jwt.claims to

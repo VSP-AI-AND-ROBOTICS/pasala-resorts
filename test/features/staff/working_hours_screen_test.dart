@@ -1,13 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/attendance_record.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/attendance_repository.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/features/staff/working_hours_screen.dart';
 
-const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test', role: UserRole.staff);
+const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test');
+
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.staff);
+
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _resort;
+}
 
 AttendanceRecord _record(
   String id,
@@ -25,13 +35,19 @@ AttendanceRecord _record(
           : DateTime(day.year, day.month, day.day, checkOutHour),
     );
 
+final listedPropertyIds = <String>[];
+
 Widget _appFor(List<AttendanceRecord> records) => ProviderScope(
       overrides: [
         currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
-        attendanceRecordsProvider.overrideWith((ref, filter) async => records
-            .where((r) =>
-                filter.staffId == null || r.staffId == filter.staffId)
-            .toList()),
+        currentResortProvider.overrideWith(_FixedResort.new),
+        attendanceRecordsProvider.overrideWith((ref, filter) async {
+          listedPropertyIds.add(filter.propertyId);
+          return records
+              .where((r) =>
+                  filter.staffId == null || r.staffId == filter.staffId)
+              .toList();
+        }),
       ],
       child: const MaterialApp(home: WorkingHoursScreen()),
     );
@@ -94,5 +110,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('8h'), findsWidgets);
+    // Review Focus #1: the screen must pass the current resort's id
+    // through to the repository, not rely on RLS alone.
+    expect(listedPropertyIds, everyElement('p1'));
   });
 }

@@ -6,7 +6,7 @@
 -- example exactly -- and a flat 2000 coupon discounts 2000 for 9500.
 
 begin;
-select plan(60);
+select plan(61);
 
 select has_table('public', 'coupons', 'coupons table exists');
 select has_table('public', 'coupon_redemptions',
@@ -28,27 +28,33 @@ insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'cust1@example.com'),
   ('22222222-2222-2222-2222-222222222222', 'cust2@example.com'),
   ('44444444-4444-4444-4444-444444444444', 'couponadmin@example.com');
-update public.profiles set role = 'admin'
-  where id = '44444444-4444-4444-4444-444444444444';
 
-insert into public.coupons (code, kind, value) values
-  ('SAVE10', 'percent', 10),
-  ('FLAT2000', 'fixed', 2000),
-  ('HUGE', 'fixed', 999999);
-insert into public.coupons (code, kind, value, valid_to) values
-  ('EXPIRED10', 'percent', 10, now() - interval '1 day');
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000001','44444444-4444-4444-4444-444444444444','admin');
+
+insert into public.coupons (property_id, code, kind, value) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'SAVE10', 'percent', 10),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'FLAT2000', 'fixed', 2000),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'HUGE', 'fixed', 999999);
+insert into public.coupons (property_id, code, kind, value, valid_to) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'EXPIRED10', 'percent', 10, now() - interval '1 day');
 insert into public.coupons
-  (code, kind, value, max_redemptions, redeemed_count) values
-  ('MAXED', 'percent', 10, 1, 1);
-insert into public.coupons (code, kind, value, min_booking_value) values
-  ('BIGONLY', 'percent', 10, 50000);
-insert into public.coupons (code, kind, value, is_active) values
-  ('INACTIVE', 'percent', 10, false);
-insert into public.coupons (code, kind, value, customer_id) values
-  ('MINE', 'percent', 10, '22222222-2222-2222-2222-222222222222');
+  (property_id, code, kind, value, max_redemptions, redeemed_count) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'MAXED', 'percent', 10, 1, 1);
+insert into public.coupons (property_id, code, kind, value, min_booking_value) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'BIGONLY', 'percent', 10, 50000);
+insert into public.coupons (property_id, code, kind, value, is_active) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'INACTIVE', 'percent', 10, false);
+insert into public.coupons (property_id, code, kind, value, customer_id) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'MINE', 'percent', 10, '22222222-2222-2222-2222-222222222222');
 insert into public.coupons
-  (code, kind, value, max_redemptions) values
-  ('LASTONE', 'percent', 10, 1);
+  (property_id, code, kind, value, max_redemptions) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'LASTONE', 'percent', 10, 1);
+-- A valid, active coupon belonging to a different resort.
+insert into public.properties (id, name, slug)
+values ('aaaaaaaa-0000-0000-0000-000000000002', 'P2', 'p2');
+insert into public.coupons (property_id, code, kind, value) values
+  ('aaaaaaaa-0000-0000-0000-000000000002', 'OTHERRESORT', 'percent', 10);
 
 set local role authenticated;
 set local request.jwt.claims to
@@ -151,6 +157,14 @@ select throws_ok(
   'P0010', null,
   'a coupon restricted to another customer raises P0010 for this one');
 
+-- Coupons are per resort: another resort's code looks exactly like an
+-- unknown one.
+select throws_ok(
+  $$select public.get_quote('bbbbbbbb-0000-0000-0000-000000000001',
+      tstzrange('2026-08-03 14:00+05:30','2026-08-04 11:00+05:30','[)'),
+      4, null, 'OTHERRESORT')$$,
+  'P0010', null, 'another resort''s coupon raises P0010, same as unknown');
+
 -- === the correctness trap: create_hold must re-quote WITH the coupon =====
 
 -- Happy path: the client quoted 10350 (WITH the coupon applied) and holds
@@ -231,9 +245,12 @@ select is(
 -- A redemption cannot exist without a reservation: the FK is real, not
 -- just a convention. Run as postgres (bypassing RLS, same as every other
 -- fixture-seeding statement in this file's peers) so this actually
--- exercises the FK constraint rather than being pre-empted by
+-- exercises the constraint rather than being pre-empted by
 -- coupon_redemptions_admin_write's RLS check, which a plain customer
--- would hit first regardless of the FK.
+-- would hit first regardless. Since resort_tenancy (0043), property_id
+-- is derived from the reservation and is NOT NULL, so a nonexistent
+-- reservation now trips that not-null check before the FK constraint
+-- gets a chance to fire.
 set local role postgres;
 select throws_ok(
   $$insert into public.coupon_redemptions
@@ -241,7 +258,7 @@ select throws_ok(
     values ((select id from public.coupons where code = 'SAVE10'),
             '00000000-0000-0000-0000-0000000000ff',
             '11111111-1111-1111-1111-111111111111', 100)$$,
-  '23503', null,
+  '23502', null,
   'a coupon_redemptions row cannot reference a nonexistent reservation');
 set local role authenticated;
 set local request.jwt.claims to
@@ -301,13 +318,13 @@ select throws_ok(
 -- calling it directly fails at the grant layer regardless of the code
 -- guessed or the caller's identity.
 select throws_ok(
-  $$select public.resolve_coupon('SAVE10', null, 11500)$$,
+  $$select public.resolve_coupon('aaaaaaaa-0000-0000-0000-000000000001', 'SAVE10', null, 11500)$$,
   '42501', null,
   'I1: anon cannot call resolve_coupon directly -- closing the '
   'code-guessing oracle its four distinct SQLSTATEs used to leave open');
 
 select throws_ok(
-  $$insert into public.coupons (code, kind, value) values ('HACK','fixed',1)$$,
+  $$insert into public.coupons (property_id, code, kind, value) values ('aaaaaaaa-0000-0000-0000-000000000001', 'HACK','fixed',1)$$,
   '42501', null, 'anon cannot create coupons');
 reset role;
 
@@ -318,7 +335,7 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 select throws_ok(
-  $$select public.resolve_coupon('SAVE10',
+  $$select public.resolve_coupon('aaaaaaaa-0000-0000-0000-000000000001', 'SAVE10',
       '11111111-1111-1111-1111-111111111111', 11500)$$,
   '42501', null,
   'I1: an authenticated customer cannot call resolve_coupon directly '
@@ -329,7 +346,7 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 select throws_ok(
-  $$insert into public.coupons (code, kind, value) values ('HACK2','fixed',1)$$,
+  $$insert into public.coupons (property_id, code, kind, value) values ('aaaaaaaa-0000-0000-0000-000000000001', 'HACK2','fixed',1)$$,
   '42501', null, 'a customer cannot create coupons');
 -- Customer 1 made both redemptions earlier in this file (SAVE10 and
 -- LASTONE); customer 2 made none. Comparing customer 2's count against
@@ -346,7 +363,7 @@ select is(
 set local request.jwt.claims to
   '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}';
 select lives_ok(
-  $$insert into public.coupons (code, kind, value) values ('ADMINMADE','percent',5)$$,
+  $$insert into public.coupons (property_id, code, kind, value) values ('aaaaaaaa-0000-0000-0000-000000000001', 'ADMINMADE','percent',5)$$,
   'an admin can create a coupon');
 reset role;
 
@@ -409,8 +426,8 @@ begin
       ('c0000000-0000-0000-0000-0000000000f1','racecust1@example.com'),
       ('c0000000-0000-0000-0000-0000000000f2','racecust2@example.com')$F$);
   perform dblink_exec(v_conn, $F$
-    insert into public.coupons (code, kind, value, max_redemptions)
-    values ('RACE10','percent',10,1)$F$);
+    insert into public.coupons (property_id, code, kind, value, max_redemptions)
+    values ('a0000000-0000-0000-0000-0000000000f1','RACE10','percent',10,1)$F$);
 
   perform dblink_connect('race_a', v_conn);
   perform dblink_connect('race_b', v_conn);
@@ -479,6 +496,9 @@ begin
     delete from public.units where id in
       ('b0000000-0000-0000-0000-0000000000f1',
        'b0000000-0000-0000-0000-0000000000f2')$F$);
+  -- Reservation audit rows carry the resort (0045), so they go first.
+  perform dblink_exec(v_conn, $F$
+    delete from public.audit_log where property_id = 'a0000000-0000-0000-0000-0000000000f1'$F$);
   perform dblink_exec(v_conn, $F$
     delete from public.properties where id = 'a0000000-0000-0000-0000-0000000000f1'$F$);
   perform dblink_exec(v_conn, $F$
@@ -524,10 +544,10 @@ select is(
 -- reservation must not decrement a second time) and reuse (once released,
 -- a DIFFERENT customer can redeem the same slot).
 
-insert into public.coupons (code, kind, value, max_redemptions) values
-  ('RELEASE1', 'percent', 10, 1),
-  ('RELEASE2', 'percent', 10, 1),
-  ('RELEASE3', 'percent', 10, 1);
+insert into public.coupons (property_id, code, kind, value, max_redemptions) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'RELEASE1', 'percent', 10, 1),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'RELEASE2', 'percent', 10, 1),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'RELEASE3', 'percent', 10, 1);
 
 set local role authenticated;
 set local request.jwt.claims to

@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/reservation.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
 import 'package:pasala/features/admin/reception_checkin_screen.dart';
+
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
+
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _resort;
+}
 
 Reservation _booking({String? customerName}) => Reservation(
       id: '3f2a1b9c-0000-0000-0000-000000000000',
@@ -17,9 +27,15 @@ Reservation _booking({String? customerName}) => Reservation(
     );
 
 void main() {
+  final listedPropertyIds = <String>[];
+
   Widget appFor(List<Reservation> arrivals) => ProviderScope(
         overrides: [
-          todaysArrivalsProvider.overrideWith((ref) async => arrivals),
+          todaysArrivalsProvider.overrideWith((ref, propertyId) async {
+            listedPropertyIds.add(propertyId);
+            return arrivals;
+          }),
+          currentResortProvider.overrideWith(_FixedResort.new),
         ],
         child: const MaterialApp(home: ReceptionCheckinScreen()),
       );
@@ -34,6 +50,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Ravi Kumar'), findsOneWidget);
+    // Review Focus #1: the screen must pass the current resort's id
+    // through to the repository, not rely on RLS alone.
+    expect(listedPropertyIds, everyElement('p1'));
   });
 
   testWidgets('falls back to "Guest" only when no name is available',

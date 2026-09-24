@@ -1,14 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/core/errors.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/attendance_record.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/attendance_repository.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/features/staff/daily_status_screen.dart';
 
-const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test', role: UserRole.staff);
+const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test');
+
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.staff);
+
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _resort;
+}
 
 AttendanceRecord _record(
   String id,
@@ -32,22 +42,28 @@ class FakeAttendanceRepository implements AttendanceRepository {
   final List<AttendanceRecord> store = [];
   final List<String> checkInCalls = [];
   final List<String> checkOutCalls = [];
+  final List<String> listedPropertyIds = [];
+  final List<String> checkInPropertyIds = [];
   int _idCounter = 0;
   BookingFailure? checkInFailure;
 
   @override
   Future<List<AttendanceRecord>> list({
+    required String propertyId,
     String? staffId,
     DateTime? date,
-  }) async =>
-      store.where((r) {
-        if (staffId != null && r.staffId != staffId) return false;
-        if (date != null && !DateUtils.isSameDay(r.workDate, date)) return false;
-        return true;
-      }).toList();
+  }) async {
+    listedPropertyIds.add(propertyId);
+    return store.where((r) {
+      if (staffId != null && r.staffId != staffId) return false;
+      if (date != null && !DateUtils.isSameDay(r.workDate, date)) return false;
+      return true;
+    }).toList();
+  }
 
   @override
-  Future<void> checkIn({required String staffId}) async {
+  Future<void> checkIn({required String propertyId, required String staffId}) async {
+    checkInPropertyIds.add(propertyId);
     checkInCalls.add(staffId);
     final failure = checkInFailure;
     if (failure != null) throw failure;
@@ -78,6 +94,7 @@ class FakeAttendanceRepository implements AttendanceRepository {
 Widget _appFor(FakeAttendanceRepository repo) => ProviderScope(
       overrides: [
         currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
+        currentResortProvider.overrideWith(_FixedResort.new),
         attendanceRepositoryProvider.overrideWithValue(repo),
       ],
       child: const MaterialApp(home: DailyStatusScreen()),
@@ -135,6 +152,10 @@ void main() {
     expect(repo.checkInCalls, ['staff-1']);
     expect(find.byKey(const Key('check-out-button')), findsOneWidget);
     expect(find.byKey(const Key('check-in-button')), findsNothing);
+    // Review Focus #1: the screen must pass the current resort's id
+    // through to the repository, not rely on RLS alone.
+    expect(repo.checkInPropertyIds, ['p1']);
+    expect(repo.listedPropertyIds, everyElement('p1'));
   });
 
   testWidgets(

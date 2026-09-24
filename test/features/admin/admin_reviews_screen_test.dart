@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/review.dart';
 import 'package:pasala/data/repositories/review_repository.dart';
 import 'package:pasala/features/admin/admin_reviews_screen.dart';
@@ -25,10 +27,22 @@ Review _review(
       createdAt: createdAt,
     );
 
+class _FixedResort extends CurrentResort {
+  @override
+  ResortMembership? build() => const ResortMembership(
+      propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
+}
+
 void main() {
+  // The current resort (p1) has [reviews]; any other resort has only a
+  // review that must never show up here.
   Widget app(List<Review> reviews) => ProviderScope(
         overrides: [
-          allReviewsProvider.overrideWith((ref) async => reviews),
+          currentResortProvider.overrideWith(_FixedResort.new),
+          propertyReviewsProvider.overrideWith((ref, propertyId) async =>
+              propertyId == 'p1'
+                  ? reviews
+                  : [_review('x', feedback: 'Review of another resort')]),
         ],
         child: const MaterialApp(home: AdminReviewsScreen()),
       );
@@ -54,5 +68,13 @@ void main() {
     expect(find.text('3/5'), findsOneWidget);
     expect(find.text('"Wonderful stay!"'), findsOneWidget);
     expect(find.text('"It was okay."'), findsOneWidget);
+  });
+
+  testWidgets("lists only the current resort's reviews", (tester) async {
+    await tester.pumpWidget(app([_review('1', feedback: 'Lovely pool.')]));
+    await tester.pumpAndSettle();
+
+    expect(find.text('"Lovely pool."'), findsOneWidget);
+    expect(find.text('"Review of another resort"'), findsNothing);
   });
 }

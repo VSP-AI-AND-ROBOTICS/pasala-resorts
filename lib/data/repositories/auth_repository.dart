@@ -4,20 +4,28 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/errors.dart';
 import '../../core/supabase_client.dart';
 import '../models/app_user.dart';
+import '../models/resort_membership.dart';
 
 class AuthRepository {
   AuthRepository(this._db);
   final SupabaseClient _db;
 
   Future<AppUser> _profileFor(User user) async {
-    final row =
-        await _db.from('profiles').select().eq('id', user.id).maybeSingle();
+    final row = await _db
+        .from('profiles')
+        .select('*, resort_members(property_id, role, properties(name, status))')
+        .eq('id', user.id)
+        .maybeSingle();
+    final memberships = membershipsFromEmbed(row?['resort_members'] as List?);
     return AppUser(
       id: user.id,
       email: user.email ?? '',
       fullName: row?['full_name'] as String?,
       phone: row?['phone'] as String?,
-      role: roleFromDb(row?['role'] as String? ?? 'customer'),
+      platformRole: row?['role'] == 'platform_admin'
+          ? PlatformRole.platformAdmin
+          : PlatformRole.customer,
+      memberships: memberships,
     );
   }
 

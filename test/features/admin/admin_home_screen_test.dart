@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/quote.dart';
 import 'package:pasala/data/models/report.dart';
 import 'package:pasala/data/models/reservation.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/review.dart';
 import 'package:pasala/data/models/unit.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
@@ -15,6 +17,19 @@ import 'package:pasala/features/admin/admin_home_screen.dart';
 import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/reports/providers.dart';
 import 'package:pasala/features/staff/providers.dart';
+
+/// Resolves `currentResortProvider` to a fixed membership synchronously, on
+/// the very first build -- unlike overriding `currentUserProvider` with a
+/// `Stream`, which stays in its `loading` state until at least one microtask
+/// has run, and `AdminHomeScreen` `!`-asserts a non-null current resort on
+/// every build per the tenancy design (a screen reached without one is
+/// impossible once the router's redirect is in place).
+class _FixedCurrentResort extends CurrentResort {
+  _FixedCurrentResort(this._value);
+  final ResortMembership _value;
+  @override
+  ResortMembership? build() => _value;
+}
 
 Reservation _booking(
   String id, {
@@ -237,11 +252,16 @@ void main() {
       isActive: true,
     );
 
+    const membership = ResortMembership(
+      propertyId: 'p1',
+      resortName: 'Pasala Farm House',
+      role: ResortRole.admin,
+    );
     const admin = AppUser(
       id: 'admin-1',
       email: 'admin@pasala.test',
-      role: UserRole.admin,
       fullName: 'Asha Admin',
+      memberships: [membership],
     );
 
     Widget app({List<Reservation> bookings = const [], List<Review> reviews = const []}) {
@@ -275,11 +295,31 @@ void main() {
       return ProviderScope(
         overrides: [
           currentUserProvider.overrideWith((ref) => Stream.value(admin)),
-          propertiesProvider.overrideWith((ref) async => [property]),
+          currentResortProvider.overrideWith(() => _FixedCurrentResort(membership)),
+          propertyProvider(property.id).overrideWith((ref) async => property),
           unitsProvider(property.id).overrideWith((ref) async => [unit]),
-          allBookingsProvider.overrideWith((ref) async => bookings),
-          allReviewsProvider.overrideWith((ref) async => reviews),
-          dashboardSummaryProvider.overrideWith((ref) async => DashboardSummary(
+          allBookingsProvider.overrideWith(
+              (ref, propertyId) async => propertyId == property.id ? bookings : []),
+          // Another resort's 1-star review must never reach this resort's
+          // Guest Experience card.
+          propertyReviewsProvider.overrideWith((ref, propertyId) async =>
+              propertyId == property.id
+                  ? reviews
+                  : [
+                      const Review(
+                        id: 'other',
+                        reservationId: 'res-other',
+                        customerId: 'c-other',
+                        farmhouseRating: 1,
+                        cleanlinessRating: 1,
+                        foodRating: 1,
+                        serviceRating: 1,
+                        activitiesRating: 1,
+                        overallRating: 1,
+                        feedback: 'Review of another resort',
+                      ),
+                    ]),
+          dashboardSummaryProvider.overrideWith((ref, propertyId) async => DashboardSummary(
                 todayRevenue: 0,
                 monthRevenue: 52900,
                 occupancyPct: 0,
@@ -416,6 +456,17 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('4.5'), findsOneWidget);
+    });
+
+    testWidgets("the Guest Experience card only counts the current resort's "
+        'reviews', (tester) async {
+      await useTallSurface(tester);
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+
+      expect(find.text('No reviews yet'), findsOneWidget);
+      expect(find.text('1.0'), findsNothing);
+      expect(find.textContaining('Review of another resort'), findsNothing);
     });
   });
 }

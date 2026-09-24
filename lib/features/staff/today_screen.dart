@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
@@ -76,7 +77,7 @@ TodayLists partitionToday(List<Reservation> all, DateTime today) {
   return (arrivals: arrivals, departures: departures, staying: staying);
 }
 
-/// `/staff` landing page. Reachable only by `isStaffOrAbove` users -- the
+/// `/staff` landing page. Reachable only by members of a resort -- the
 /// router redirects everyone else to `/404`, and RLS on `reservations` is
 /// what actually enforces that a customer's `allBookings()` call only ever
 /// returns their own rows regardless.
@@ -85,13 +86,14 @@ class TodayScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bookings = ref.watch(allBookingsProvider);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final bookings = ref.watch(allBookingsProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Today')),
       body: AsyncView(
         value: bookings,
-        onRetry: () => ref.invalidate(allBookingsProvider),
+        onRetry: () => ref.invalidate(allBookingsProvider(propertyId)),
         data: (all) {
           final lists = partitionToday(all, DateTime.now());
           final scheme = Theme.of(context).colorScheme;
@@ -100,7 +102,8 @@ class TodayScreen extends ConsumerWidget {
               lists.departures.isEmpty &&
               lists.staying.isEmpty) {
             return RefreshIndicator(
-              onRefresh: () async => ref.invalidate(allBookingsProvider),
+              onRefresh: () async =>
+                  ref.invalidate(allBookingsProvider(propertyId)),
               child: ListView(
                 children: const [
                   EmptyState(
@@ -139,7 +142,8 @@ class TodayScreen extends ConsumerWidget {
           );
 
           return RefreshIndicator(
-            onRefresh: () async => ref.invalidate(allBookingsProvider),
+            onRefresh: () async =>
+                ref.invalidate(allBookingsProvider(propertyId)),
             child: ListView(
               children: [
                 section('Arrivals', lists.arrivals),

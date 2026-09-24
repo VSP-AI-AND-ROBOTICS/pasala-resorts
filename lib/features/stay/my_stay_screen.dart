@@ -152,6 +152,15 @@ class _Hub extends StatelessWidget {
                         side: BorderSide.none,
                       ),
                       const SizedBox(height: Spacing.sm),
+                      // Only present when currentStay's query embedded
+                      // `properties(name)` -- tells a guest with stays at
+                      // more than one resort which one this hub is for.
+                      if (reservation.resortName case final resortName?)
+                        Text(
+                          resortName,
+                          style: textTheme.labelLarge
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
                       Text(
                         '${formatDay(reservation.start.toLocal())} → '
                         '${formatDay(reservation.end.toLocal())}',

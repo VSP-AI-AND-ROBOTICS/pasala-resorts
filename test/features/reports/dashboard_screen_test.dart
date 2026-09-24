@@ -1,12 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/core/errors.dart';
 import 'package:pasala/data/models/expense.dart';
 import 'package:pasala/data/models/food_sale.dart';
 import 'package:pasala/data/models/report.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/report_repository.dart';
 import 'package:pasala/features/reports/dashboard_screen.dart';
+
+class _FixedResort extends CurrentResort {
+  _FixedResort(this._value);
+  final ResortMembership? _value;
+  @override
+  ResortMembership? build() => _value;
+}
+
+const _resort =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
 
 /// In-memory stand-in for [ReportRepository], mirroring the
 /// `FakeCatalogRepository`/`FakeRateRepository` pattern used elsewhere in
@@ -15,32 +27,33 @@ import 'package:pasala/features/reports/dashboard_screen.dart';
 class FakeReportRepository implements ReportRepository {
   DashboardSummary? summary;
   BookingFailure? dashboardFailure;
+  final List<String> requestedPropertyIds = [];
 
   @override
-  Future<DashboardSummary> dashboard() async {
+  Future<DashboardSummary> dashboard(String propertyId) async {
+    requestedPropertyIds.add(propertyId);
     final failure = dashboardFailure;
     if (failure != null) throw failure;
     return summary!;
   }
 
   @override
-  Future<List<RevenueRow>> revenue(DateTime from, DateTime to,
-          [String? propertyId]) async =>
+  Future<List<RevenueRow>> revenue(DateTime from, DateTime to, String propertyId) async =>
       [];
 
   @override
-  Future<List<OccupancyRow>> occupancy(DateTime from, DateTime to,
-          [String? propertyId]) async =>
+  Future<List<OccupancyRow>> occupancy(
+          DateTime from, DateTime to, String propertyId) async =>
       [];
 
   @override
-  Future<List<FoodSalesReportRow>> foodSales(DateTime from, DateTime to,
-          [String? propertyId]) async =>
+  Future<List<FoodSalesReportRow>> foodSales(
+          DateTime from, DateTime to, String propertyId) async =>
       [];
 
   @override
-  Future<List<ExpensesReportRow>> expenses(DateTime from, DateTime to,
-          [String? propertyId]) async =>
+  Future<List<ExpensesReportRow>> expenses(
+          DateTime from, DateTime to, String propertyId) async =>
       [];
 }
 
@@ -60,7 +73,10 @@ void main() {
       );
 
     await tester.pumpWidget(ProviderScope(
-      overrides: [reportRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        reportRepositoryProvider.overrideWithValue(repo),
+        currentResortProvider.overrideWith(() => _FixedResort(_resort)),
+      ],
       child: const MaterialApp(home: DashboardScreen()),
     ));
     await tester.pumpAndSettle();
@@ -81,7 +97,10 @@ void main() {
     final repo = FakeReportRepository()..dashboardFailure = const NotPermitted();
 
     await tester.pumpWidget(ProviderScope(
-      overrides: [reportRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        reportRepositoryProvider.overrideWithValue(repo),
+        currentResortProvider.overrideWith(() => _FixedResort(_resort)),
+      ],
       child: const MaterialApp(home: DashboardScreen()),
     ));
     await tester.pumpAndSettle();
@@ -104,5 +123,31 @@ void main() {
     expect(find.text('Revenue today'), findsOneWidget);
     expect(find.text('₹5,000'), findsOneWidget);
     expect(find.text('₹15,000'), findsOneWidget);
+  });
+
+  // Review Focus #1: the current resort's id must reach the RPC.
+  testWidgets('queries the summary scoped to the current resort', (tester) async {
+    const otherResort = ResortMembership(
+        propertyId: 'p2', resortName: 'Other Resort', role: ResortRole.admin);
+    final repo = FakeReportRepository()
+      ..summary = const DashboardSummary(
+        todayRevenue: 0,
+        monthRevenue: 0,
+        occupancyPct: 0,
+        upcomingArrivals: 0,
+        cancellationsThisMonth: 0,
+        activeHolds: 0,
+      );
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        reportRepositoryProvider.overrideWithValue(repo),
+        currentResortProvider.overrideWith(() => _FixedResort(otherResort)),
+      ],
+      child: const MaterialApp(home: DashboardScreen()),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(repo.requestedPropertyIds, everyElement('p2'));
   });
 }

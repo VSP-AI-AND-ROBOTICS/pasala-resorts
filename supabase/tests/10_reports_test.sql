@@ -30,9 +30,6 @@ insert into auth.users (id, email)
 values ('cccc0000-0000-0000-0000-000000000001','repcust@example.com'),
        ('cccc0000-0000-0000-0000-000000000002','repstaff@example.com');
 
-update public.profiles set role = 'staff'
-  where id = 'cccc0000-0000-0000-0000-000000000002';
-
 -- This test no longer depends on the app's real seeded properties (see
 -- docs/superpowers/specs/2026-08-13-single-property-onboarding-design.md
 -- section 3.3) -- it proves report_revenue/report_occupancy don't leak
@@ -54,6 +51,11 @@ values
    'Report Test Property B Unit B', 2, 4, 'nightly'),
   ('d0000000-0000-0000-0000-000000000003','e0000000-0000-0000-0000-000000000001',
    'Report Test Property A Unit C', 2, 4, 'nightly');
+
+insert into public.resort_members (property_id, user_id, role) values
+  ('e0000000-0000-0000-0000-000000000001','cccc0000-0000-0000-0000-000000000002','staff'),
+  ('e0000000-0000-0000-0000-000000000002','cccc0000-0000-0000-0000-000000000002','staff'),
+  ('e0000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000004','accountant');
 
 -- R1: a confirmed Property A booking on 2027-03-01 with a total this file
 -- controls directly -- report_revenue must echo this number back exactly.
@@ -151,16 +153,18 @@ set local request.jwt.claims to
   '{"sub":"cccc0000-0000-0000-0000-000000000001","role":"authenticated"}';
 
 select throws_ok(
-  $$select public.dashboard_summary()$$,
-  'P0008', null, 'a customer cannot read the dashboard');
+  $$select public.dashboard_summary('e0000000-0000-0000-0000-000000000001')$$,
+  'P0020', null, 'a customer cannot read the dashboard');
 
 select throws_ok(
-  $$select * from public.report_revenue(current_date, current_date)$$,
-  'P0008', null, 'a customer cannot call report_revenue directly');
+  $$select * from public.report_revenue(current_date, current_date,
+     'e0000000-0000-0000-0000-000000000001')$$,
+  'P0020', null, 'a customer cannot call report_revenue directly');
 
 select throws_ok(
-  $$select * from public.report_occupancy(current_date, current_date)$$,
-  'P0008', null, 'a customer cannot call report_occupancy directly');
+  $$select * from public.report_occupancy(current_date, current_date,
+     'e0000000-0000-0000-0000-000000000001')$$,
+  'P0020', null, 'a customer cannot call report_occupancy directly');
 
 -- === staff can ============================================================
 
@@ -168,11 +172,11 @@ set local request.jwt.claims to
   '{"sub":"cccc0000-0000-0000-0000-000000000002","role":"authenticated"}';
 
 select lives_ok(
-  $$select public.dashboard_summary()$$,
+  $$select public.dashboard_summary('e0000000-0000-0000-0000-000000000001')$$,
   'staff can read the dashboard');
 
 select is(
-  (select jsonb_typeof(public.dashboard_summary() -> 'month_revenue')),
+  (select jsonb_typeof(public.dashboard_summary('e0000000-0000-0000-0000-000000000001') -> 'month_revenue')),
   'number',
   'month_revenue is a number');
 
@@ -292,6 +296,9 @@ values ('d0000000-0000-0000-0000-000000000009',
         'a0000000-0000-0000-0000-000000000009','Report Test Honolulu A',
         2, 4, 'nightly');
 
+insert into public.resort_members (property_id, user_id, role) values
+  ('a0000000-0000-0000-0000-000000000009','cccc0000-0000-0000-0000-000000000002','staff');
+
 -- Check-in 2027-06-05 12:00 UTC (comfortably before the query window).
 -- Check-out 2027-06-10 05:00 UTC: in Pacific/Honolulu (UTC-10) that is
 -- 2027-06-09 19:00 HST -- LOCAL DATE 2027-06-09, one full day before the
@@ -340,7 +347,7 @@ set local request.jwt.claims to
   '{"sub":"10000000-0000-0000-0000-000000000004","role":"authenticated"}';
 
 select lives_ok(
-  $$select public.dashboard_summary()$$,
+  $$select public.dashboard_summary('e0000000-0000-0000-0000-000000000001')$$,
   'an accountant can read the dashboard');
 
 select * from finish();

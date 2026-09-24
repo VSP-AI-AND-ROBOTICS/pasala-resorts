@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
@@ -8,9 +9,8 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/expense.dart';
-import '../../data/repositories/auth_repository.dart';
+import '../../data/models/resort_membership.dart';
 import '../../data/repositories/expense_repository.dart';
-import '../browse/providers.dart';
 
 DateTimeRange _currentMonth() {
   final now = DateTime.now();
@@ -21,10 +21,11 @@ DateTimeRange _currentMonth() {
 }
 
 /// `/owner/expenses` -- log and review business expenses. Reachable by
-/// admin/accountant/super_admin (`expenses_read`, 0027_expenses.sql), but
-/// only admin/super_admin can actually write (`expenses_admin_write`) --
-/// an accountant is deliberately read-only here, so the add/edit/delete
-/// actions below only render for `user.isAdmin`.
+/// owner/admin/accountant (`expenses_read`, 0027_expenses.sql), but only
+/// owner/admin can actually write (`expenses_admin_write`) -- an
+/// accountant is deliberately read-only here, so the add/edit/delete
+/// actions below only render when the current resort's role is owner or
+/// admin.
 class ExpensesScreen extends ConsumerStatefulWidget {
   const ExpensesScreen({super.key});
 
@@ -47,9 +48,12 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filter = (from: _range.start, to: _range.end);
+    // A screen reached without a current resort is impossible after Task
+    // 14's redirect.
+    final resort = ref.watch(currentResortProvider)!;
+    final filter = (propertyId: resort.propertyId, from: _range.start, to: _range.end);
     final expenses = ref.watch(expensesProvider(filter));
-    final canWrite = ref.watch(currentUserProvider).value?.isAdmin ?? false;
+    final canWrite = const {ResortRole.owner, ResortRole.admin}.contains(resort.role);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Expenses')),
@@ -133,7 +137,9 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
       floatingActionButton: canWrite
           ? FloatingActionButton(
               onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ExpenseFormScreen()),
+                MaterialPageRoute(
+                  builder: (_) => ExpenseFormScreen(propertyId: resort.propertyId),
+                ),
               ),
               child: const Icon(Icons.add),
             )
@@ -150,7 +156,10 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     switch (value) {
       case 'edit':
         Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => ExpenseFormScreen(existing: expense)),
+          MaterialPageRoute(
+            builder: (_) =>
+                ExpenseFormScreen(propertyId: expense.propertyId, existing: expense),
+          ),
         );
       case 'delete':
         _delete(context, filter, expense);
@@ -193,10 +202,13 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
   }
 }
 
-/// Create/edit form for an [Expense].
+/// Create/edit form for an [Expense]. [propertyId] is the current resort's
+/// -- for a new expense it becomes the row's `property_id`; for an edit it
+/// is ignored in favour of the existing row's own (unchanged) resort.
 class ExpenseFormScreen extends ConsumerStatefulWidget {
-  const ExpenseFormScreen({super.key, this.existing});
+  const ExpenseFormScreen({super.key, required this.propertyId, this.existing});
 
+  final String propertyId;
   final Expense? existing;
 
   @override
@@ -255,9 +267,7 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
       _error = null;
     });
     try {
-      final properties = await ref.read(propertiesProvider.future);
-      final propertyId = widget.existing?.propertyId ??
-          (properties.isEmpty ? '' : properties.first.id);
+      final propertyId = widget.existing?.propertyId ?? widget.propertyId;
       final paidTo = _paidTo.text.trim();
       final expense = Expense(
         id: widget.existing?.id ?? '',

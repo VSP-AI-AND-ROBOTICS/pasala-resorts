@@ -2,12 +2,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pasala/data/models/property.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/quote.dart';
 import 'package:pasala/data/models/reservation.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/features/admin/admin_bookings_screen.dart';
-import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/staff/providers.dart';
+
+const _membership = ResortMembership(
+  propertyId: 'p1',
+  resortName: 'Pasala Farm House',
+  role: ResortRole.admin,
+);
+
+/// Resolves `currentResortProvider` to a fixed membership synchronously, on
+/// the very first build -- unlike overriding `currentUserProvider` with a
+/// `Stream`, which stays in its `loading` state (so `currentResortProvider`
+/// resolves to `null`) until at least one microtask has run, and these
+/// screens `!`-assert a non-null current resort on every build per the
+/// tenancy design (a screen reached without one is impossible once the
+/// router's redirect is in place).
+class _FixedCurrentResort extends CurrentResort {
+  _FixedCurrentResort(this._value);
+  final ResortMembership _value;
+  @override
+  ResortMembership? build() => _value;
+}
 
 Reservation _res(
   String id, {
@@ -140,19 +160,6 @@ void main() {
   });
 
   group('AdminBookingsScreen', () {
-    const property = Property(
-      id: 'p1',
-      name: 'Pasala Farm House',
-      slug: 'pasala-farm-house',
-      description: null,
-      address: null,
-      images: [],
-      amenities: [],
-      checkInTime: '14:00',
-      checkOutTime: '11:00',
-      isActive: true,
-    );
-
     Widget app(List<Reservation> bookings) {
       final router = GoRouter(
         initialLocation: '/admin/bookings',
@@ -167,8 +174,9 @@ void main() {
       );
       return ProviderScope(
         overrides: [
-          allBookingsProvider.overrideWith((ref) async => bookings),
-          propertiesProvider.overrideWith((ref) async => [property]),
+          currentResortProvider.overrideWith(() => _FixedCurrentResort(_membership)),
+          allBookingsProvider.overrideWith(
+              (ref, propertyId) async => propertyId == 'p1' ? bookings : []),
         ],
         child: MaterialApp.router(routerConfig: router),
       );
@@ -180,6 +188,42 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('No bookings match this filter.'), findsOneWidget);
+    });
+
+    // Review Focus #1: an admin with memberships at two resorts must see
+    // only the current resort's bookings here, never the other resort's --
+    // asserted by keying the fake's response on the propertyId it actually
+    // receives, not just on what's returned regardless of the argument.
+    testWidgets(
+        'requests bookings scoped to the current resort, never another '
+        'resort\'s', (tester) async {
+      final requested = <String>[];
+      final router = GoRouter(
+        initialLocation: '/admin/bookings',
+        routes: [
+          GoRoute(
+              path: '/admin/bookings',
+              builder: (_, _) => const AdminBookingsScreen()),
+        ],
+      );
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          currentResortProvider.overrideWith(() => _FixedCurrentResort(_membership)),
+          allBookingsProvider.overrideWith((ref, propertyId) async {
+            requested.add(propertyId);
+            return propertyId == 'p1'
+                ? [_res('own-resort', customerName: 'Resort A Guest')]
+                : [_res('other-resort', customerName: 'Resort B Guest')];
+          }),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(requested, ['p1']);
+      expect(find.text('Resort A Guest'), findsOneWidget);
+      expect(find.text('Resort B Guest'), findsNothing);
     });
 
     testWidgets('switching to the Cancelled chip narrows the list',

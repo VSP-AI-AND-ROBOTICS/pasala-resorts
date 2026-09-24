@@ -1,6 +1,6 @@
 {
-    "name": "pasala",
-    "short_name": "pasala",
+    "name": "ResortHub",
+    "short_name": "ResortHub",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

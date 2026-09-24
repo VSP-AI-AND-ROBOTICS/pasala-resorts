@@ -58,6 +58,9 @@ dependencies:
   # property's address in the device's maps app -- previously a transitive
   # dependency only, pulled in by supabase_flutter.
   url_launcher: ^6.3.0
+  # Remembers the signed-in staff member's chosen resort across restarts
+  # (lib/core/current_resort.dart, key 'current_resort_id').
+  shared_preferences: ^2.3.0
 
 dev_dependencies:
   flutter_test:

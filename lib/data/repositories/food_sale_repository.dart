@@ -13,7 +13,12 @@ String _d(DateTime d) =>
 /// The (date-range, category) an Owner screen wants to see -- `category:
 /// null` means "both food and activity." A record, not positional params,
 /// so `FutureProvider.family` can key on it directly.
-typedef FoodSaleFilter = ({DateTime from, DateTime to, SaleCategory? category});
+typedef FoodSaleFilter = ({
+  String propertyId,
+  DateTime from,
+  DateTime to,
+  SaleCategory? category,
+});
 
 class FoodSaleRepository {
   FoodSaleRepository(this._db);
@@ -31,6 +36,7 @@ class FoodSaleRepository {
   /// a front-desk log, not financial data), so no RPC/embed is needed the
   /// way `TaskRepository.list` needs one for assignee names.
   Future<List<FoodSale>> list({
+    required String propertyId,
     required DateTime from,
     required DateTime to,
     SaleCategory? category,
@@ -39,6 +45,7 @@ class FoodSaleRepository {
         dynamic query = _db
             .from('food_activity_sales')
             .select()
+            .eq('property_id', propertyId)
             .gte('sale_date', _d(from))
             .lte('sale_date', _d(to));
         if (category != null) {
@@ -71,6 +78,7 @@ final foodSaleRepositoryProvider = Provider<FoodSaleRepository>(
 
 final foodSalesProvider = FutureProvider.family<List<FoodSale>, FoodSaleFilter>(
   (ref, filter) => ref.watch(foodSaleRepositoryProvider).list(
+        propertyId: filter.propertyId,
         from: filter.from,
         to: filter.to,
         category: filter.category,

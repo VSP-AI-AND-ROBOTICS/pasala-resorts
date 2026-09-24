@@ -1,3 +1,5 @@
+> Superseded by 2026-09-24-resorthub-tenancy-design.md
+
 # Pasala Resorts — Single-Property Onboarding & Occasion Design
 
 Date: 2026-08-13

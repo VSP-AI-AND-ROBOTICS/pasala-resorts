@@ -34,8 +34,9 @@ insert into auth.users (id, email) values
 
 update public.profiles set full_name = 'Notif Customer', phone = '+919876500000'
   where id = 'c9100000-0000-0000-0000-000000000001';
-update public.profiles set role = 'staff'
-  where id = 'c9100000-0000-0000-0000-000000000002';
+
+insert into public.resort_members (property_id, user_id, role) values
+  ('a9100000-0000-0000-0000-000000000001','c9100000-0000-0000-0000-000000000002','staff');
 
 select is(
   (select count(*)::int from public.notification_settings

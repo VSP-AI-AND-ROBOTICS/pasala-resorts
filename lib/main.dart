@@ -17,7 +17,7 @@ class PasalaApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => MaterialApp.router(
-        title: 'Pasala Resorts',
+        title: 'ResortHub',
         theme: buildTheme(Brightness.light),
         darkTheme: buildTheme(Brightness.dark),
         routerConfig: ref.watch(routerProvider),

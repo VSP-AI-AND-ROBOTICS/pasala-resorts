@@ -46,6 +46,7 @@ class Reservation {
     this.checkedInAt,
     this.checkedOutAt,
     this.createdAt,
+    this.resortName,
   });
 
   final String id;
@@ -78,6 +79,13 @@ class Reservation {
   /// confirmation and booking-detail screens when non-empty.
   final String? occasion;
 
+  /// From the `properties` resource embedded by queries that select
+  /// `*, properties(name)` (`BookingRepository.myBookings`,
+  /// `StayRepository.currentStay`/`mostRecentCheckedOut`) -- null wherever
+  /// that embed isn't requested. Lets a guest with bookings at more than
+  /// one resort tell them apart in My Bookings and My Stay.
+  final String? resortName;
+
   bool get isHold => status == ReservationStatus.hold;
 
   Duration? get holdRemaining {
@@ -93,6 +101,8 @@ class Reservation {
     // a nested map (PostgREST's to-one embed shape); absent entirely from
     // every other query that builds a Reservation.
     final profile = json['profiles'] as Map<String, dynamic>?;
+    // Same shape, from queries that select `*, properties(name)` instead.
+    final property = json['properties'] as Map<String, dynamic>?;
     return Reservation(
       id: json['id'] as String,
       unitId: json['unit_id'] as String,
@@ -121,6 +131,7 @@ class Reservation {
       createdAt: json['created_at'] == null
           ? null
           : DateTime.parse(json['created_at'] as String).toUtc(),
+      resortName: property?['name'] as String?,
     );
   }
 

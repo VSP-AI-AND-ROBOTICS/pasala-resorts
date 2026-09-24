@@ -3,9 +3,10 @@
 -- rate_rules, reservations, payments, audit_log) plus the availability view.
 --
 -- Coverage already proven elsewhere is deliberately NOT repeated here:
---   01_profiles_test.sql  - role-escalation guard, admin/super_admin role-
---                            change authority, admin insert/delete on
---                            profiles, customer self-delete filtered by RLS.
+--   01_profiles_test.sql  - role-escalation guard, platform admin / owner
+--                            role-change authority, platform admin
+--                            insert/delete on profiles, customer
+--                            self-delete filtered by RLS.
 --   02_properties_test.sql - anon can read active properties.
 --   03_quote_test.sql      - anon can read rate_rules; anon cannot write
 --                            rate_rules (throws 42501).
@@ -29,13 +30,6 @@ insert into auth.users (id, email) values
   ('44444444-4444-4444-4444-444444444444','admin@example.com'),
   ('55555555-5555-5555-5555-555555555555','acct@example.com');
 
-update public.profiles set role = 'staff'
-  where id = '33333333-3333-3333-3333-333333333333';
-update public.profiles set role = 'admin'
-  where id = '44444444-4444-4444-4444-444444444444';
-update public.profiles set role = 'accountant'
-  where id = '55555555-5555-5555-5555-555555555555';
-
 insert into public.properties (id, name, slug)
 values ('aaaaaaaa-0000-0000-0000-000000000001','P1','p1');
 insert into public.units (id, property_id, name, capacity_base, capacity_max)
@@ -46,6 +40,11 @@ values ('cccccccc-0000-0000-0000-000000000001',
         'bbbbbbbb-0000-0000-0000-000000000001',
         tstzrange('2026-08-03 14:00+05:30','2026-08-04 11:00+05:30','[)'),
         'booking','confirmed','11111111-1111-1111-1111-111111111111',4);
+
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000001','33333333-3333-3333-3333-333333333333','staff'),
+  ('aaaaaaaa-0000-0000-0000-000000000001','44444444-4444-4444-4444-444444444444','admin'),
+  ('aaaaaaaa-0000-0000-0000-000000000001','55555555-5555-5555-5555-555555555555','accountant');
 
 -- === customer: own data only, no write surface on units ===================
 
@@ -63,12 +62,12 @@ select is((select count(*)::int from public.reservations), 0,
 select throws_ok(
   $$select public.cancel_booking(
       'cccccccc-0000-0000-0000-000000000001','nope')$$,
-  'P0008', null, 'customer cannot cancel another customer booking');
+  'P0020', null, 'customer cannot cancel another customer booking');
 
 select throws_ok(
   $$select public.block_dates('bbbbbbbb-0000-0000-0000-000000000001',
       array[daterange('2026-12-01','2026-12-03')], 'nope')$$,
-  'P0008', null, 'customer cannot block dates');
+  'P0020', null, 'customer cannot block dates');
 
 select throws_ok(
   $$insert into public.units (property_id, name, capacity_base, capacity_max)
@@ -109,8 +108,9 @@ set local role postgres;
 
 insert into auth.users (id, email)
 values ('66666666-6666-6666-6666-666666666666','superadmin@example.com');
-update public.profiles set role = 'super_admin'
-  where id = '66666666-6666-6666-6666-666666666666';
+
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000001','66666666-6666-6666-6666-666666666666','owner');
 
 insert into public.slot_types (id, property_id, code, start_time, end_time)
 values ('77777777-0000-0000-0000-000000000001',
@@ -169,9 +169,9 @@ select throws_ok(
   $$insert into public.properties (name, slug) values ('Acct Prop','acct-p')$$,
   '42501', null, 'accountant cannot reach the properties admin surface');
 
--- an admin-only UPDATE that matches no policy is filtered, not an error
+-- an UPDATE of another profile matches no policy: filtered, not an error
 select lives_ok(
-  $$update public.profiles set role = 'admin'
+  $$update public.profiles set role = 'platform_admin'
       where id = '11111111-1111-1111-1111-111111111111'$$,
   'accountant role-change attempt raises no error (RLS-filtered)');
 
@@ -179,7 +179,7 @@ set local role postgres;
 select is(
   (select role from public.profiles
     where id = '11111111-1111-1111-1111-111111111111'),
-  'customer'::public.user_role,
+  'customer'::public.platform_role,
   'accountant role-change attempt changed no rows');
 
 -- === super_admin: full access where admin has it ===========================
@@ -197,20 +197,18 @@ select is(
   2,
   'super_admin sees all reservations');
 
+-- Resorts are created through create_resort, never by a direct insert, so
+-- the owner's direct write access is shown on a resort-owned table.
 select lives_ok(
-  $$insert into public.properties (name, slug) values ('SA Prop','sa-p')$$,
-  'super_admin has the same direct write access as admin');
+  $$insert into public.units (property_id, name, capacity_base, capacity_max)
+    values ('aaaaaaaa-0000-0000-0000-000000000001','SA-unit',2,2)$$,
+  'super_admin (resort owner) has the same direct write access as admin');
 
--- === C1: profiles_admin_delete's role gate ==================================
--- `profiles_admin_delete` used to be bare `using (is_admin())`, with no role
--- check at all -- so a plain admin could DELETE a super_admin's row (RLS
--- -permitted) and then INSERT it back with role='customer' (also permitted,
--- since profiles_admin_insert lets any admin insert a 'customer' row),
--- round-tripping a super_admin down to customer and defeating the "role
--- changes are super-admin only" invariant `profiles_admin_update` and
--- `profiles_admin_insert` otherwise enforce. The fix gates DELETE the same
--- way INSERT already is: `is_admin() and (role = 'customer' or
--- is_super_admin())`.
+-- === C1: no direct profile deletes ==========================================
+-- `profiles_admin_delete` once let a plain admin delete a super_admin's row
+-- and re-insert it as a customer. 0044 drops every admin policy on profiles
+-- (profiles are global; resort roles live in resort_members), so no direct
+-- DELETE on profiles is permitted for anyone.
 
 set local role authenticated;
 set local request.jwt.claims to
@@ -236,14 +234,14 @@ set local request.jwt.claims to
 select lives_ok(
   $$delete from public.profiles
       where id = '44444444-4444-4444-4444-444444444444'$$,
-  'a super_admin can delete another admin''s (non-customer) profile');
+  'a super_admin''s DELETE of another profile raises no error (RLS-filtered)');
 
 set local role postgres;
 select is(
   (select count(*)::int from public.profiles
     where id = '44444444-4444-4444-4444-444444444444'),
-  0,
-  'C1: a super_admin''s delete of a privileged profile actually removed it');
+  1,
+  'C1: a super_admin''s delete of another profile removed nothing');
 
 -- === payments: a customer sees only their own ==============================
 
