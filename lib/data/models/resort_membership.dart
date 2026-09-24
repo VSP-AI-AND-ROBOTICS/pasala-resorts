@@ -39,13 +39,21 @@ class ResortMembership {
     this.status = 'active',
   });
 
+  /// A row whose resort embed is missing is rejected, not defaulted to an
+  /// `active` resort with no name -- see [membershipsFromEmbed], which drops
+  /// those rows before they get here.
   factory ResortMembership.fromJson(Map<String, dynamic> json) {
-    final property = json['properties'] as Map<String, dynamic>?;
+    final property = json['properties'];
+    if (property is! Map<String, dynamic>) {
+      throw ArgumentError(
+        'Membership of ${json['property_id']} has no readable resort',
+      );
+    }
     return ResortMembership(
       propertyId: json['property_id'] as String,
-      resortName: property?['name'] as String? ?? '',
+      resortName: property['name'] as String,
       role: resortRoleFromDb(json['role'] as String),
-      status: property?['status'] as String? ?? 'active',
+      status: property['status'] as String,
     );
   }
 
@@ -54,5 +62,22 @@ class ResortMembership {
   final ResortRole role;
 
   /// The resort's own status (`active`/`suspended`), not the membership's.
+  /// Archived resorts never get here -- see [membershipsFromEmbed].
   final String status;
 }
+
+/// Parses the `resort_members(..., properties(name, status))` embed of a
+/// profile row into the memberships the user can actually work in.
+///
+/// `properties_read` hides an archived resort even from its own members,
+/// so such a membership comes back with a null `properties` embed; it is
+/// dropped here (as is any row whose resort says `archived`), rather than
+/// kept as a nameless resort that would be auto-picked, refused by every
+/// resort-scoped call with `P0020`, and picked again after the reload.
+/// Suspended resorts stay: their members still read their data.
+List<ResortMembership> membershipsFromEmbed(List<dynamic>? rows) => [
+  for (final row in (rows ?? const []).cast<Map<String, dynamic>>())
+    if (row['properties'] case final Map<String, dynamic> resort
+        when resort['status'] != 'archived')
+      ResortMembership.fromJson(row),
+];

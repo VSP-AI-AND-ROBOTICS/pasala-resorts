@@ -16,9 +16,7 @@ class AuthRepository {
         .select('*, resort_members(property_id, role, properties(name, status))')
         .eq('id', user.id)
         .maybeSingle();
-    final memberships = ((row?['resort_members'] as List?) ?? const [])
-        .map((e) => ResortMembership.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final memberships = membershipsFromEmbed(row?['resort_members'] as List?);
     return AppUser(
       id: user.id,
       email: user.email ?? '',
