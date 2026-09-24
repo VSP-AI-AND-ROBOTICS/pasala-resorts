@@ -7,7 +7,7 @@ import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/data/repositories/staff_shift_repository.dart';
 import 'package:pasala/features/staff/time_slots_screen.dart';
 
-const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test', role: UserRole.staff);
+const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test');
 
 StaffShift _shift(String id, DateTime date, {int hour = 9}) => StaffShift(
       id: id,

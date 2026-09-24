@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/router.dart';
 import '../../core/theme/app_assets.dart';
@@ -38,7 +39,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final user = await ref
           .read(authRepositoryProvider)
           .signIn(_email.text.trim(), _password.text);
-      if (mounted) context.go(landingPathFor(user));
+      final resort = await loadCurrentResortFor(user);
+      if (mounted) context.go(landingPathFor(user, resort));
     } on BookingFailure catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

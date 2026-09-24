@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/brand_mark.dart';
 import '../../core/widgets/failure_view.dart';
-import '../../data/models/app_user.dart';
+import '../../data/models/resort_membership.dart';
 import '../../data/repositories/auth_repository.dart';
 
 /// Responsive chrome shared by every signed-in screen: a bottom navigation
@@ -48,8 +49,8 @@ class AppShell extends ConsumerWidget {
     // Same reasoning as `_adminDestinations` above -- a super_admin's own
     // `/bookings` history is always empty; `/admin/bookings` (every
     // reservation across every property) is what "Bookings" here means.
-    // `redirectFor` already permits `/admin/*` for `user.isAdmin`, which is
-    // true for super_admin too, so this needs no router change.
+    // `redirectFor` already permits `/admin/*` for `{owner, admin}`, so
+    // this needs no router change.
     (path: '/admin/bookings', icon: Icons.event_outlined, label: 'Bookings'),
     (path: '/owner', icon: Icons.apartment_outlined, label: 'Owner'),
   ];
@@ -81,11 +82,12 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider).value;
-    final destinations = switch (user?.role) {
-      UserRole.superAdmin => _ownerDestinations,
-      UserRole.admin => _adminDestinations,
-      UserRole.staff || UserRole.accountant => _staffDestinations,
-      _ => _customerDestinations,
+    final resort = ref.watch(currentResortProvider);
+    final destinations = switch (resort?.role) {
+      ResortRole.owner => _ownerDestinations,
+      ResortRole.admin => _adminDestinations,
+      ResortRole.staff || ResortRole.accountant => _staffDestinations,
+      null => _customerDestinations,
     };
 
     final location = GoRouterState.of(context).uri.path;
@@ -102,7 +104,7 @@ class AppShell extends ConsumerWidget {
         actionsPadding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
         actions: [
           if (user != null)
-            if (user.role == UserRole.customer)
+            if (resort == null)
               // Customers get a bell + profile avatar instead of a bare
               // sign-out icon -- there is no notifications feature or
               // dedicated profile screen behind these yet, so the bell stays
@@ -110,7 +112,7 @@ class AppShell extends ConsumerWidget {
               // thing that already existed here (sign out), rather than
               // implying pages that don't exist.
               ..._customerActions(context, ref)
-            else if (user.role == UserRole.admin)
+            else if (resort.role == ResortRole.admin)
               // Same treatment as the customer bar -- a decorative bell, a
               // role label, and a profile avatar opening the shared account
               // sheet (name/email/role + sign out) -- rather than a bare
@@ -211,6 +213,7 @@ class AppShell extends ConsumerWidget {
 
   void _showAccountSheet(BuildContext context, WidgetRef ref) {
     final user = ref.read(currentUserProvider).value;
+    final resort = ref.read(currentResortProvider);
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -236,10 +239,10 @@ class AppShell extends ConsumerWidget {
                       ),
                 ),
               ],
-              if (user != null && user.role != UserRole.customer) ...[
+              if (user != null && resort != null) ...[
                 const SizedBox(height: Spacing.xs),
                 Text(
-                  _roleLabel(user.role),
+                  resortRoleLabel(resort.role),
                   style: Theme.of(sheetContext).textTheme.labelMedium?.copyWith(
                         color: Theme.of(sheetContext).colorScheme.primary,
                         fontWeight: FontWeight.w700,
@@ -265,12 +268,4 @@ class AppShell extends ConsumerWidget {
       ),
     );
   }
-
-  String _roleLabel(UserRole role) => switch (role) {
-        UserRole.admin => 'Admin',
-        UserRole.superAdmin => 'Owner',
-        UserRole.staff => 'Staff',
-        UserRole.accountant => 'Accountant',
-        UserRole.customer => 'Customer',
-      };
 }

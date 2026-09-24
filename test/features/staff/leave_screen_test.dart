@@ -8,7 +8,7 @@ import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/data/repositories/leave_request_repository.dart';
 import 'package:pasala/features/staff/leave_screen.dart';
 
-const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test', role: UserRole.staff);
+const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test');
 
 /// In-memory stand-in for [LeaveRequestRepository], mirroring
 /// `FakeStaffShiftRepository`.

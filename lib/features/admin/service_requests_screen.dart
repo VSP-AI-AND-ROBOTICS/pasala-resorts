@@ -6,10 +6,9 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
-import '../../data/models/app_user.dart';
 import '../../data/models/service_request.dart';
+import '../../data/repositories/profile_directory_repository.dart';
 import '../../data/repositories/service_request_repository.dart';
-import '../../data/repositories/user_admin_repository.dart';
 
 /// `/admin/service-requests` -- every request, assignable to any staff
 /// member. Mirrors `tasks_screen.dart`'s staff-picker + status shape.
@@ -90,7 +89,7 @@ class _ServiceRequestsScreenState extends ConsumerState<ServiceRequestsScreen> {
                                   error: (_, _) => const SizedBox.shrink(),
                                   data: (list) {
                                     final staffOrAbove = list
-                                        .where((p) => p.role != UserRole.customer)
+                                        .where((p) => p.isStaffOrAbove)
                                         .toList();
                                     return DropdownButtonFormField<String?>(
                                       initialValue: r.assignedStaffId,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
@@ -8,7 +9,7 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/expense.dart';
-import '../../data/repositories/auth_repository.dart';
+import '../../data/models/resort_membership.dart';
 import '../../data/repositories/expense_repository.dart';
 import '../browse/providers.dart';
 
@@ -21,10 +22,11 @@ DateTimeRange _currentMonth() {
 }
 
 /// `/owner/expenses` -- log and review business expenses. Reachable by
-/// admin/accountant/super_admin (`expenses_read`, 0027_expenses.sql), but
-/// only admin/super_admin can actually write (`expenses_admin_write`) --
-/// an accountant is deliberately read-only here, so the add/edit/delete
-/// actions below only render for `user.isAdmin`.
+/// owner/admin/accountant (`expenses_read`, 0027_expenses.sql), but only
+/// owner/admin can actually write (`expenses_admin_write`) -- an
+/// accountant is deliberately read-only here, so the add/edit/delete
+/// actions below only render when the current resort's role is owner or
+/// admin.
 class ExpensesScreen extends ConsumerStatefulWidget {
   const ExpensesScreen({super.key});
 
@@ -49,7 +51,8 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
   Widget build(BuildContext context) {
     final filter = (from: _range.start, to: _range.end);
     final expenses = ref.watch(expensesProvider(filter));
-    final canWrite = ref.watch(currentUserProvider).value?.isAdmin ?? false;
+    final canWrite = const {ResortRole.owner, ResortRole.admin}
+        .contains(ref.watch(currentResortProvider)?.role);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Expenses')),

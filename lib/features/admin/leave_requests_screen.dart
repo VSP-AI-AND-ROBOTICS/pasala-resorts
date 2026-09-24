@@ -7,10 +7,9 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
-import '../../data/models/app_user.dart';
 import '../../data/models/leave_request.dart';
 import '../../data/repositories/leave_request_repository.dart';
-import '../../data/repositories/user_admin_repository.dart';
+import '../../data/repositories/profile_directory_repository.dart';
 
 final _dateFormat = DateFormat('d MMM yyyy');
 
@@ -55,7 +54,7 @@ class _LeaveRequestsScreenState extends ConsumerState<LeaveRequestsScreen> {
                     error: (_, _) => const SizedBox.shrink(),
                     data: (list) {
                       final staffOrAbove =
-                          list.where((p) => p.role != UserRole.customer).toList();
+                          list.where((p) => p.isStaffOrAbove).toList();
                       return DropdownButtonFormField<String?>(
                         key: const Key('leave-staff-picker'),
                         initialValue: _staffId,

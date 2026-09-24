@@ -10,7 +10,6 @@ import 'package:pasala/features/staff/work_schedules_screen.dart';
 const _staff = AppUser(
   id: 'staff-1',
   email: 'staff@pasala.test',
-  role: UserRole.staff,
 );
 
 Widget _appFor(List<StaffShift> shifts) => ProviderScope(

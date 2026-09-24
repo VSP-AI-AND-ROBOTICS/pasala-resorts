@@ -4,10 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
-import '../../data/models/app_user.dart';
 import '../../data/models/staff_performance.dart';
+import '../../data/repositories/profile_directory_repository.dart';
 import '../../data/repositories/staff_performance_repository.dart';
-import '../../data/repositories/user_admin_repository.dart';
 
 DateTimeRange _last30Days() {
   final now = DateTime.now();
@@ -65,7 +64,7 @@ class _StaffPerformanceScreenState extends ConsumerState<StaffPerformanceScreen>
                         error: (_, _) => const SizedBox.shrink(),
                         data: (list) {
                           final staffOrAbove =
-                              list.where((p) => p.role != UserRole.customer).toList();
+                              list.where((p) => p.isStaffOrAbove).toList();
                           return DropdownButtonFormField<String?>(
                             key: const Key('performance-staff-picker'),
                             initialValue: _staffId,
@@ -101,7 +100,7 @@ class _StaffPerformanceScreenState extends ConsumerState<StaffPerformanceScreen>
               empty: () => const EmptyState(
                 icon: Icons.leaderboard_outlined,
                 title: 'No staff to show',
-                message: 'Promote an account to staff or above from Users.',
+                message: 'Add a team member to see their performance here.',
               ),
               data: (list) => ListView(
                 padding: const EdgeInsets.symmetric(horizontal: Spacing.md),

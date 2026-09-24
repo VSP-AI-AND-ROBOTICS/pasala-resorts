@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'current_resort.dart';
 import '../data/models/app_user.dart';
+import '../data/models/resort_membership.dart';
 import '../data/repositories/auth_repository.dart';
 import '../data/models/activity.dart';
 import '../features/account/booking_detail_screen.dart';
@@ -24,7 +26,6 @@ import '../features/admin/property_form_screen.dart';
 import '../features/admin/rate_rules_screen.dart';
 import '../features/admin/staff_shifts_screen.dart';
 import '../features/admin/units_screen.dart';
-import '../features/admin/users_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
 import '../features/auth/welcome_screen.dart';
@@ -43,6 +44,7 @@ import '../features/owner/owner_settings_screen.dart';
 import '../features/owner/staff_performance_screen.dart';
 import '../features/reports/dashboard_screen.dart';
 import '../features/reports/reports_screen.dart';
+import '../features/resorts/choose_resort_screen.dart';
 import '../features/shell/app_shell.dart';
 import '../features/shell/not_found_screen.dart';
 import '../features/splash/splash_screen.dart';
@@ -75,9 +77,11 @@ import '../features/stay/service_request_screen.dart';
 import 'theme/tokens.dart';
 
 /// Decides where `path` should redirect to, given the signed-in [user]
-/// (`null` before sign-in) and whether `path` is one of the four
-/// pre-authentication screens (splash, welcome, login, signup).
-/// `null` means "let the navigation proceed as requested".
+/// (`null` before sign-in), the [resort] they're currently working in
+/// (`null` for customers, platform admins, and a multi-resort user who
+/// hasn't picked one yet -- see `resolveCurrentResort`), and whether `path`
+/// is one of the four pre-authentication screens (splash, welcome, login,
+/// signup). `null` means "let the navigation proceed as requested".
 ///
 /// Pure so the admin/staff/accountant/customer matrix -- in particular that
 /// `/admin/dashboard` and `/admin/reports` are staff-or-above while every
@@ -90,11 +94,29 @@ import 'theme/tokens.dart';
 /// would get 42501 from the database regardless.
 String? redirectFor({
   required AppUser? user,
+  required ResortMembership? resort,
   required String path,
   required bool onPreAuthScreen,
 }) {
   if (user == null) return onPreAuthScreen ? null : '/login';
-  if (onPreAuthScreen) return landingPathFor(user);
+  if (onPreAuthScreen) return landingPathFor(user, resort);
+
+  if (path == '/platform') return user.isPlatformAdmin ? null : '/404';
+  if (path == '/choose-resort') {
+    return user.memberships.length >= 2 ? null : '/404';
+  }
+
+  // A user with 2+ memberships who hasn't picked one yet has no role to
+  // check any `/admin`, `/staff`, or `/owner` path against -- send them to
+  // pick first, rather than either admitting them role-blind or bouncing
+  // them to `/404` as if they held no memberships at all.
+  if ((path.startsWith('/admin') ||
+          path.startsWith('/staff') ||
+          path.startsWith('/owner')) &&
+      resort == null &&
+      user.memberships.isNotEmpty) {
+    return '/choose-resort';
+  }
 
   if (path.startsWith('/admin')) {
     // `report_revenue`, `report_occupancy`, and `dashboard_summary` all
@@ -111,30 +133,34 @@ String? redirectFor({
     // `/admin/*` route (properties, units, rates, blocking, the bookings
     // list) stays admin-only, matching the RLS/RPC surfaces that actually
     // write data.
-    final staffOrAboveOk = user.isStaffOrAbove &&
+    final staffOrAboveOk = resort != null &&
         (path == '/admin/dashboard' ||
             path == '/admin/reports' ||
             path == '/admin/outbox' ||
             path == '/admin/check-in' ||
             path == '/admin/check-out');
-    if (!user.isAdmin && !staffOrAboveOk) return '/404';
+    final isAdminHere =
+        resort != null && const {ResortRole.owner, ResortRole.admin}.contains(resort.role);
+    if (!isAdminHere && !staffOrAboveOk) return '/404';
   }
-  if (path.startsWith('/staff') && !user.isStaffOrAbove) return '/404';
+  if (path.startsWith('/staff') && resort == null) return '/404';
   // The Owner flow (Business Dashboard -> ... -> Settings) is a distinct,
   // more powerful surface than `/admin` -- Cancellation Policy and Booking
   // Rules write data (`refund_rules`, `properties.min_nights`/`max_nights`)
   // that today's `/admin` screens have never exposed to any role. Kept
-  // `super_admin`-only rather than `isAdmin` so a plain `admin` account
+  // owner-only rather than admin-or-owner so a plain `admin` account
   // cannot reach it just by knowing the URL -- same "route guarding is UX
   // only" caveat as above: every RPC/table this leads to still carries its
-  // own real Postgres-level gate independent of this check.
+  // own real Postgres-level gate independent of this check. `/owner/team`
+  // (Task 18) is owner-only for the same reason -- adding or removing a
+  // member is a step above plain admin.
   // `/owner/expenses` and `/owner/food-sales` are the two exceptions:
   // `expenses_read` (0027_expenses.sql) already grants admin/accountant/
   // super_admin, and `food_activity_sales_read`/`_insert`
   // (0026_food_activity_sales.sql) already grant staff-or-above -- the
   // accountant role exists specifically to read financials, and any staff
   // member logging a walk-in guest's food/pool purchase needs somewhere
-  // real to go. Both are let through despite the blanket super_admin-only
+  // real to go. Both are let through despite the blanket owner-only
   // rule below; each screen itself still hides the write actions (add/
   // edit/delete) a given role's own RLS grant doesn't cover, matching the
   // "route guarding is UX only" caveat -- the real gate is always Postgres.
@@ -143,13 +169,15 @@ String? redirectFor({
   if (path.startsWith('/owner') &&
       !isExpensesLeaf &&
       !isFoodSalesLeaf &&
-      user.role != UserRole.superAdmin) {
+      resort?.role != ResortRole.owner) {
     return '/404';
   }
-  if (isExpensesLeaf && !user.isAdmin && user.role != UserRole.accountant) {
+  if (isExpensesLeaf &&
+      !const {ResortRole.owner, ResortRole.admin}.contains(resort?.role) &&
+      resort?.role != ResortRole.accountant) {
     return '/404';
   }
-  if (isFoodSalesLeaf && !user.isStaffOrAbove) return '/404';
+  if (isFoodSalesLeaf && resort == null) return '/404';
   return null;
 }
 
@@ -163,17 +191,21 @@ String? redirectFor({
 /// Kept next to [redirectFor], and consulted by it, so the two role
 /// matrices cannot drift apart: a role that `redirectFor` refuses on a path
 /// can never be the path [landingPathFor] sends that same role to.
-String landingPathFor(AppUser user) {
-  if (user.role == UserRole.superAdmin) return '/owner';
-  if (user.isAdmin) return '/admin';
-  // Both land on the staff-operations hub, not `/admin/dashboard` (the
-  // financial summary `AdminHomeScreen` still links to for admin) -- that
-  // route is no longer reachable from either role's own nav (see
-  // `AppShell._staffDestinations`), so landing there would strand them one
-  // tap short of the tabs they actually have.
-  if (user.role == UserRole.accountant) return '/staff/dashboard';
-  if (user.role == UserRole.staff) return '/staff';
-  return '/';
+String landingPathFor(AppUser user, ResortMembership? resort) {
+  if (user.isPlatformAdmin) return '/platform';
+  if (user.memberships.isEmpty) return '/';
+  if (resort == null) return '/choose-resort';
+  return switch (resort.role) {
+    ResortRole.owner => '/owner',
+    ResortRole.admin => '/admin',
+    // Lands on the staff-operations hub, not `/admin/dashboard` (the
+    // financial summary `AdminHomeScreen` still links to for admin) --
+    // that route is no longer reachable from either role's own nav (see
+    // `AppShell._staffDestinations`), so landing there would strand them
+    // one tap short of the tabs they actually have.
+    ResortRole.accountant => '/staff/dashboard',
+    ResortRole.staff => '/staff',
+  };
 }
 
 /// A fade + slight upward slide, used for every customer-facing route so
@@ -202,12 +234,14 @@ Page<void> fadeSlidePage(Widget child, GoRouterState state) =>
 
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(currentUserProvider);
+  final resort = ref.watch(currentResortProvider);
 
   const preAuthPaths = {'/splash', '/welcome', '/login', '/signup'};
   return GoRouter(
     initialLocation: '/splash',
     redirect: (context, state) => redirectFor(
       user: auth.value,
+      resort: resort,
       path: state.matchedLocation,
       onPreAuthScreen: preAuthPaths.contains(state.matchedLocation),
     ),
@@ -229,6 +263,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         pageBuilder: (_, state) => fadeSlidePage(const SignupScreen(), state),
       ),
       GoRoute(path: '/404', builder: (_, _) => const NotFoundScreen()),
+      // Outside the ShellRoute (like the pre-auth screens): a multi-resort
+      // user lands here with no resort picked yet, so `AppShell`'s
+      // resort-dependent nav destinations have nothing to key off.
+      GoRoute(
+        path: '/choose-resort',
+        pageBuilder: (_, state) =>
+            fadeSlidePage(const ChooseResortScreen(), state),
+      ),
       ShellRoute(
         builder: (_, _, child) => AppShell(child: child),
         routes: [
@@ -315,10 +357,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/outbox',
             builder: (_, _) => const OutboxScreen(),
-          ),
-          GoRoute(
-            path: '/admin/users',
-            builder: (_, _) => const UsersScreen(),
           ),
           GoRoute(
             path: '/admin/staff-shifts',

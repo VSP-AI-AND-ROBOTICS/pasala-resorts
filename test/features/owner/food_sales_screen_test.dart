@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/food_sale.dart';
 import 'package:pasala/data/models/property.dart';
-import 'package:pasala/data/repositories/auth_repository.dart';
+import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/food_sale_repository.dart';
 import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/owner/food_sales_screen.dart';
+
+class _FixedResort extends CurrentResort {
+  _FixedResort(this._value);
+  final ResortMembership? _value;
+  @override
+  ResortMembership? build() => _value;
+}
 
 /// In-memory stand-in for [FoodSaleRepository], mirroring
 /// `FakeTaskRepository` in `tasks_screen_test.dart`.
@@ -93,29 +101,36 @@ const _property = Property(
   isActive: true,
 );
 
+const _adminM =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
+const _staffM =
+    ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.staff);
+
 const _admin = AppUser(
   id: 'admin-1',
   email: 'admin@pasala.test',
-  role: UserRole.admin,
+  memberships: [_adminM],
   fullName: 'Asha Admin',
 );
 
 const _staff = AppUser(
   id: 'staff-1',
   email: 'staff@pasala.test',
-  role: UserRole.staff,
+  memberships: [_staffM],
   fullName: 'Sita Staff',
 );
 
 Widget _appFor(
   FakeFoodSaleRepository repo, {
   AppUser user = _admin,
+  ResortMembership? resort,
 }) =>
     ProviderScope(
       overrides: [
         foodSaleRepositoryProvider.overrideWithValue(repo),
         propertiesProvider.overrideWith((ref) async => [_property]),
-        currentUserProvider.overrideWith((ref) => Stream.value(user)),
+        currentResortProvider.overrideWith(
+            () => _FixedResort(resort ?? user.memberships.first)),
       ],
       child: const MaterialApp(home: FoodSalesScreen()),
     );

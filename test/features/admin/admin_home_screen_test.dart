@@ -240,7 +240,6 @@ void main() {
     const admin = AppUser(
       id: 'admin-1',
       email: 'admin@pasala.test',
-      role: UserRole.admin,
       fullName: 'Asha Admin',
     );
 

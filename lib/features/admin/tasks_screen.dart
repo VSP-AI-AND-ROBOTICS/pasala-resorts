@@ -6,10 +6,9 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
-import '../../data/models/app_user.dart';
 import '../../data/models/staff_task.dart';
+import '../../data/repositories/profile_directory_repository.dart';
 import '../../data/repositories/task_repository.dart';
-import '../../data/repositories/user_admin_repository.dart';
 
 String statusLabel(TaskStatus status) => switch (status) {
       TaskStatus.todo => 'To Do',
@@ -54,7 +53,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                     error: (_, _) => const SizedBox.shrink(),
                     data: (list) {
                       final staffOrAbove =
-                          list.where((p) => p.role != UserRole.customer).toList();
+                          list.where((p) => p.isStaffOrAbove).toList();
                       return DropdownButtonFormField<String?>(
                         key: const Key('task-staff-picker'),
                         initialValue: _assigneeId,
@@ -293,7 +292,7 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
                 error: (_, _) => const SizedBox.shrink(),
                 data: (list) {
                   final staffOrAbove =
-                      list.where((p) => p.role != UserRole.customer).toList();
+                      list.where((p) => p.isStaffOrAbove).toList();
                   return DropdownButtonFormField<String>(
                     key: const Key('task-form-assignee-picker'),
                     initialValue: _assigneeId,

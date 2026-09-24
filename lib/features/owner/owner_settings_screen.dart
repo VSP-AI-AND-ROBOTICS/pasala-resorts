@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -17,8 +16,10 @@ import 'tax_settings_screen.dart';
 /// screen built for this flow (tax, payment display, cancellation policy,
 /// booking rules, notifications); others push an EXISTING admin screen
 /// unchanged (Farmhouse Information -> `PropertyFormScreen`, Pricing ->
-/// `UnitsScreen` -> `RateRulesScreen`, Staff permissions -> `UsersScreen`)
-/// so nothing here duplicates a working screen.
+/// `UnitsScreen` -> `RateRulesScreen`) so nothing here duplicates a
+/// working screen. Staff permissions -> `UsersScreen` was removed in Task
+/// 14 along with the global `UserRole` it managed; the Team screen
+/// replacing it lands in Task 18.
 class OwnerSettingsScreen extends ConsumerWidget {
   const OwnerSettingsScreen({super.key});
 
@@ -117,13 +118,6 @@ class OwnerSettingsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: Spacing.md),
               eyebrow('TEAM & NOTIFICATIONS'),
-              _SettingsTile(
-                icon: Icons.people_outline,
-                title: 'Staff permissions',
-                subtitle: 'Roster and role assignment',
-                color: scheme.onSurfaceVariant,
-                onTap: () => context.push('/admin/users'),
-              ),
               _SettingsTile(
                 icon: Icons.notifications_outlined,
                 title: 'Notification settings',

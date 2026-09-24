@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/data/models/admin_profile.dart';
-import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/staff_shift.dart';
+import 'package:pasala/data/repositories/profile_directory_repository.dart';
 import 'package:pasala/data/repositories/staff_shift_repository.dart';
-import 'package:pasala/data/repositories/user_admin_repository.dart';
 import 'package:pasala/features/admin/staff_shifts_screen.dart';
 
 /// In-memory stand-in for [StaffShiftRepository], mirroring
@@ -66,7 +65,7 @@ class FakeStaffShiftRepository implements StaffShiftRepository {
 final _staffProfile = AdminProfile(
   id: 'staff-1',
   email: 'staff@pasala.test',
-  role: UserRole.staff,
+  isStaffOrAbove: true,
   fullName: 'Sita Staff',
   createdAt: DateTime.utc(2026, 1, 1),
 );

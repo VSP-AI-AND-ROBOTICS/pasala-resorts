@@ -28,15 +28,6 @@ class AuthRepository {
           ? PlatformRole.platformAdmin
           : PlatformRole.customer,
       memberships: memberships,
-      // Legacy, removed in Task 14.
-      role: memberships.isEmpty
-          ? UserRole.customer
-          : switch (memberships.first.role) {
-              ResortRole.owner => UserRole.superAdmin,
-              ResortRole.admin => UserRole.admin,
-              ResortRole.staff => UserRole.staff,
-              ResortRole.accountant => UserRole.accountant,
-            },
     );
   }
 

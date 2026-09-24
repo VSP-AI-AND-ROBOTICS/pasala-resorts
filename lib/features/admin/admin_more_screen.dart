@@ -32,12 +32,6 @@ class AdminMoreScreen extends StatelessWidget {
       path: '/admin/outbox',
     ),
     (
-      icon: Icons.people_outline,
-      title: 'Users',
-      subtitle: 'See every account and promote staff to the right role',
-      path: '/admin/users',
-    ),
-    (
       icon: Icons.event_busy_outlined,
       title: 'Staff shifts',
       subtitle: 'Assign and manage staff work shifts',

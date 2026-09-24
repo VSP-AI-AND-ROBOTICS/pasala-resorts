@@ -11,7 +11,6 @@ import 'package:pasala/features/reports/providers.dart';
 const _owner = AppUser(
   id: 'owner-1',
   email: 'super@pasala.test',
-  role: UserRole.superAdmin,
   fullName: 'Priya Owner',
 );
 

@@ -1,5 +1,9 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../current_resort.dart';
 import '../errors.dart';
 
 /// Shared error rendering for every `AsyncValue.error` branch in the app.
@@ -12,7 +16,16 @@ import '../errors.dart';
 /// permission detail that must never reach the screen -- so it is mapped to
 /// the same generic fallback as any error this app doesn't even recognise as
 /// a [BookingFailure].
-class FailureView extends StatelessWidget {
+///
+/// A [NotAMember] failure gets one extra bit of behaviour on top of just
+/// showing its message: the current resort was a stale, since-revoked pick
+/// (Review Focus #4), so once the message is on screen this also forgets it
+/// and re-fetches the user, via [handleResortAccessLost] -- the router then
+/// re-runs `landingPathFor` against the refreshed memberships. Scheduled for
+/// after the first frame (not run inline in `build`) since it changes
+/// provider state, which must never happen while the widget tree is still
+/// being built.
+class FailureView extends StatefulWidget {
   const FailureView({super.key, required this.error, this.onRetry});
 
   final Object error;
@@ -29,6 +42,22 @@ class FailureView extends StatelessWidget {
       };
 
   @override
+  State<FailureView> createState() => _FailureViewState();
+}
+
+class _FailureViewState extends State<FailureView> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.error is NotAMember) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(handleResortAccessLost(ProviderScope.containerOf(context)));
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) => Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -36,13 +65,14 @@ class FailureView extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                messageFor(error),
+                FailureView.messageFor(widget.error),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-              if (onRetry != null) ...[
+              if (widget.onRetry != null) ...[
                 const SizedBox(height: 12),
-                FilledButton(onPressed: onRetry, child: const Text('Retry')),
+                FilledButton(
+                    onPressed: widget.onRetry, child: const Text('Retry')),
               ],
             ],
           ),

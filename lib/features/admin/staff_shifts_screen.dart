@@ -7,10 +7,9 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
-import '../../data/models/app_user.dart';
 import '../../data/models/staff_shift.dart';
+import '../../data/repositories/profile_directory_repository.dart';
 import '../../data/repositories/staff_shift_repository.dart';
-import '../../data/repositories/user_admin_repository.dart';
 
 final _dateFormat = DateFormat('d MMM yyyy');
 
@@ -60,7 +59,7 @@ class _StaffShiftsScreenState extends ConsumerState<StaffShiftsScreen> {
                     error: (_, _) => const SizedBox.shrink(),
                     data: (list) {
                       final staffOrAbove =
-                          list.where((p) => p.role != UserRole.customer).toList();
+                          list.where((p) => p.isStaffOrAbove).toList();
                       return DropdownButtonFormField<String?>(
                         key: const Key('shift-staff-picker'),
                         initialValue: _staffId,
@@ -339,7 +338,7 @@ class _StaffShiftFormScreenState extends ConsumerState<StaffShiftFormScreen> {
                 error: (_, _) => const SizedBox.shrink(),
                 data: (list) {
                   final staffOrAbove =
-                      list.where((p) => p.role != UserRole.customer).toList();
+                      list.where((p) => p.isStaffOrAbove).toList();
                   return DropdownButtonFormField<String>(
                     key: const Key('shift-form-staff-picker'),
                     initialValue: _staffId,

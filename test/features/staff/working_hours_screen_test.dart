@@ -7,7 +7,7 @@ import 'package:pasala/data/repositories/attendance_repository.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/features/staff/working_hours_screen.dart';
 
-const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test', role: UserRole.staff);
+const _staff = AppUser(id: 'staff-1', email: 'staff@pasala.test');
 
 AttendanceRecord _record(
   String id,

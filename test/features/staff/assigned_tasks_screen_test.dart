@@ -10,7 +10,6 @@ import 'package:pasala/features/staff/assigned_tasks_screen.dart';
 const _staff = AppUser(
   id: 'staff-1',
   email: 'staff@pasala.test',
-  role: UserRole.staff,
 );
 
 class FakeTaskRepository implements TaskRepository {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
@@ -8,7 +9,7 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/food_sale.dart';
-import '../../data/repositories/auth_repository.dart';
+import '../../data/models/resort_membership.dart';
 import '../../data/repositories/food_sale_repository.dart';
 import '../browse/providers.dart';
 
@@ -29,9 +30,10 @@ DateTimeRange _currentMonth() {
 /// following `TasksScreen`'s shape (filter bar, list, FAB, popup-menu
 /// edit/delete). `food_activity_sales_read`/`_insert`
 /// (0026_food_activity_sales.sql) grant staff-or-above read+add, but edit/
-/// delete (`_admin_write`/`_admin_delete`) stay admin-only -- so the FAB
-/// shows for any staff-or-above signed-in user, while the popup menu only
-/// renders for `user.isAdmin`.
+/// delete (`_admin_write`/`_admin_delete`) stay owner/admin-only -- so the
+/// FAB shows for any signed-in user at the current resort, while the
+/// popup menu only renders when the current resort's role is owner or
+/// admin.
 class FoodSalesScreen extends ConsumerStatefulWidget {
   const FoodSalesScreen({super.key});
 
@@ -57,7 +59,8 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
   Widget build(BuildContext context) {
     final filter = (from: _range.start, to: _range.end, category: _category);
     final sales = ref.watch(foodSalesProvider(filter));
-    final canEditOrDelete = ref.watch(currentUserProvider).value?.isAdmin ?? false;
+    final canEditOrDelete = const {ResortRole.owner, ResortRole.admin}
+        .contains(ref.watch(currentResortProvider)?.role);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Food & activity sales')),
