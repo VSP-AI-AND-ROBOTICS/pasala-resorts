@@ -57,6 +57,7 @@ import '../features/staff/leave_screen.dart';
 import '../features/staff/my_food_orders_screen.dart';
 import '../features/staff/my_maintenance_issues_screen.dart';
 import '../features/staff/my_service_requests_screen.dart';
+import '../features/staff/room_status_screen.dart';
 import '../features/staff/staff_dashboard_hub_screen.dart';
 import '../features/staff/staff_profile_screen.dart';
 import '../features/staff/time_slots_screen.dart';
@@ -475,6 +476,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/staff/maintenance',
             builder: (_, _) => const StaffMaintenanceIssuesScreen(),
+          ),
+          // Room status grid (REQ-06). Open to every role at the current
+          // resort through the `/staff/*` rule in redirectFor; the screen
+          // hides actions from accountants, and set_room_status /
+          // dispatch_housekeeping enforce the roles in Postgres.
+          GoRoute(
+            path: '/staff/rooms',
+            builder: (_, _) => const RoomStatusScreen(),
           ),
           GoRoute(
             path: '/admin/check-in',

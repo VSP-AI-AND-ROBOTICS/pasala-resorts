@@ -45,6 +45,7 @@ Widget _appFor({
     routes: [
       GoRoute(path: '/owner', builder: (_, _) => const OwnerHomeScreen()),
       GoRoute(path: '/admin/bookings', builder: (_, _) => const Text('Bookings screen')),
+      GoRoute(path: '/staff/rooms', builder: (_, _) => const Text('Rooms screen')),
     ],
   );
 
@@ -96,6 +97,7 @@ void main() {
       'Revenue',
       'Occupancy',
       'Bookings',
+      'Rooms',
       'Food & activity sales',
       'Expenses',
       'Staff performance',
@@ -135,5 +137,23 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.textContaining('Priya'), findsOneWidget);
+  });
+
+  testWidgets('the Rooms tile opens the room status grid', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_appFor());
+    await tester.pumpAndSettle();
+
+    final roomsTile = find.text('Rooms');
+    await tester.ensureVisible(roomsTile);
+    await tester.pumpAndSettle();
+    await tester.tap(roomsTile);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Rooms screen'), findsOneWidget);
   });
 }

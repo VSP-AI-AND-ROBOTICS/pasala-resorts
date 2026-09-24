@@ -58,6 +58,7 @@ Widget _appFor(AppUser user) {
           GoRoute(path: '/admin', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/admin/bookings', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/admin/more', builder: (_, _) => const SizedBox()),
+          GoRoute(path: '/staff/rooms', builder: (_, _) => const SizedBox()),
         ],
       ),
     ],
@@ -260,5 +261,35 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ThemeToggleButton), findsNothing);
+  });
+
+  testWidgets('staff destinations are Today, Rooms, Dashboard, Reports, '
+      'in that order', (tester) async {
+    await tester.pumpWidget(_appFor(_staff));
+    await tester.pumpAndSettle();
+
+    final xs = [
+      for (final label in ['Today', 'Rooms', 'Dashboard', 'Reports'])
+        tester.getCenter(find.text(label)).dx,
+    ];
+    expect(xs, [...xs]..sort());
+  });
+
+  testWidgets('an accountant also gets the Rooms destination', (tester) async {
+    await tester.pumpWidget(_appFor(_accountant));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Rooms'), findsOneWidget);
+  });
+
+  testWidgets("staff's Rooms destination opens /staff/rooms", (tester) async {
+    await tester.pumpWidget(_appFor(_staff));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Rooms'));
+    await tester.pumpAndSettle();
+
+    final router = GoRouter.of(tester.element(find.text('Rooms')));
+    expect(router.routerDelegate.currentConfiguration.uri.path, '/staff/rooms');
   });
 }
