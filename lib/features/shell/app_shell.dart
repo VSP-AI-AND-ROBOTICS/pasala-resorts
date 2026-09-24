@@ -129,7 +129,7 @@ class AppShell extends ConsumerWidget {
               IconButton(
                 tooltip: 'Sign out',
                 icon: const Icon(Icons.logout),
-                onPressed: () => _signOut(context, ref),
+                onPressed: () => signOut(context, ref),
               ),
           ],
         ],
@@ -164,18 +164,6 @@ class AppShell extends ConsumerWidget {
     );
   }
 
-  Future<void> _signOut(BuildContext context, WidgetRef ref) async {
-    try {
-      await ref.read(authRepositoryProvider).signOut();
-      if (context.mounted) context.go('/login');
-    } on BookingFailure catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
-      }
-    }
-  }
-
   List<Widget> _customerActions(BuildContext context, WidgetRef ref) => [
         IconButton(
           tooltip: 'Notifications',
@@ -190,7 +178,7 @@ class AppShell extends ConsumerWidget {
             backgroundColor: PasalaTokens.seed,
             child: Icon(Icons.person, color: Colors.white, size: 18),
           ),
-          onPressed: () => _showAccountSheet(context, ref),
+          onPressed: () => showAccountSheet(context, ref),
         ),
       ];
 
@@ -215,65 +203,87 @@ class AppShell extends ConsumerWidget {
             backgroundColor: PasalaTokens.seed,
             child: Icon(Icons.person, color: Colors.white, size: 18),
           ),
-          onPressed: () => _showAccountSheet(context, ref),
+          onPressed: () => showAccountSheet(context, ref),
         ),
       ];
+}
 
-  void _showAccountSheet(BuildContext context, WidgetRef ref) {
-    final user = ref.read(currentUserProvider).value;
-    final resort = ref.read(currentResortProvider);
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+/// Signs the current user out via [authRepositoryProvider] and sends them
+/// to `/login`, or surfaces a snackbar if sign-out itself fails. Top-level
+/// (not private to [AppShell]) so [showAccountSheet]'s own sign-out button
+/// -- and any other screen that needs the exact same behaviour, such as the
+/// guest browse hero's profile button -- can reuse it rather than each
+/// screen inventing its own sign-out handling.
+Future<void> signOut(BuildContext context, WidgetRef ref) async {
+  try {
+    await ref.read(authRepositoryProvider).signOut();
+    if (context.mounted) context.go('/login');
+  } on BookingFailure catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
+    }
+  }
+}
+
+/// The signed-in user's account sheet: name/email, resort role (when one
+/// applies), and a sign-out action. [AppShell]'s customer/admin profile
+/// avatars open this; it is also "the existing account route" the guest
+/// browse hero's profile button opens (`_BrowseHero` in browse_screen.dart)
+/// -- there being no separate account screen/route for a signed-in
+/// customer to navigate to, only this shared sheet.
+void showAccountSheet(BuildContext context, WidgetRef ref) {
+  final user = ref.read(currentUserProvider).value;
+  final resort = ref.read(currentResortProvider);
+  showModalBottomSheet<void>(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              user?.fullName ?? user?.email ?? 'Account',
+              style: Theme.of(sheetContext).textTheme.titleMedium,
+            ),
+            if (user?.fullName != null) ...[
+              const SizedBox(height: Spacing.xs),
               Text(
-                user?.fullName ?? user?.email ?? 'Account',
-                style: Theme.of(sheetContext).textTheme.titleMedium,
-              ),
-              if (user?.fullName != null) ...[
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  user!.email,
-                  style: Theme.of(sheetContext)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(
-                        color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
-                      ),
-                ),
-              ],
-              if (user != null && resort != null) ...[
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  resortRoleLabel(resort.role),
-                  style: Theme.of(sheetContext).textTheme.labelMedium?.copyWith(
-                        color: Theme.of(sheetContext).colorScheme.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ],
-              const SizedBox(height: Spacing.lg),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  key: const Key('account-sheet-sign-out'),
-                  icon: const Icon(Icons.logout),
-                  label: const Text('Sign out'),
-                  onPressed: () {
-                    Navigator.of(sheetContext).pop();
-                    unawaited(_signOut(context, ref));
-                  },
+                user!.email,
+                style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
-          ),
+            if (user != null && resort != null) ...[
+              const SizedBox(height: Spacing.xs),
+              Text(
+                resortRoleLabel(resort.role),
+                style: Theme.of(sheetContext).textTheme.labelMedium?.copyWith(
+                  color: Theme.of(sheetContext).colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+            const SizedBox(height: Spacing.lg),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                key: const Key('account-sheet-sign-out'),
+                icon: const Icon(Icons.logout),
+                label: const Text('Sign out'),
+                onPressed: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(signOut(context, ref));
+                },
+              ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
 }
