@@ -406,6 +406,10 @@ select is(
         'ical_export_public','ical_import_event','ical_poll_feed','ical_poll_all_feeds',
         'list_resort_members','add_resort_member','set_member_role','remove_resort_member',
         'platform_resorts','set_resort_status','create_resort',
+        -- 0047: room status. Each asserts the caller's role at the resort
+        -- of the unit (or the resort) it is given.
+        'room_status_board','set_room_status','dispatch_housekeeping',
+        'list_dispatchable_staff',
         -- 0044: properties_guard_status checks is_platform_admin() directly
         -- before allowing a status change; reviews_set_author_name has no
         -- check of its own, but it only ever fires on a row the reviews_insert
