@@ -117,6 +117,9 @@ values ('66666666-6666-6666-6666-666666666666','superadmin@example.com');
 update public.profiles set role = 'super_admin'
   where id = '66666666-6666-6666-6666-666666666666';
 
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000001','66666666-6666-6666-6666-666666666666','owner');
+
 insert into public.slot_types (id, property_id, code, start_time, end_time)
 values ('77777777-0000-0000-0000-000000000001',
         'aaaaaaaa-0000-0000-0000-000000000001','day','09:00','18:00');
