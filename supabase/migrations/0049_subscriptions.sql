@@ -73,12 +73,35 @@ insert into public.resort_subscriptions (property_id, tier, status)
 select id, 'enterprise', 'active' from public.properties
 on conflict (property_id) do nothing;
 
+-- Whether a subscription has run out, worked out on every read and never
+-- stored. A plan is good through its end date (Asia/Kolkata, the same
+-- "today" as dashboard_summary) and lapses the day after; no end date
+-- never lapses; cancelled -- and a missing row, which arrives as all
+-- nulls -- is never lapsed. Not a definer: it reads no table.
+create function public.subscription_lapsed(
+  p_status        public.subscription_status,
+  p_trial_ends_on date,
+  p_paid_through  date
+) returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select case p_status
+    when 'trial'
+      then coalesce(p_trial_ends_on < (now() at time zone 'Asia/Kolkata')::date, false)
+    when 'active'
+      then coalesce(p_paid_through < (now() at time zone 'Asia/Kolkata')::date, false)
+    else false
+  end;
+$$;
+
 -- ---------------------------------------------------------------------
 -- Functions. The signatures are the contract the app is built against;
 -- Tasks 2 and 3 of the plan replace the bodies.
 
--- Adds the plan columns. Until Task 2 the body is 0045's with empty plan
--- columns, so the console keeps working.
+-- 0045's summary plus the resort's subscription. A resort with no
+-- subscription row gets null plan columns and lapsed = false ("No plan").
 drop function public.platform_resorts();
 
 create function public.platform_resorts()
@@ -126,15 +149,17 @@ begin
       coalesce(b.revenue_30d, 0),
       coalesce(b.bookings_365d, 0),
       coalesce(b.revenue_365d, 0),
-      null::public.subscription_tier,
-      null::text,
-      null::public.subscription_status,
-      null::date,
-      null::date,
-      false,
-      null::numeric,
-      null::text
+      s.tier,
+      pl.name,
+      s.status,
+      s.trial_ends_on,
+      s.paid_through,
+      public.subscription_lapsed(s.status, s.trial_ends_on, s.paid_through),
+      pl.monthly_price_inr,
+      s.notes
     from public.properties p
+    left join public.resort_subscriptions s on s.property_id = p.id
+    left join public.subscription_plans pl on pl.tier = s.tier
     left join lateral (
       select
         (count(*) filter (where r.created_at >= now() - interval '30 days'))::int
@@ -153,6 +178,9 @@ begin
 end;
 $$;
 
+-- The console's three cards (spec decisions 6 and 7). Archived resorts,
+-- and resorts with no subscription row, count for nothing. MRR uses each
+-- plan's current price.
 create function public.platform_summary()
 returns table(
   subscribed_count int,
@@ -166,10 +194,30 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  raise exception 'platform_summary is not implemented yet' using errcode = '0A000';
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  return query
+    select
+      (count(*) filter (where s.status <> 'cancelled'))::int,
+      (count(*) filter (where s.status <> 'cancelled' and not x.lapsed))::int,
+      (count(*) filter (where s.status = 'trial' and not x.lapsed))::int,
+      coalesce(sum(pl.monthly_price_inr)
+                 filter (where s.status = 'active' and not x.lapsed), 0)
+    from public.resort_subscriptions s
+    join public.properties p on p.id = s.property_id
+    join public.subscription_plans pl on pl.tier = s.tier
+    cross join lateral (
+      select public.subscription_lapsed(s.status, s.trial_ends_on, s.paid_through) as lapsed
+    ) x
+    where p.status <> 'archived';
 end;
 $$;
 
+-- The resort's own plan, for its owners and admins (spec decision 8).
+-- A read, so it works at a suspended resort; anyone else, including the
+-- platform admin, gets P0020. Zero rows when the resort has no plan.
 create function public.my_resort_subscription(p_property uuid)
 returns table(
   plan_tier         public.subscription_tier,
@@ -187,7 +235,15 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  raise exception 'my_resort_subscription is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property, false, 'owner','admin');
+
+  return query
+    select s.tier, pl.name, s.status, s.trial_ends_on, s.paid_through,
+           public.subscription_lapsed(s.status, s.trial_ends_on, s.paid_through),
+           pl.monthly_price_inr, s.notes
+      from public.resort_subscriptions s
+      join public.subscription_plans pl on pl.tier = s.tier
+     where s.property_id = p_property;
 end;
 $$;
 

@@ -140,3 +140,10 @@ insert into public.activities (id, property_id, name, description, price_per_per
    'Indoor Games', 'Carrom, chess, table tennis', 0, 12),
   ('62000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001',
    'Nature Walk', 'Guided walk around the property', 0, 15);
+
+-- 0049_subscriptions.sql starts every resort that already exists on
+-- Enterprise, active, with no end date. The seed runs after the
+-- migrations, so do the same for the seeded resort.
+insert into public.resort_subscriptions (property_id, tier, status)
+select id, 'enterprise', 'active' from public.properties
+on conflict (property_id) do nothing;

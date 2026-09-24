@@ -18,7 +18,7 @@
 --   P8 suspended resort, Starter active   -> active, in MRR
 --   P9 no subscription row                -> "No plan", counts for nothing
 begin;
-select plan(21);
+select plan(38);
 
 -- "Today" as the subscription functions see it.
 create function pg_temp.today() returns date
@@ -160,6 +160,90 @@ select is((select count(*)::int from public.resort_subscriptions), 0,
   'the platform admin has no direct row access');
 select throws_ok($$update public.subscription_plans set monthly_price_inr = 0$$,
   '42501', null, 'the platform admin changes prices only through set_plan_price');
+reset role;
+set local request.jwt.claims to '';
+
+-- === Task 2: reading plans, counts and MRR =================================
+
+select is(array[
+    public.subscription_lapsed('trial', pg_temp.today(), null),
+    public.subscription_lapsed('trial', pg_temp.today() - 1, null),
+    public.subscription_lapsed('active', null, pg_temp.today()),
+    public.subscription_lapsed('active', null, pg_temp.today() - 1),
+    public.subscription_lapsed('active', null, null),
+    public.subscription_lapsed('cancelled', pg_temp.today() - 100, pg_temp.today() - 100)],
+  array[false, true, false, true, false, false],
+  'a plan is good through its end date, never lapses without one, and cancelled never lapses');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+
+select is((select plan_tier::text || '|' || plan_name || '|' || plan_status::text || '|'
+                  || lapsed::text || '|' || monthly_price_inr::int
+             from public.platform_resorts()
+            where property_id = 'f1000000-0000-4000-8000-000000000001'),
+  'pro|Pro|active|false|7999',
+  'a resort paid until today shows its plan and price, and is not lapsed');
+select is((select array_agg(name || ':' || lapsed::text order by name collate "C")
+             from public.platform_resorts()
+            where name like 'Sub %'),
+  array['Sub Archived:false','Sub Cancelled:false','Sub None:false','Sub Open:false',
+        'Sub Paid:false','Sub Paid Lapsed:true','Sub Suspended:false','Sub Trial:false',
+        'Sub Trial Lapsed:true'],
+  'platform_resorts flags exactly the lapsed trial and the lapsed paid plan');
+select is((select plan_status::text || '|' || (trial_ends_on - pg_temp.today())::text
+             from public.platform_resorts()
+            where property_id = 'f1000000-0000-4000-8000-000000000003'),
+  'trial|5', 'a trial shows its end date');
+select ok((select plan_tier is null and plan_name is null and plan_status is null
+                  and monthly_price_inr is null and not lapsed
+             from public.platform_resorts()
+            where property_id = 'f1000000-0000-4000-8000-000000000009'),
+  'a resort with no subscription row shows no plan');
+select is((select array[subscribed_count, active_count, trial_count]
+             from public.platform_summary()),
+  array[6, 4, 1],
+  'subscribed leaves out cancelled, archived and plan-less resorts; active also leaves out the two lapsed; one live trial');
+select is((select mrr_inr from public.platform_summary()), 30997::numeric,
+  'MRR is Pro 7999 + Enterprise 19999 + the suspended resort''s Starter 2999: no trials, lapsed, cancelled or archived');
+
+-- The owner of P1.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$select * from public.platform_summary()$$,
+  'P0008', null, 'an owner cannot read the platform totals');
+select is((select plan_tier::text || '|' || plan_status::text || '|' || lapsed::text || '|' || paid_through::text
+             from public.my_resort_subscription('f1000000-0000-4000-8000-000000000001')),
+  'pro|active|false|' || pg_temp.today()::text, 'an owner reads their own plan');
+select throws_ok($$select * from public.my_resort_subscription('f1000000-0000-4000-8000-000000000002')$$,
+  'P0020', null, 'an owner cannot read another resort''s plan');
+
+-- P1's admin, staff member and accountant.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is((select count(*)::int
+             from public.my_resort_subscription('f1000000-0000-4000-8000-000000000001')),
+  1, 'an admin reads their resort''s plan');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select * from public.my_resort_subscription('f1000000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'staff cannot read the plan');
+select throws_ok($$select * from public.platform_summary()$$,
+  'P0008', null, 'staff cannot read the platform totals');
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok($$select * from public.my_resort_subscription('f1000000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'an accountant cannot read the plan');
+
+-- The owner of P2, P8 (suspended) and P9 (no plan).
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select is((select plan_status::text
+             from public.my_resort_subscription('f1000000-0000-4000-8000-000000000008')),
+  'active', 'the owner of a suspended resort still reads their plan');
+select is((select count(*)::int
+             from public.my_resort_subscription('f1000000-0000-4000-8000-000000000009')),
+  0, 'a resort with no plan returns no row');
+
+-- The platform admin is nobody's member.
+set local request.jwt.claims to '{"sub":"f0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select throws_ok($$select * from public.my_resort_subscription('f1000000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'the platform admin reads plans through platform_resorts, not as a member');
 reset role;
 set local request.jwt.claims to '';
 
