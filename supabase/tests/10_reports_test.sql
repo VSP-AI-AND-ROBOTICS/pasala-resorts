@@ -55,6 +55,10 @@ values
   ('d0000000-0000-0000-0000-000000000003','e0000000-0000-0000-0000-000000000001',
    'Report Test Property A Unit C', 2, 4, 'nightly');
 
+insert into public.resort_members (property_id, user_id, role) values
+  ('e0000000-0000-0000-0000-000000000001','cccc0000-0000-0000-0000-000000000002','staff'),
+  ('e0000000-0000-0000-0000-000000000002','cccc0000-0000-0000-0000-000000000002','staff');
+
 -- R1: a confirmed Property A booking on 2027-03-01 with a total this file
 -- controls directly -- report_revenue must echo this number back exactly.
 insert into public.reservations
@@ -291,6 +295,9 @@ insert into public.units (id, property_id, name, capacity_base, capacity_max, bo
 values ('d0000000-0000-0000-0000-000000000009',
         'a0000000-0000-0000-0000-000000000009','Report Test Honolulu A',
         2, 4, 'nightly');
+
+insert into public.resort_members (property_id, user_id, role) values
+  ('a0000000-0000-0000-0000-000000000009','cccc0000-0000-0000-0000-000000000002','staff');
 
 -- Check-in 2027-06-05 12:00 UTC (comfortably before the query window).
 -- Check-out 2027-06-10 05:00 UTC: in Pacific/Honolulu (UTC-10) that is

@@ -47,6 +47,11 @@ values ('cccccccc-0000-0000-0000-000000000001',
         tstzrange('2026-08-03 14:00+05:30','2026-08-04 11:00+05:30','[)'),
         'booking','confirmed','11111111-1111-1111-1111-111111111111',4);
 
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000001','33333333-3333-3333-3333-333333333333','staff'),
+  ('aaaaaaaa-0000-0000-0000-000000000001','44444444-4444-4444-4444-444444444444','admin'),
+  ('aaaaaaaa-0000-0000-0000-000000000001','55555555-5555-5555-5555-555555555555','accountant');
+
 -- === customer: own data only, no write surface on units ===================
 
 set local role authenticated;

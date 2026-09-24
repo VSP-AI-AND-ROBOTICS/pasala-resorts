@@ -80,6 +80,12 @@ insert into public.rate_rules
   (unit_id, kind, price, extra_guest_price, cleaning_fee, priority)
 values ('b1000000-0000-0000-0000-000000000004', 'base', 10000, 0, 0, 0);
 
+insert into public.resort_members (property_id, user_id, role) values
+  ('a1000000-0000-0000-0000-000000000001','c2222222-2222-2222-2222-222222222222','admin'),
+  ('a1000000-0000-0000-0000-000000000002','c2222222-2222-2222-2222-222222222222','admin'),
+  ('a1000000-0000-0000-0000-000000000003','c2222222-2222-2222-2222-222222222222','admin'),
+  ('a1000000-0000-0000-0000-000000000004','c2222222-2222-2222-2222-222222222222','admin');
+
 select is(
   (select advance_pct from public.properties
     where id = 'a1000000-0000-0000-0000-000000000004'),
@@ -215,6 +221,8 @@ values ('a1000000-0000-0000-0000-000000000009',
 insert into public.units (id, property_id, name, capacity_base, capacity_max)
 values ('b1000000-0000-0000-0000-000000000009',
         'a1000000-0000-0000-0000-000000000009', 'RefundHonoluluUnit', 2, 4);
+insert into public.resort_members (property_id, user_id, role) values
+  ('a1000000-0000-0000-0000-000000000009','c2222222-2222-2222-2222-222222222222','admin');
 insert into public.reservations
   (id, unit_id, period, kind, status, customer_id, guests, quote, source)
 values

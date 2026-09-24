@@ -40,6 +40,9 @@ update public.profiles set full_name = 'Ravi Menon'
 update public.profiles set role = 'staff'
   where id = 'c9000000-0000-0000-0000-000000000003';
 
+insert into public.resort_members (property_id, user_id, role) values
+  ('a9000000-0000-0000-0000-000000000001','c9000000-0000-0000-0000-000000000003','staff');
+
 -- === business actions: booking_confirmation / payment_success / ===========
 -- === cancellation, customer WITH a phone on file ===========================
 --

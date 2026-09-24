@@ -65,6 +65,10 @@ update public.profiles set role = 'admin'
 update public.profiles set role = 'staff'
   where id = 'e5000000-0000-0000-0000-000000000012';
 
+insert into public.resort_members (property_id, user_id, role) values
+  ('e5000000-0000-0000-0000-000000000001','e5000000-0000-0000-0000-000000000011','admin'),
+  ('e5000000-0000-0000-0000-000000000001','e5000000-0000-0000-0000-000000000012','staff');
+
 -- A confirmed booking with an identifiable guest name/email, expressed as
 -- an explicit UTC tstzrange (bypassing build_period) so the expected
 -- DTSTART/DTEND strings below are exact literals, not re-derived.

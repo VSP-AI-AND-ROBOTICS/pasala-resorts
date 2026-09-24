@@ -269,6 +269,10 @@ values ('88888888-8888-8888-8888-888888888888','blockadmin@example.com');
 update public.profiles set role = 'admin'
   where id = '88888888-8888-8888-8888-888888888888';
 
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000001','88888888-8888-8888-8888-888888888888','admin'),
+  ('aaaaaaaa-0000-0000-0000-000000000002','88888888-8888-8888-8888-888888888888','admin');
+
 set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"88888888-8888-8888-8888-888888888888","role":"authenticated"}';

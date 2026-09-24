@@ -31,6 +31,9 @@ insert into auth.users (id, email) values
 update public.profiles set role = 'admin'
   where id = '44444444-4444-4444-4444-444444444444';
 
+insert into public.resort_members (property_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-000000000001','44444444-4444-4444-4444-444444444444','admin');
+
 insert into public.coupons (code, kind, value) values
   ('SAVE10', 'percent', 10),
   ('FLAT2000', 'fixed', 2000),
