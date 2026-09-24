@@ -9,6 +9,8 @@ import '../reports/csv_export.dart';
 import '../reports/providers.dart' show ReportFilter;
 import 'finance_collections_tab.dart';
 import 'finance_csv.dart';
+import 'finance_ledger_tab.dart';
+import 'finance_settlements_tab.dart';
 import 'finance_today_tab.dart';
 import 'providers.dart';
 
@@ -45,6 +47,8 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
   static const _tabs = [
     (label: 'Today', report: 'today'),
     (label: 'Collections', report: 'collections'),
+    (label: 'Ledger', report: 'ledger'),
+    (label: 'Settlements', report: 'settlements'),
   ];
 
   late final TabController _tabController =
@@ -88,6 +92,10 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
         0 => AsyncData(todayCsv(summary)),
         1 => ref.read(collectionsProvider(filter)).whenData(
             (rows) => collectionsCsv(summary.resort, filter.from, filter.to, rows)),
+        2 => ref.read(ledgerProvider(filter)).whenData(
+            (rows) => ledgerCsv(summary.resort, filter.from, filter.to, rows)),
+        3 => ref.read(settlementsProvider(filter)).whenData(
+            (rows) => settlementsCsv(summary.resort, filter.from, filter.to, rows)),
         _ => throw StateError('Finance has no tab $tab'),
       };
 
@@ -169,6 +177,8 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
               children: [
                 FinanceTodayTab(propertyId: propertyId),
                 FinanceCollectionsTab(filter: filter),
+                FinanceLedgerTab(filter: filter),
+                FinanceSettlementsTab(filter: filter),
               ],
             ),
           ),

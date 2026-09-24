@@ -66,7 +66,12 @@ Future<void> _pump(
 }
 
 Future<void> _openTab(WidgetTester tester, String label) async {
-  await tester.tap(find.widgetWithText(Tab, label));
+  // The TabBar is scrollable, and at phone width a fourth tab (Settlements)
+  // can sit off screen -- scroll it into view before tapping.
+  final tab = find.widgetWithText(Tab, label);
+  await tester.ensureVisible(tab);
+  await tester.pumpAndSettle();
+  await tester.tap(tab);
   await tester.pumpAndSettle();
 }
 
@@ -289,6 +294,197 @@ void main() {
 
       expect(find.text("This report didn't load, so there is nothing to export."), findsOneWidget);
       expect(downloads.files, isEmpty);
+    });
+  });
+
+  group('Ledger', () {
+    final rows = [
+      ledgerRow(
+          day: DateTime(2026, 8, 10),
+          category: LedgerCategory.room,
+          gross: 10000,
+          discount: 1000,
+          tax: 1080),
+      ledgerRow(
+          day: DateTime(2026, 8, 10),
+          category: LedgerCategory.ancillary,
+          source: 'cleaning_fee',
+          gross: 500,
+          tax: 60),
+      ledgerRow(
+          day: DateTime(2026, 8, 11),
+          category: LedgerCategory.foodBeverage,
+          source: 'in_stay_order',
+          gross: 700),
+    ];
+
+    testWidgets('asks for the chosen range of the current resort', (tester) async {
+      final source = FakeFinanceSource();
+      await _pump(tester, source);
+      await _openTab(tester, 'Ledger');
+
+      expect(source.ledgerCalls, isNotEmpty);
+      expect(source.ledgerCalls, everyElement(_augustFilter));
+    });
+
+    testWidgets('a phone shows one card per day and a totals card', (tester) async {
+      await _pump(tester, FakeFinanceSource()..ledgerRows = rows);
+      await _openTab(tester, 'Ledger');
+
+      expect(_inKey('ledger-2026-08-10', 'Room ₹9,000.00'), findsOneWidget);
+      expect(_inKey('ledger-2026-08-10', 'Ancillary ₹500.00'), findsOneWidget);
+      expect(_inKey('ledger-2026-08-10', 'Tax ₹1,140.00'), findsOneWidget);
+      expect(_inKey('ledger-2026-08-10', 'Total ₹10,640.00'), findsOneWidget);
+      expect(_inKey('ledger-2026-08-11', 'F&B ₹700.00'), findsOneWidget);
+      expect(_inKey('ledger-total', 'Taxable ₹10,200.00'), findsOneWidget);
+      expect(_inKey('ledger-total', 'Total ₹11,340.00'), findsOneWidget);
+    });
+
+    testWidgets('the tax strip shows taxable, tax, the rate and the GSTIN', (tester) async {
+      await _pump(tester, FakeFinanceSource()..ledgerRows = rows);
+      await _openTab(tester, 'Ledger');
+
+      expect(_inKey('ledger-tax-strip', 'Taxable ₹10,200.00'), findsOneWidget);
+      expect(_inKey('ledger-tax-strip', 'Tax ₹1,140.00'), findsOneWidget);
+      expect(_inKey('ledger-tax-strip', 'Current rate 12%'), findsOneWidget);
+      expect(_inKey('ledger-tax-strip', 'GSTIN 29ABCDE1234F1Z5'), findsOneWidget);
+    });
+
+    testWidgets('a resort without a GSTIN says so on the strip', (tester) async {
+      await _pump(
+          tester,
+          FakeFinanceSource()
+            ..ledgerRows = rows
+            ..summaryValue = financeSummary(resort: financeResort(gstin: null)));
+      await _openTab(tester, 'Ledger');
+
+      expect(_inKey('ledger-tax-strip', 'GSTIN not set'), findsOneWidget);
+    });
+
+    testWidgets('a wide screen shows a table with a Total row', (tester) async {
+      await _pump(tester, FakeFinanceSource()..ledgerRows = rows, wide: true);
+      await _openTab(tester, 'Ledger');
+
+      expect(find.byKey(const Key('ledger-table')), findsOneWidget);
+      for (final header in ['Room', 'F&B', 'Spa/Activities', 'Ancillary', 'Taxable', 'Tax', 'Total']) {
+        expect(find.text(header), findsWidgets, reason: header);
+      }
+      expect(find.text('₹11,340.00'), findsOneWidget);
+    });
+
+    testWidgets('no revenue shows an empty state', (tester) async {
+      await _pump(tester, FakeFinanceSource());
+      await _openTab(tester, 'Ledger');
+
+      expect(find.text('No revenue in this period'), findsOneWidget);
+    });
+
+    testWidgets('exports the ledger lines under the resort header', (tester) async {
+      final downloads = _Downloads();
+      await _pump(tester, FakeFinanceSource()..ledgerRows = rows, downloads: downloads);
+      await _openTab(tester, 'Ledger');
+
+      await tester.tap(find.byKey(const Key('finance-export')));
+      await tester.pump();
+
+      final (name, csv) = downloads.files.single;
+      expect(name, 'fin-r-ledger-2026-08-01-2026-08-31.csv');
+      expect(csv, contains('Date,Category,Source,Gross,Discount,Taxable,Tax,Net\r\n'));
+      expect(csv, contains('2026-08-10,room,booking,10000.00,1000.00,9000.00,1080.00,10080.00\r\n'));
+    });
+  });
+
+  group('Settlements', () {
+    final rows = [
+      settlementRow(
+        reservationId: 'r1',
+        room: 9000,
+        cleaningFee: 500,
+        taxPct: 12,
+        tax: 1140,
+        food: 700,
+        activities: 1200,
+        advancePaid: 5000,
+        balanceDesk: 7040,
+        deskMethod: PaymentMethod.cash,
+        deskReference: 'R-101',
+        recordedByName: 'Sita Staff',
+        outstanding: 500,
+      ),
+      settlementRow(
+        reservationId: 'r2',
+        guestName: 'Ravi Guest',
+        unitName: 'Cottage 2',
+        room: 3000,
+        advancePaid: 1000,
+        balanceOnline: 2000,
+      ),
+    ];
+
+    testWidgets('asks for the chosen range of the current resort', (tester) async {
+      final source = FakeFinanceSource();
+      await _pump(tester, source);
+      await _openTab(tester, 'Settlements');
+
+      expect(source.settlementsCalls, isNotEmpty);
+      expect(source.settlementsCalls, everyElement(_augustFilter));
+    });
+
+    testWidgets('one card per checkout, with how the balance was paid', (tester) async {
+      await _pump(tester, FakeFinanceSource()..settlementRows = rows);
+      await _openTab(tester, 'Settlements');
+
+      expect(_inKey('settlement-r1', 'Gita Guest · Cottage 1'), findsOneWidget);
+      expect(_inKey('settlement-r1', 'Total ₹12,540.00'), findsOneWidget);
+      expect(_inKey('settlement-r1', 'Balance at desk ₹7,040.00 (Cash · R-101)'), findsOneWidget);
+      expect(_inKey('settlement-r1', 'Recorded by Sita Staff'), findsOneWidget);
+      expect(_inKey('settlement-r2', 'Balance online ₹2,000.00'), findsOneWidget);
+    });
+
+    testWidgets('a non-zero outstanding is flagged with an icon and text, not colour alone',
+        (tester) async {
+      await _pump(tester, FakeFinanceSource()..settlementRows = rows);
+      await _openTab(tester, 'Settlements');
+
+      final flag = find.byKey(const Key('outstanding-r1'));
+      expect(flag, findsOneWidget);
+      expect(find.descendant(of: flag, matching: find.byIcon(Icons.warning_amber_outlined)),
+          findsOneWidget);
+      expect(find.descendant(of: flag, matching: find.text('Outstanding ₹500.00')),
+          findsOneWidget);
+      expect(find.byKey(const Key('outstanding-r2')), findsNothing);
+      expect(_inKey('settlement-r2', 'Settled'), findsOneWidget);
+    });
+
+    testWidgets('a wide screen shows a table, still flagging the outstanding one',
+        (tester) async {
+      await _pump(tester, FakeFinanceSource()..settlementRows = rows, wide: true);
+      await _openTab(tester, 'Settlements');
+
+      expect(find.byKey(const Key('settlements-table')), findsOneWidget);
+      expect(find.byKey(const Key('outstanding-r1')), findsOneWidget);
+      expect(find.byKey(const Key('outstanding-r2')), findsNothing);
+    });
+
+    testWidgets('no checkouts shows an empty state', (tester) async {
+      await _pump(tester, FakeFinanceSource());
+      await _openTab(tester, 'Settlements');
+
+      expect(find.text('No checkouts in this period'), findsOneWidget);
+    });
+
+    testWidgets('exports one line per checkout', (tester) async {
+      final downloads = _Downloads();
+      await _pump(tester, FakeFinanceSource()..settlementRows = rows, downloads: downloads);
+      await _openTab(tester, 'Settlements');
+
+      await tester.tap(find.byKey(const Key('finance-export')));
+      await tester.pump();
+
+      final (name, csv) = downloads.files.single;
+      expect(name, 'fin-r-settlements-2026-08-01-2026-08-31.csv');
+      expect(csv, contains('\r\nr1,Gita Guest,Cottage 1,2026-08-10,2026-08-12,'));
+      expect(csv, contains(',cash,R-101,Sita Staff,500.00\r\n'));
     });
   });
 }
