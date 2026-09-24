@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
@@ -16,10 +17,15 @@ class MyFoodOrdersScreen extends ConsumerWidget {
   const MyFoodOrdersScreen({super.key});
 
   Future<void> _updateStatus(
-      WidgetRef ref, BuildContext context, String orderId, FoodOrderStatus status) async {
+    WidgetRef ref,
+    BuildContext context,
+    String orderId,
+    FoodOrderStatus status,
+    AllFoodOrdersFilter filter,
+  ) async {
     try {
       await ref.read(foodOrderRepositoryProvider).updateStatus(orderId: orderId, status: status);
-      ref.invalidate(allFoodOrdersProvider(null));
+      ref.invalidate(allFoodOrdersProvider(filter));
     } on BookingFailure catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
@@ -30,13 +36,15 @@ class MyFoodOrdersScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final ordersAsync = ref.watch(allFoodOrdersProvider(null));
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, status: null);
+    final ordersAsync = ref.watch(allFoodOrdersProvider(filter));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Food Orders')),
       body: AsyncView(
         value: ordersAsync,
-        onRetry: () => ref.invalidate(allFoodOrdersProvider(null)),
+        onRetry: () => ref.invalidate(allFoodOrdersProvider(filter)),
         empty: () => const EmptyState(
           icon: Icons.restaurant_outlined,
           title: 'No food orders yet',
@@ -64,8 +72,9 @@ class MyFoodOrdersScreen extends ConsumerWidget {
                         for (final s in FoodOrderStatus.values)
                           DropdownMenuItem(value: s, child: Text(foodOrderStatusLabel(s))),
                       ],
-                      onChanged: (s) =>
-                          s == null ? null : _updateStatus(ref, context, order.id, s),
+                      onChanged: (s) => s == null
+                          ? null
+                          : _updateStatus(ref, context, order.id, s, filter),
                     ),
                   ],
                 ),

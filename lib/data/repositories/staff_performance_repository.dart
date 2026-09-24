@@ -10,7 +10,12 @@ String _d(DateTime d) =>
     '${d.month.toString().padLeft(2, '0')}-'
     '${d.day.toString().padLeft(2, '0')}';
 
-typedef StaffPerformanceFilter = ({String? staffId, DateTime from, DateTime to});
+typedef StaffPerformanceFilter = ({
+  String propertyId,
+  String? staffId,
+  DateTime from,
+  DateTime to,
+});
 
 class StaffPerformanceRepository {
   StaffPerformanceRepository(this._db);
@@ -25,12 +30,14 @@ class StaffPerformanceRepository {
   }
 
   Future<List<StaffPerformance>> summary({
+    required String propertyId,
     String? staffId,
     required DateTime from,
     required DateTime to,
   }) =>
       _guard(() async {
         final rows = await _db.rpc('staff_performance_summary', params: {
+          'p_property_id': propertyId,
           'p_staff_id': staffId,
           'p_from': _d(from),
           'p_to': _d(to),
@@ -48,6 +55,7 @@ final staffPerformanceRepositoryProvider = Provider<StaffPerformanceRepository>(
 final staffPerformanceProvider =
     FutureProvider.family<List<StaffPerformance>, StaffPerformanceFilter>(
   (ref, filter) => ref.watch(staffPerformanceRepositoryProvider).summary(
+        propertyId: filter.propertyId,
         staffId: filter.staffId,
         from: filter.from,
         to: filter.to,

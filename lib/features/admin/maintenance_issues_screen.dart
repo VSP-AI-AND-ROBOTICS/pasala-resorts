@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
-import '../../data/models/app_user.dart';
 import '../../data/models/maintenance_issue.dart';
 import '../../data/repositories/maintenance_repository.dart';
-import '../../data/repositories/user_admin_repository.dart';
+import '../../data/repositories/profile_directory_repository.dart';
 
 /// `/admin/maintenance` -- mirrors `service_requests_screen.dart`'s
 /// assign+status shape, plus a priority chip.
@@ -26,7 +26,9 @@ class _MaintenanceIssuesScreenState extends ConsumerState<MaintenanceIssuesScree
   Future<void> _assign(String id, String staffId) async {
     try {
       await ref.read(maintenanceRepositoryProvider).assign(id: id, staffId: staffId);
-      ref.invalidate(maintenanceIssuesProvider((assignedStaffId: null, status: _statusFilter)));
+      final propertyId = ref.read(currentResortProvider)!.propertyId;
+      ref.invalidate(maintenanceIssuesProvider(
+          (propertyId: propertyId, assignedStaffId: null, status: _statusFilter)));
     } on BookingFailure catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -37,7 +39,8 @@ class _MaintenanceIssuesScreenState extends ConsumerState<MaintenanceIssuesScree
 
   @override
   Widget build(BuildContext context) {
-    final filter = (assignedStaffId: null, status: _statusFilter);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, assignedStaffId: null, status: _statusFilter);
     final issuesAsync = ref.watch(maintenanceIssuesProvider(filter));
     final profiles = ref.watch(adminProfilesProvider);
 
@@ -100,7 +103,7 @@ class _MaintenanceIssuesScreenState extends ConsumerState<MaintenanceIssuesScree
                                   error: (_, _) => const SizedBox.shrink(),
                                   data: (list) {
                                     final staffOrAbove = list
-                                        .where((p) => p.role != UserRole.customer)
+                                        .where((p) => p.isStaffOrAbove)
                                         .toList();
                                     return DropdownButtonFormField<String?>(
                                       initialValue: issue.assignedStaffId,

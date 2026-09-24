@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -44,7 +45,8 @@ class LeaveScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider).value;
     final staffId = user?.id;
-    final filter = (staffId: staffId, status: null);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, staffId: staffId, status: null);
     final requestsAsync = staffId == null
         ? AsyncValue<List<LeaveRequest>>.data(const [])
         : ref.watch(leaveRequestsProvider(filter));
@@ -100,7 +102,10 @@ class LeaveScreen extends ConsumerWidget {
           : FloatingActionButton(
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => LeaveRequestFormScreen(staffId: staffId),
+                  builder: (_) => LeaveRequestFormScreen(
+                    staffId: staffId,
+                    propertyId: propertyId,
+                  ),
                 ),
               ),
               child: const Icon(Icons.add),
@@ -114,9 +119,14 @@ class LeaveScreen extends ConsumerWidget {
 /// submitted request can never be changed by the staff member who made
 /// it.
 class LeaveRequestFormScreen extends ConsumerStatefulWidget {
-  const LeaveRequestFormScreen({super.key, required this.staffId});
+  const LeaveRequestFormScreen({
+    super.key,
+    required this.staffId,
+    required this.propertyId,
+  });
 
   final String staffId;
+  final String propertyId;
 
   @override
   ConsumerState<LeaveRequestFormScreen> createState() =>
@@ -161,6 +171,7 @@ class _LeaveRequestFormScreenState extends ConsumerState<LeaveRequestFormScreen>
     try {
       final reason = _reason.text.trim();
       await ref.read(leaveRequestRepositoryProvider).create(
+            propertyId: widget.propertyId,
             staffId: widget.staffId,
             range: range,
             reason: reason.isEmpty ? null : reason,

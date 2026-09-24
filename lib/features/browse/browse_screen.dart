@@ -7,7 +7,6 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/hero_backdrop.dart';
-import '../../core/widgets/loading_state.dart';
 import '../../core/widgets/staggered_fade_in.dart';
 import '../../data/models/property.dart';
 import 'providers.dart';
@@ -37,18 +36,11 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
         message: 'Ask an admin to add one.',
       ),
       data: (list) {
-        // With exactly one active property, skip the list entirely and
-        // land the customer straight on it -- self-correcting if a second
-        // property is ever seeded (see
-        // docs/superpowers/specs/2026-08-13-single-property-onboarding-design.md
-        // section 4.4). Scheduled post-frame so this never navigates
-        // mid-build.
-        if (list.length == 1) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (context.mounted) context.go('/property/${list.single.id}');
-          });
-          return const LoadingState();
-        }
+        // ResortHub lists every active resort, however many there are --
+        // the 2026-08-13 single-property redirect (straight to
+        // `/property/<id>` when there was exactly one) is superseded by
+        // the 2026-09-24 tenancy spec now that guests browse across
+        // resorts.
 
         // Collect all distinct amenities present across properties
         final allAmenities = <String>{};

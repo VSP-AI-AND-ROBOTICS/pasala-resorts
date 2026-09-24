@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
-import '../../data/models/app_user.dart';
-import '../../data/repositories/auth_repository.dart';
+import '../../data/models/resort_membership.dart';
 
 /// One entry point on the staff-operations hub. Pure data so the hub's
 /// contents (and every path's `/staff/*` prefix, which is what
@@ -75,7 +75,7 @@ const staffHubSections = <StaffHubSection>[
 /// sale, check a guest in or out, and read the notification queue; an
 /// accountant specifically can also read (though not write -- see
 /// `ExpensesScreen`) the books.
-List<StaffHubSection> _extraSections(UserRole role) => [
+List<StaffHubSection> _extraSections(ResortRole role) => [
       (
         path: '/admin/check-in',
         icon: Icons.login_outlined,
@@ -96,7 +96,7 @@ List<StaffHubSection> _extraSections(UserRole role) => [
         icon: Icons.outbox_outlined,
         title: 'Outbox',
       ),
-      if (role == UserRole.accountant)
+      if (role == ResortRole.accountant)
         (
           path: '/owner/expenses',
           icon: Icons.receipt_long_outlined,
@@ -112,7 +112,7 @@ class StaffDashboardHubScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final role = ref.watch(currentUserProvider).value?.role;
+    final role = ref.watch(currentResortProvider)?.role;
     final sections = [
       ...staffHubSections,
       if (role != null) ..._extraSections(role),

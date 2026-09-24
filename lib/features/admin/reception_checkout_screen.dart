@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
@@ -19,13 +20,14 @@ class ReceptionCheckoutScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final checkedInAsync = ref.watch(checkedInProvider);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final checkedInAsync = ref.watch(checkedInProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Check-Out')),
       body: AsyncView(
         value: checkedInAsync,
-        onRetry: () => ref.invalidate(checkedInProvider),
+        onRetry: () => ref.invalidate(checkedInProvider(propertyId)),
         empty: () => const EmptyState(
           icon: Icons.logout_outlined,
           title: 'No guests currently checked in',
@@ -47,7 +49,7 @@ class ReceptionCheckoutScreen extends ConsumerWidget {
                   onPressed: () async {
                     await context.push('/my-stay/checkout', extra: g.id);
                     if (context.mounted) {
-                      ref.invalidate(checkedInProvider);
+                      ref.invalidate(checkedInProvider(propertyId));
                       // See the matching comment in reception_checkin_screen.dart
                       // -- the dashboard's own cards read this same list.
                       ref.invalidate(allBookingsProvider);

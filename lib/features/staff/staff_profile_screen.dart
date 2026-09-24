@@ -1,21 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
-import '../../data/models/app_user.dart';
+import '../../data/models/resort_membership.dart';
 import '../../data/repositories/auth_repository.dart';
-
-/// A human-facing label for [role]. Pure so it's testable without a widget,
-/// and kept here rather than on [AppUser] itself since it's a display
-/// concern, not a model one.
-String roleLabel(UserRole role) => switch (role) {
-      UserRole.customer => 'Customer',
-      UserRole.staff => 'Staff',
-      UserRole.admin => 'Admin',
-      UserRole.accountant => 'Accountant',
-      UserRole.superAdmin => 'Super admin',
-    };
 
 /// `/staff/profile` -- the signed-in staff/accountant member's own details.
 /// Everything shown here already lives on [AppUser] (sourced from
@@ -28,6 +18,7 @@ class StaffProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider);
+    final resort = ref.watch(currentResortProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
@@ -42,7 +33,10 @@ class StaffProfileScreen extends ConsumerWidget {
                   _ProfileField(label: 'Name', value: u.fullName),
                   _ProfileField(label: 'Phone', value: u.phone),
                   _ProfileField(label: 'Email', value: u.email),
-                  _ProfileField(label: 'Role', value: roleLabel(u.role)),
+                  _ProfileField(
+                    label: 'Role',
+                    value: resort == null ? null : resortRoleLabel(resort.role),
+                  ),
                 ],
               ),
       ),

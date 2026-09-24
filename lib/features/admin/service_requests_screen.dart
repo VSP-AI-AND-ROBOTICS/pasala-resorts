@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
-import '../../data/models/app_user.dart';
 import '../../data/models/service_request.dart';
+import '../../data/repositories/profile_directory_repository.dart';
 import '../../data/repositories/service_request_repository.dart';
-import '../../data/repositories/user_admin_repository.dart';
 
 /// `/admin/service-requests` -- every request, assignable to any staff
 /// member. Mirrors `tasks_screen.dart`'s staff-picker + status shape.
@@ -26,7 +26,9 @@ class _ServiceRequestsScreenState extends ConsumerState<ServiceRequestsScreen> {
   Future<void> _assign(String id, String staffId) async {
     try {
       await ref.read(serviceRequestRepositoryProvider).assign(id: id, staffId: staffId);
-      ref.invalidate(serviceRequestsProvider((assignedStaffId: null, status: _statusFilter)));
+      final propertyId = ref.read(currentResortProvider)!.propertyId;
+      ref.invalidate(serviceRequestsProvider(
+          (propertyId: propertyId, assignedStaffId: null, status: _statusFilter)));
     } on BookingFailure catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -37,7 +39,8 @@ class _ServiceRequestsScreenState extends ConsumerState<ServiceRequestsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filter = (assignedStaffId: null, status: _statusFilter);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, assignedStaffId: null, status: _statusFilter);
     final requestsAsync = ref.watch(serviceRequestsProvider(filter));
     final profiles = ref.watch(adminProfilesProvider);
 
@@ -90,7 +93,7 @@ class _ServiceRequestsScreenState extends ConsumerState<ServiceRequestsScreen> {
                                   error: (_, _) => const SizedBox.shrink(),
                                   data: (list) {
                                     final staffOrAbove = list
-                                        .where((p) => p.role != UserRole.customer)
+                                        .where((p) => p.isStaffOrAbove)
                                         .toList();
                                     return DropdownButtonFormField<String?>(
                                       initialValue: r.assignedStaffId,

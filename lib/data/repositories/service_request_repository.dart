@@ -8,7 +8,11 @@ import '../models/service_request.dart';
 /// The (assignedStaffId, status) an admin or staff screen wants to see --
 /// mirrors [TaskFilter]'s own shape, so `FutureProvider.family` can key on
 /// it directly.
-typedef ServiceRequestFilter = ({String? assignedStaffId, ServiceRequestStatus? status});
+typedef ServiceRequestFilter = ({
+  String propertyId,
+  String? assignedStaffId,
+  ServiceRequestStatus? status,
+});
 
 class ServiceRequestRepository {
   ServiceRequestRepository(this._db);
@@ -46,13 +50,15 @@ class ServiceRequestRepository {
       });
 
   Future<List<ServiceRequest>> list({
+    required String propertyId,
     String? assignedStaffId,
     ServiceRequestStatus? status,
   }) =>
       _guard(() async {
         dynamic query = _db
             .from('service_requests')
-            .select('*, assignee:profiles!service_requests_assigned_staff_id_fkey(full_name)');
+            .select('*, assignee:profiles!service_requests_assigned_staff_id_fkey(full_name)')
+            .eq('property_id', propertyId);
         if (assignedStaffId != null) {
           query = query.eq('assigned_staff_id', assignedStaffId);
         }
@@ -85,6 +91,7 @@ final myServiceRequestsProvider = FutureProvider.family<List<ServiceRequest>, St
 final serviceRequestsProvider =
     FutureProvider.family<List<ServiceRequest>, ServiceRequestFilter>(
   (ref, filter) => ref.watch(serviceRequestRepositoryProvider).list(
+        propertyId: filter.propertyId,
         assignedStaffId: filter.assignedStaffId,
         status: filter.status,
       ),

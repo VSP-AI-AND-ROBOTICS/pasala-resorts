@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
-import '../../data/models/app_user.dart';
 import '../../data/models/staff_performance.dart';
+import '../../data/repositories/profile_directory_repository.dart';
 import '../../data/repositories/staff_performance_repository.dart';
-import '../../data/repositories/user_admin_repository.dart';
 
 DateTimeRange _last30Days() {
   final now = DateTime.now();
@@ -44,7 +44,15 @@ class _StaffPerformanceScreenState extends ConsumerState<StaffPerformanceScreen>
 
   @override
   Widget build(BuildContext context) {
-    final filter = (staffId: _staffId, from: _range.start, to: _range.end);
+    // A screen reached without a current resort is impossible after Task
+    // 14's redirect.
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (
+      propertyId: propertyId,
+      staffId: _staffId,
+      from: _range.start,
+      to: _range.end,
+    );
     final summary = ref.watch(staffPerformanceProvider(filter));
     final profiles = ref.watch(adminProfilesProvider);
 
@@ -65,7 +73,7 @@ class _StaffPerformanceScreenState extends ConsumerState<StaffPerformanceScreen>
                         error: (_, _) => const SizedBox.shrink(),
                         data: (list) {
                           final staffOrAbove =
-                              list.where((p) => p.role != UserRole.customer).toList();
+                              list.where((p) => p.isStaffOrAbove).toList();
                           return DropdownButtonFormField<String?>(
                             key: const Key('performance-staff-picker'),
                             initialValue: _staffId,
@@ -101,7 +109,7 @@ class _StaffPerformanceScreenState extends ConsumerState<StaffPerformanceScreen>
               empty: () => const EmptyState(
                 icon: Icons.leaderboard_outlined,
                 title: 'No staff to show',
-                message: 'Promote an account to staff or above from Users.',
+                message: 'Add a team member to see their performance here.',
               ),
               data: (list) => ListView(
                 padding: const EdgeInsets.symmetric(horizontal: Spacing.md),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
@@ -8,9 +9,8 @@ import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/food_sale.dart';
-import '../../data/repositories/auth_repository.dart';
+import '../../data/models/resort_membership.dart';
 import '../../data/repositories/food_sale_repository.dart';
-import '../browse/providers.dart';
 
 String _categoryLabel(SaleCategory c) => switch (c) {
       SaleCategory.food => 'Food',
@@ -29,9 +29,10 @@ DateTimeRange _currentMonth() {
 /// following `TasksScreen`'s shape (filter bar, list, FAB, popup-menu
 /// edit/delete). `food_activity_sales_read`/`_insert`
 /// (0026_food_activity_sales.sql) grant staff-or-above read+add, but edit/
-/// delete (`_admin_write`/`_admin_delete`) stay admin-only -- so the FAB
-/// shows for any staff-or-above signed-in user, while the popup menu only
-/// renders for `user.isAdmin`.
+/// delete (`_admin_write`/`_admin_delete`) stay owner/admin-only -- so the
+/// FAB shows for any signed-in user at the current resort, while the
+/// popup menu only renders when the current resort's role is owner or
+/// admin.
 class FoodSalesScreen extends ConsumerStatefulWidget {
   const FoodSalesScreen({super.key});
 
@@ -55,9 +56,18 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filter = (from: _range.start, to: _range.end, category: _category);
+    // A screen reached without a current resort is impossible after Task
+    // 14's redirect.
+    final resort = ref.watch(currentResortProvider)!;
+    final filter = (
+      propertyId: resort.propertyId,
+      from: _range.start,
+      to: _range.end,
+      category: _category,
+    );
     final sales = ref.watch(foodSalesProvider(filter));
-    final canEditOrDelete = ref.watch(currentUserProvider).value?.isAdmin ?? false;
+    final canEditOrDelete =
+        const {ResortRole.owner, ResortRole.admin}.contains(resort.role);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Food & activity sales')),
@@ -159,7 +169,9 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const FoodSaleFormScreen()),
+          MaterialPageRoute(
+            builder: (_) => FoodSaleFormScreen(propertyId: resort.propertyId),
+          ),
         ),
         child: const Icon(Icons.add),
       ),
@@ -175,7 +187,10 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
     switch (value) {
       case 'edit':
         Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => FoodSaleFormScreen(existing: sale)),
+          MaterialPageRoute(
+            builder: (_) =>
+                FoodSaleFormScreen(propertyId: sale.propertyId, existing: sale),
+          ),
         );
       case 'delete':
         _delete(context, filter, sale);
@@ -218,10 +233,13 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
   }
 }
 
-/// Create/edit form for a [FoodSale].
+/// Create/edit form for a [FoodSale]. [propertyId] is the current resort's
+/// -- for a new sale it becomes the row's `property_id`; for an edit it is
+/// ignored in favour of the existing row's own (unchanged) resort.
 class FoodSaleFormScreen extends ConsumerStatefulWidget {
-  const FoodSaleFormScreen({super.key, this.existing});
+  const FoodSaleFormScreen({super.key, required this.propertyId, this.existing});
 
+  final String propertyId;
   final FoodSale? existing;
 
   @override
@@ -283,9 +301,7 @@ class _FoodSaleFormScreenState extends ConsumerState<FoodSaleFormScreen> {
       _error = null;
     });
     try {
-      final properties = await ref.read(propertiesProvider.future);
-      final propertyId = widget.existing?.propertyId ??
-          (properties.isEmpty ? '' : properties.first.id);
+      final propertyId = widget.existing?.propertyId ?? widget.propertyId;
       final notes = _notes.text.trim();
       final sale = FoodSale(
         id: widget.existing?.id ?? '',

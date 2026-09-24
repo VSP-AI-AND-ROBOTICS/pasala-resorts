@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
-import '../../data/models/app_user.dart';
 import '../../data/repositories/attendance_repository.dart';
-import '../../data/repositories/user_admin_repository.dart';
+import '../../data/repositories/profile_directory_repository.dart';
 
 final _dateFormat = DateFormat('d MMM yyyy');
 final _timeFormat = DateFormat.jm();
@@ -38,7 +38,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filter = (staffId: _staffId, date: _date);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, staffId: _staffId, date: _date);
     final records = ref.watch(attendanceRecordsProvider(filter));
     final profiles = ref.watch(adminProfilesProvider);
 
@@ -56,7 +57,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                     error: (_, _) => const SizedBox.shrink(),
                     data: (list) {
                       final staffOrAbove =
-                          list.where((p) => p.role != UserRole.customer).toList();
+                          list.where((p) => p.isStaffOrAbove).toList();
                       return DropdownButtonFormField<String?>(
                         key: const Key('attendance-staff-picker'),
                         initialValue: _staffId,

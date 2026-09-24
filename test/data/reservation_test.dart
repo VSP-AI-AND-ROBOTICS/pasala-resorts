@@ -35,6 +35,17 @@ void main() {
     expect(r.holdRemaining, Duration.zero);
   });
 
+  test('reads the embedded resort name when the query selected it', () {
+    final withResort = {...json('confirmed', null), 'properties': {'name': 'Pasala Hilltop'}};
+    final r = Reservation.fromJson(withResort);
+    expect(r.resortName, 'Pasala Hilltop');
+  });
+
+  test('resortName is null when the properties embed is absent', () {
+    final r = Reservation.fromJson(json('confirmed', null));
+    expect(r.resortName, isNull);
+  });
+
   test('fromCalendarEvent parses a mirror row with no identity fields', () {
     final r = Reservation.fromCalendarEvent({
       'reservation_id': 'c1',

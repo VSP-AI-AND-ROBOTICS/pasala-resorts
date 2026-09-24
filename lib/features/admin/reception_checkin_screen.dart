@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
@@ -16,11 +17,16 @@ import '../staff/providers.dart' show allBookingsProvider;
 class ReceptionCheckinScreen extends ConsumerWidget {
   const ReceptionCheckinScreen({super.key});
 
-  Future<void> _checkIn(WidgetRef ref, BuildContext context, String id) async {
+  Future<void> _checkIn(
+    WidgetRef ref,
+    BuildContext context,
+    String id,
+    String propertyId,
+  ) async {
     try {
       await ref.read(stayRepositoryProvider).checkIn(id);
-      ref.invalidate(todaysArrivalsProvider);
-      ref.invalidate(checkedInProvider);
+      ref.invalidate(todaysArrivalsProvider(propertyId));
+      ref.invalidate(checkedInProvider(propertyId));
       // The admin dashboard's Farmhouse Status / Today's Focus cards read
       // from this same list -- without invalidating it here, a fresh
       // check-in never shows as OCCUPIED until something else happens to
@@ -40,13 +46,14 @@ class ReceptionCheckinScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final arrivalsAsync = ref.watch(todaysArrivalsProvider);
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final arrivalsAsync = ref.watch(todaysArrivalsProvider(propertyId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Check-In')),
       body: AsyncView(
         value: arrivalsAsync,
-        onRetry: () => ref.invalidate(todaysArrivalsProvider),
+        onRetry: () => ref.invalidate(todaysArrivalsProvider(propertyId)),
         empty: () => const EmptyState(
           icon: Icons.how_to_reg_outlined,
           title: 'No bookings waiting to check in',
@@ -65,7 +72,7 @@ class ReceptionCheckinScreen extends ConsumerWidget {
                   '${b.guests ?? '—'} guests · Booking ${b.id.substring(0, 8)}',
                 ),
                 trailing: FilledButton(
-                  onPressed: () => _checkIn(ref, context, b.id),
+                  onPressed: () => _checkIn(ref, context, b.id, propertyId),
                   child: const Text('Check In'),
                 ),
               ),

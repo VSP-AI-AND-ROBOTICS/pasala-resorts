@@ -258,15 +258,26 @@ class BookingRepository
   Future<List<Reservation>> myBookings() => _guard(() async {
         final uid = _db.auth.currentUser?.id;
         if (uid == null) throw const NotPermitted();
+        // The `properties` embed gives a guest with bookings at more than
+        // one resort a name to tell them apart by in My Bookings.
         final rows = await _db
             .from('reservations')
-            .select()
+            .select('*, properties(name)')
             .eq('customer_id', uid)
             .order('period', ascending: false);
         return rows.map(Reservation.fromJson).toList();
       });
 
-  Future<List<Reservation>> allBookings({DateTime? from, DateTime? to}) =>
+  /// Every reservation at [propertyId] -- scoped explicitly rather than
+  /// relying on RLS alone, because a staff member with memberships at two
+  /// resorts would otherwise see both resorts' bookings here (Review Focus
+  /// #1): RLS grants a resort role read access to that resort's rows, but
+  /// says nothing about which resort THIS list is for.
+  Future<List<Reservation>> allBookings({
+    required String propertyId,
+    DateTime? from,
+    DateTime? to,
+  }) =>
       _guard(() async {
         // The embed gives the admin bookings list a guest name/phone to
         // show and search by, without a separate round trip per row.
@@ -280,6 +291,7 @@ class BookingRepository
             .from('reservations')
             .select(
                 '*, profiles!reservations_customer_id_fkey(full_name, phone)')
+            .eq('property_id', propertyId)
             .order('period', ascending: true);
         return rows
             .map(Reservation.fromJson)

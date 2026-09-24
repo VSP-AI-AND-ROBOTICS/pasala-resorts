@@ -66,8 +66,15 @@ class FoodOrderRepository {
       });
 
   /// All orders, optionally narrowed by status -- the kitchen queue.
-  Future<List<FoodOrder>> allOrders({FoodOrderStatus? status}) => _guard(() async {
-        dynamic query = _db.from('food_orders').select('*, food_order_items(*)');
+  Future<List<FoodOrder>> allOrders({
+    required String propertyId,
+    FoodOrderStatus? status,
+  }) =>
+      _guard(() async {
+        dynamic query = _db
+            .from('food_orders')
+            .select('*, food_order_items(*)')
+            .eq('property_id', propertyId);
         if (status != null) query = query.eq('status', foodOrderStatusToDb(status));
         final rows = await query.order('created_at', ascending: false) as List;
         return rows.map((e) => FoodOrder.fromJson(e as Map<String, dynamic>)).toList();
@@ -103,8 +110,11 @@ final myFoodOrdersProvider = FutureProvider.family<List<FoodOrder>, String>(
       ref.watch(foodOrderRepositoryProvider).myOrders(reservationId),
 );
 
+typedef AllFoodOrdersFilter = ({String propertyId, FoodOrderStatus? status});
+
 final allFoodOrdersProvider =
-    FutureProvider.family<List<FoodOrder>, FoodOrderStatus?>(
-  (ref, status) =>
-      ref.watch(foodOrderRepositoryProvider).allOrders(status: status),
+    FutureProvider.family<List<FoodOrder>, AllFoodOrdersFilter>(
+  (ref, filter) => ref
+      .watch(foodOrderRepositoryProvider)
+      .allOrders(propertyId: filter.propertyId, status: filter.status),
 );

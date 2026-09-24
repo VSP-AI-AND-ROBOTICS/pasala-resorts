@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
@@ -23,10 +24,14 @@ class KitchenOrdersScreen extends ConsumerStatefulWidget {
 class _KitchenOrdersScreenState extends ConsumerState<KitchenOrdersScreen> {
   FoodOrderStatus? _filter;
 
-  Future<void> _updateStatus(String orderId, FoodOrderStatus status) async {
+  Future<void> _updateStatus(
+    String orderId,
+    FoodOrderStatus status,
+    AllFoodOrdersFilter filter,
+  ) async {
     try {
       await ref.read(foodOrderRepositoryProvider).updateStatus(orderId: orderId, status: status);
-      ref.invalidate(allFoodOrdersProvider(_filter));
+      ref.invalidate(allFoodOrdersProvider(filter));
     } on BookingFailure catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -37,7 +42,9 @@ class _KitchenOrdersScreenState extends ConsumerState<KitchenOrdersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final ordersAsync = ref.watch(allFoodOrdersProvider(_filter));
+    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final filter = (propertyId: propertyId, status: _filter);
+    final ordersAsync = ref.watch(allFoodOrdersProvider(filter));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Kitchen Orders')),
@@ -59,7 +66,7 @@ class _KitchenOrdersScreenState extends ConsumerState<KitchenOrdersScreen> {
           Expanded(
             child: AsyncView(
               value: ordersAsync,
-              onRetry: () => ref.invalidate(allFoodOrdersProvider(_filter)),
+              onRetry: () => ref.invalidate(allFoodOrdersProvider(filter)),
               empty: () => const EmptyState(
                 icon: Icons.restaurant_outlined,
                 title: 'No orders match this filter',
@@ -88,7 +95,8 @@ class _KitchenOrdersScreenState extends ConsumerState<KitchenOrdersScreen> {
                               for (final s in FoodOrderStatus.values)
                                 DropdownMenuItem(value: s, child: Text(foodOrderStatusLabel(s))),
                             ],
-                            onChanged: (s) => s == null ? null : _updateStatus(order.id, s),
+                            onChanged: (s) =>
+                                s == null ? null : _updateStatus(order.id, s, filter),
                           ),
                         ],
                       ),

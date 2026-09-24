@@ -114,7 +114,9 @@ void main() {
   );
 
   testWidgets(
-    'redirects straight to the property page when there is exactly one',
+    'stays on the list -- and shows the card -- with exactly one active '
+    'resort (ResortHub lists every resort; no more single-property '
+    'redirect)',
     (tester) async {
       const property = Property(
         id: 'solo-1',
@@ -151,8 +153,19 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Property page: solo-1'), findsOneWidget);
-      expect(find.text('Pasala Farm House'), findsNothing);
+      expect(find.text('Pasala Farm House'), findsOneWidget);
+      expect(find.textContaining('Property page:'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'lists every active resort -- both cards render -- with two properties',
+    (tester) async {
+      await tester.pumpWidget(_appFor(_properties));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pasala Riverside'), findsOneWidget);
+      expect(find.text('Pasala Hilltop'), findsOneWidget);
     },
   );
 

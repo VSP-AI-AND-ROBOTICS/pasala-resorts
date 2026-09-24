@@ -30,9 +30,11 @@ class StayRepository {
         // Postgres one) -- `ascending: true` is required here, not
         // decorative, or this resolves to the LATEST matching reservation
         // instead of the soonest one this method's own doc comment promises.
+        // The `properties` embed gives a guest with stays at more than one
+        // resort a name to tell them apart by in My Stay.
         final checkedIn = await _db
             .from('reservations')
-            .select()
+            .select('*, properties(name)')
             .eq('customer_id', uid)
             .eq('kind', 'booking')
             .eq('status', 'checked_in')
@@ -43,7 +45,7 @@ class StayRepository {
 
         final confirmed = await _db
             .from('reservations')
-            .select()
+            .select('*, properties(name)')
             .eq('customer_id', uid)
             .eq('kind', 'booking')
             .eq('status', 'confirmed')
@@ -63,7 +65,7 @@ class StayRepository {
         if (uid == null) throw const NotPermitted();
         final row = await _db
             .from('reservations')
-            .select()
+            .select('*, properties(name)')
             .eq('customer_id', uid)
             .eq('kind', 'booking')
             .eq('status', 'checked_out')
@@ -111,10 +113,12 @@ class StayRepository {
   /// "Guest" for every row. `profiles_select_self` (0002_profiles.sql)
   /// already grants `is_staff_or_above()` read access to any profile, so
   /// this needed no RLS change -- the embed was simply never added here.
-  Future<List<Reservation>> todaysArrivals() => _guard(() async {
+  Future<List<Reservation>> todaysArrivals({required String propertyId}) =>
+      _guard(() async {
         final rows = await _db
             .from('reservations')
             .select('*, profiles!reservations_customer_id_fkey(full_name, phone)')
+            .eq('property_id', propertyId)
             .eq('kind', 'booking')
             .eq('status', 'confirmed')
             .order('period', ascending: true);
@@ -124,10 +128,12 @@ class StayRepository {
   /// Every guest currently on-site -- reception's Check-Out queue, soonest
   /// -arrived guest first. See `todaysArrivals` for why the `profiles`
   /// embed is here.
-  Future<List<Reservation>> checkedIn() => _guard(() async {
+  Future<List<Reservation>> checkedIn({required String propertyId}) =>
+      _guard(() async {
         final rows = await _db
             .from('reservations')
             .select('*, profiles!reservations_customer_id_fkey(full_name, phone)')
+            .eq('property_id', propertyId)
             .eq('kind', 'booking')
             .eq('status', 'checked_in')
             .order('period', ascending: true);
@@ -152,8 +158,9 @@ final currentChargesProvider = FutureProvider.family<CurrentCharges, String>(
       ref.watch(stayRepositoryProvider).currentCharges(reservationId),
 );
 
-final todaysArrivalsProvider = FutureProvider<List<Reservation>>(
-  (ref) => ref.watch(stayRepositoryProvider).todaysArrivals(),
+final todaysArrivalsProvider = FutureProvider.family<List<Reservation>, String>(
+  (ref, propertyId) =>
+      ref.watch(stayRepositoryProvider).todaysArrivals(propertyId: propertyId),
 );
 
 /// `autoDispose` -- unlike this file's other providers, the mutation that
@@ -166,6 +173,8 @@ final todaysArrivalsProvider = FutureProvider<List<Reservation>>(
 /// `ReceptionCheckoutScreen`'s own post-push invalidate run). `autoDispose`
 /// means a fresh instance -- and therefore a fresh query -- is created the
 /// next time anything watches it, regardless of navigation path.
-final checkedInProvider = FutureProvider.autoDispose<List<Reservation>>(
-  (ref) => ref.watch(stayRepositoryProvider).checkedIn(),
+final checkedInProvider =
+    FutureProvider.autoDispose.family<List<Reservation>, String>(
+  (ref, propertyId) =>
+      ref.watch(stayRepositoryProvider).checkedIn(propertyId: propertyId),
 );

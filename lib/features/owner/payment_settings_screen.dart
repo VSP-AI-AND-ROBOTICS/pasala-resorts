@@ -69,6 +69,7 @@ class _PaymentSettingsScreenState extends ConsumerState<PaymentSettingsScreen> {
         'gateway_display_name': gatewayName.isEmpty ? null : gatewayName,
       });
       ref.invalidate(propertiesProvider);
+      ref.invalidate(propertyProvider(widget.property.id));
       if (mounted) Navigator.of(context).pop();
     } on BookingFailure catch (e) {
       if (mounted) {

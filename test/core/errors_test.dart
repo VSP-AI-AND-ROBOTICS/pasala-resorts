@@ -28,6 +28,14 @@ void main() {
     expect(map('42501'), isA<NotPermitted>());
   });
 
+  test('P0020 maps to NotAMember', () {
+    expect(map('P0020', 'not_a_member'), isA<NotAMember>());
+  });
+
+  test('P0022 maps to ResortSuspended', () {
+    expect(map('P0022'), isA<ResortSuspended>());
+  });
+
   test('NotPermitted never leaks the server message', () {
     expect(map('42501', 'permission denied for table reservations').message,
         isNot(contains('reservations')));

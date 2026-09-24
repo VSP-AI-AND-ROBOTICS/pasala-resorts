@@ -20,7 +20,6 @@ void main() {
       'Properties',
       'Financial Dashboard',
       'Outbox',
-      'Users',
       'Staff shifts',
       'Leave requests',
       'Attendance',

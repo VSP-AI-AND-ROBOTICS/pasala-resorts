@@ -11,7 +11,12 @@ import '../models/staff_shift.dart';
 /// nothing useful for a non-admin regardless), `from`/`to: null` means "no
 /// bound on that side." A record, not positional params, so
 /// `FutureProvider.family` can key on it directly.
-typedef StaffShiftFilter = ({String? staffId, DateTime? from, DateTime? to});
+typedef StaffShiftFilter = ({
+  String propertyId,
+  String? staffId,
+  DateTime? from,
+  DateTime? to,
+});
 
 class StaffShiftRepository {
   StaffShiftRepository(this._db);
@@ -34,12 +39,14 @@ class StaffShiftRepository {
   /// [staffId] for someone else simply gets zero rows back, never an error
   /// and never someone else's shift.
   Future<List<StaffShift>> list({
+    required String propertyId,
     String? staffId,
     DateTime? from,
     DateTime? to,
   }) =>
       _guard(() async {
         final rows = await _db.rpc('list_staff_shifts', params: {
+          'p_property_id': propertyId,
           'p_staff_id': staffId,
           'p_from': from == null ? null : _dateOnly(from),
           'p_to': to == null ? null : _dateOnly(to),
@@ -54,6 +61,7 @@ class StaffShiftRepository {
   /// a range whose start equals its end. One batched `insert` call, not
   /// one round trip per day.
   Future<void> createRange({
+    required String propertyId,
     required String staffId,
     required DateTimeRange range,
     required TimeOfDay start,
@@ -66,6 +74,7 @@ class StaffShiftRepository {
             !d.isAfter(range.end);
             d = d.add(const Duration(days: 1))) {
           rows.add({
+            'property_id': propertyId,
             'staff_id': staffId,
             'shift_date': _dateOnly(d),
             'start_time': formatTimeOfDay(start),
@@ -101,6 +110,7 @@ final staffShiftRepositoryProvider = Provider<StaffShiftRepository>(
 final staffShiftsProvider =
     FutureProvider.family<List<StaffShift>, StaffShiftFilter>(
   (ref, filter) => ref.watch(staffShiftRepositoryProvider).list(
+        propertyId: filter.propertyId,
         staffId: filter.staffId,
         from: filter.from,
         to: filter.to,
