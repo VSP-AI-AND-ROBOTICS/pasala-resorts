@@ -95,18 +95,16 @@ final _resortC = ResortSummary(
   revenue365d: 0,
 );
 
-Widget _appFor(
-  FakePlatformRepository repo, {
-  ThemeMode themeMode = ThemeMode.light,
-}) => ProviderScope(
-  overrides: [platformSourceProvider.overrideWithValue(repo)],
-  child: MaterialApp(
-    theme: buildTheme(Brightness.light),
-    darkTheme: buildTheme(Brightness.dark),
-    themeMode: themeMode,
-    home: const PlatformScreen(),
-  ),
-);
+Widget _appFor(FakePlatformRepository repo, {ThemeMode themeMode = ThemeMode.light}) =>
+    ProviderScope(
+      overrides: [platformSourceProvider.overrideWithValue(repo)],
+      child: MaterialApp(
+        theme: buildTheme(Brightness.light),
+        darkTheme: buildTheme(Brightness.dark),
+        themeMode: themeMode,
+        home: const PlatformScreen(),
+      ),
+    );
 
 void main() {
   setUp(() {
@@ -125,23 +123,22 @@ void main() {
     expect(find.textContaining(formatInr(12000)), findsOneWidget);
   });
 
-  testWidgets(
-    'tapping Suspend then confirming calls setStatus(id, suspended)',
-    (tester) async {
-      final repo = FakePlatformRepository()..store = [_resortA, _resortB];
-      await tester.pumpWidget(_appFor(repo));
-      await tester.pumpAndSettle();
+  testWidgets('tapping Suspend then confirming calls setStatus(id, suspended)', (
+    tester,
+  ) async {
+    final repo = FakePlatformRepository()..store = [_resortA, _resortB];
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('resort-status-btn-p1')));
-      await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('resort-status-btn-p1')));
+    await tester.pumpAndSettle();
 
-      // Confirmation dialog is up; confirm it.
-      await tester.tap(find.widgetWithText(FilledButton, 'Suspend'));
-      await tester.pumpAndSettle();
+    // Confirmation dialog is up; confirm it.
+    await tester.tap(find.widgetWithText(FilledButton, 'Suspend'));
+    await tester.pumpAndSettle();
 
-      expect(repo.statusCalls, [('p1', 'suspended')]);
-    },
-  );
+    expect(repo.statusCalls, [('p1', 'suspended')]);
+  });
 
   testWidgets('creating a resort calls createResort and refreshes the list', (
     tester,
@@ -154,13 +151,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(
-      find.byKey(const Key('new-resort-name')),
-      'Resort E',
-    );
+        find.byKey(const Key('new-resort-name')), 'Resort E');
     await tester.enterText(
-      find.byKey(const Key('new-resort-owner-email')),
-      'owner@x.com',
-    );
+        find.byKey(const Key('new-resort-owner-email')), 'owner@x.com');
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pumpAndSettle();
 
@@ -168,9 +161,8 @@ void main() {
     expect(find.text('Resort E'), findsOneWidget);
   });
 
-  testWidgets('a suspended resort offers Reactivate, which sets it active', (
-    tester,
-  ) async {
+  testWidgets('a suspended resort offers Reactivate, which sets it active',
+      (tester) async {
     final repo = FakePlatformRepository()..store = [_resortB];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
@@ -186,9 +178,8 @@ void main() {
 
   // Final review F3: an archived resort is not active, so it must not offer
   // "Suspend" as if it were; it shows its status and no action at all.
-  testWidgets('an archived resort shows its status and no status action', (
-    tester,
-  ) async {
+  testWidgets('an archived resort shows its status and no status action',
+      (tester) async {
     final repo = FakePlatformRepository()..store = [_resortC];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
@@ -199,7 +190,9 @@ void main() {
     expect(find.text('Reactivate'), findsNothing);
   });
 
-  testWidgets('shows the theme toggle in the platform app bar', (tester) async {
+  testWidgets('shows the theme toggle in the platform app bar', (
+    tester,
+  ) async {
     final repo = FakePlatformRepository()..store = [_resortA];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
@@ -208,8 +201,7 @@ void main() {
   });
 
   testWidgets('renders in ThemeMode.dark without throwing', (tester) async {
-    final repo = FakePlatformRepository()
-      ..store = [_resortA, _resortB, _resortC];
+    final repo = FakePlatformRepository()..store = [_resortA, _resortB, _resortC];
     await tester.pumpWidget(_appFor(repo, themeMode: ThemeMode.dark));
     await tester.pumpAndSettle();
 

@@ -74,7 +74,11 @@ class AppShell extends ConsumerWidget {
       icon: Icons.dashboard_outlined,
       label: 'Dashboard',
     ),
-    (path: '/admin/reports', icon: Icons.summarize_outlined, label: 'Reports'),
+    (
+      path: '/admin/reports',
+      icon: Icons.summarize_outlined,
+      label: 'Reports',
+    ),
   ];
 
   @override
@@ -94,8 +98,7 @@ class AppShell extends ConsumerWidget {
 
     void go(int i) => context.go(destinations[i].path);
 
-    final wide =
-        MediaQuery.sizeOf(context).width >= PasalaTokens.wideBreakpoint;
+    final wide = MediaQuery.sizeOf(context).width >= PasalaTokens.wideBreakpoint;
 
     return Scaffold(
       appBar: AppBar(
@@ -138,25 +141,21 @@ class AppShell extends ConsumerWidget {
         ],
       ),
       body: wide
-          ? Row(
-              children: [
-                NavigationRail(
-                  selectedIndex: index,
-                  onDestinationSelected: go,
-                  labelType: NavigationRailLabelType.all,
-                  leading: const SizedBox(height: Spacing.md),
-                  destinations: [
-                    for (final d in destinations)
-                      NavigationRailDestination(
-                        icon: Icon(d.icon),
-                        label: Text(d.label),
-                      ),
-                  ],
-                ),
-                const VerticalDivider(width: 1),
-                Expanded(child: child),
-              ],
-            )
+          ? Row(children: [
+              NavigationRail(
+                selectedIndex: index,
+                onDestinationSelected: go,
+                labelType: NavigationRailLabelType.all,
+                leading: const SizedBox(height: Spacing.md),
+                destinations: [
+                  for (final d in destinations)
+                    NavigationRailDestination(
+                        icon: Icon(d.icon), label: Text(d.label)),
+                ],
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: child),
+            ])
           : child,
       bottomNavigationBar: wide
           ? null
@@ -177,53 +176,55 @@ class AppShell extends ConsumerWidget {
       if (context.mounted) context.go('/login');
     } on BookingFailure catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
       }
     }
   }
 
   List<Widget> _customerActions(BuildContext context, WidgetRef ref) => [
-    IconButton(
-      tooltip: 'Notifications',
-      icon: const Icon(Icons.notifications_outlined),
-      onPressed: null,
-    ),
-    IconButton(
-      tooltip: 'Account',
-      padding: EdgeInsets.zero,
-      icon: const CircleAvatar(
-        radius: 16,
-        backgroundColor: PasalaTokens.seed,
-        child: Icon(Icons.person, color: Colors.white, size: 18),
-      ),
-      onPressed: () => _showAccountSheet(context, ref),
-    ),
-  ];
+        IconButton(
+          tooltip: 'Notifications',
+          icon: const Icon(Icons.notifications_outlined),
+          onPressed: null,
+        ),
+        IconButton(
+          tooltip: 'Account',
+          padding: EdgeInsets.zero,
+          icon: const CircleAvatar(
+            radius: 16,
+            backgroundColor: PasalaTokens.seed,
+            child: Icon(Icons.person, color: Colors.white, size: 18),
+          ),
+          onPressed: () => _showAccountSheet(context, ref),
+        ),
+      ];
 
   List<Widget> _adminActions(BuildContext context, WidgetRef ref) => [
-    const ThemeToggleButton(),
-    IconButton(
-      tooltip: 'Notifications',
-      icon: const Icon(Icons.notifications_outlined),
-      onPressed: null,
-    ),
-    Padding(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-      child: Text('Admin', style: Theme.of(context).textTheme.labelLarge),
-    ),
-    IconButton(
-      tooltip: 'Account',
-      padding: EdgeInsets.zero,
-      icon: const CircleAvatar(
-        radius: 16,
-        backgroundColor: PasalaTokens.seed,
-        child: Icon(Icons.person, color: Colors.white, size: 18),
-      ),
-      onPressed: () => _showAccountSheet(context, ref),
-    ),
-  ];
+        const ThemeToggleButton(),
+        IconButton(
+          tooltip: 'Notifications',
+          icon: const Icon(Icons.notifications_outlined),
+          onPressed: null,
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+          child: Text(
+            'Admin',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+        ),
+        IconButton(
+          tooltip: 'Account',
+          padding: EdgeInsets.zero,
+          icon: const CircleAvatar(
+            radius: 16,
+            backgroundColor: PasalaTokens.seed,
+            child: Icon(Icons.person, color: Colors.white, size: 18),
+          ),
+          onPressed: () => _showAccountSheet(context, ref),
+        ),
+      ];
 
   void _showAccountSheet(BuildContext context, WidgetRef ref) {
     final user = ref.read(currentUserProvider).value;
@@ -245,9 +246,12 @@ class AppShell extends ConsumerWidget {
                 const SizedBox(height: Spacing.xs),
                 Text(
                   user!.email,
-                  style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
-                  ),
+                  style: Theme.of(sheetContext)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(
+                        color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                      ),
                 ),
               ],
               if (user != null && resort != null) ...[
@@ -255,9 +259,9 @@ class AppShell extends ConsumerWidget {
                 Text(
                   resortRoleLabel(resort.role),
                   style: Theme.of(sheetContext).textTheme.labelMedium?.copyWith(
-                    color: Theme.of(sheetContext).colorScheme.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
+                        color: Theme.of(sheetContext).colorScheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
               ],
               const SizedBox(height: Spacing.lg),

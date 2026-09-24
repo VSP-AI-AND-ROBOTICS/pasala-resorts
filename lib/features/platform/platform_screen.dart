@@ -58,12 +58,10 @@ class PlatformScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(Spacing.md),
           itemCount: resorts.length,
           separatorBuilder: (_, _) => const SizedBox(height: Spacing.sm),
-          itemBuilder: (context, i) => _ResortCard(
-            resort: resorts[i],
-            onChanged: () {
-              ref.invalidate(platformResortsProvider);
-            },
-          ),
+          itemBuilder: (context, i) =>
+              _ResortCard(resort: resorts[i], onChanged: () {
+            ref.invalidate(platformResortsProvider);
+          }),
         ),
       ),
       floatingActionButton: FloatingActionButton(
@@ -82,9 +80,8 @@ class PlatformScreen extends ConsumerWidget {
       if (context.mounted) context.go('/login');
     } on BookingFailure catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
       }
     }
   }
@@ -114,18 +111,16 @@ class _ResortCard extends ConsumerWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    resort.name,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+                  child: Text(resort.name,
+                      style: Theme.of(context).textTheme.titleMedium),
                 ),
                 Chip(
                   label: Text(_statusLabel(resort.status)),
                   backgroundColor: suspended
                       ? scheme.errorContainer
                       : archived
-                      ? scheme.surfaceContainerHighest
-                      : scheme.secondaryContainer,
+                          ? scheme.surfaceContainerHighest
+                          : scheme.secondaryContainer,
                   side: BorderSide.none,
                 ),
               ],
@@ -135,9 +130,10 @@ class _ResortCard extends ConsumerWidget {
               resort.ownerEmails.isEmpty
                   ? 'No owner'
                   : resort.ownerEmails.join(', '),
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: Spacing.sm),
             Text(
@@ -147,9 +143,10 @@ class _ResortCard extends ConsumerWidget {
             Text(
               '${resort.bookings365d} bookings · ${formatInr(resort.revenue365d)} '
               '(last 365 days)',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant),
             ),
             if (!archived) ...[
               const SizedBox(height: Spacing.sm),
@@ -168,7 +165,10 @@ class _ResortCard extends ConsumerWidget {
     );
   }
 
-  Future<void> _confirmAndSetStatus(BuildContext context, WidgetRef ref) async {
+  Future<void> _confirmAndSetStatus(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final suspending = resort.status != 'suspended';
     final newStatus = suspending ? 'suspended' : 'active';
     final actionLabel = suspending ? 'Suspend' : 'Reactivate';
@@ -180,7 +180,7 @@ class _ResortCard extends ConsumerWidget {
         content: Text(
           suspending
               ? 'Staff at this resort will no longer be able to make changes. '
-                    'The guest can still read and cancel their bookings.'
+                'The guest can still read and cancel their bookings.'
               : 'This resort will be reactivated and staff can work again.',
         ),
         actions: [
@@ -204,9 +204,8 @@ class _ResortCard extends ConsumerWidget {
       onChanged();
     } on BookingFailure catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
       }
     }
   }
@@ -260,43 +259,43 @@ class _NewResortDialogState extends ConsumerState<_NewResortDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('New resort'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        TextField(
-          key: const Key('new-resort-name'),
-          controller: _name,
-          decoration: const InputDecoration(labelText: 'Name'),
+        title: const Text('New resort'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              key: const Key('new-resort-name'),
+              controller: _name,
+              decoration: const InputDecoration(labelText: 'Name'),
+            ),
+            const SizedBox(height: Spacing.sm),
+            TextField(
+              key: const Key('new-resort-owner-email'),
+              controller: _ownerEmail,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Owner email',
+                helperText: 'Must belong to an existing account',
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: Spacing.sm),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
         ),
-        const SizedBox(height: Spacing.sm),
-        TextField(
-          key: const Key('new-resort-owner-email'),
-          controller: _ownerEmail,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: 'Owner email',
-            helperText: 'Must belong to an existing account',
+        actions: [
+          TextButton(
+            onPressed: _busy ? null : () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
           ),
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: Spacing.sm),
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          FilledButton(
+            onPressed: _busy ? null : _create,
+            child: const Text('Create'),
           ),
         ],
-      ],
-    ),
-    actions: [
-      TextButton(
-        onPressed: _busy ? null : () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: _busy ? null : _create,
-        child: const Text('Create'),
-      ),
-    ],
-  );
+      );
 }

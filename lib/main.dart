@@ -18,12 +18,12 @@ class PasalaApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => MaterialApp.router(
-    title: 'ResortHub',
-    theme: buildTheme(Brightness.light),
-    darkTheme: buildTheme(Brightness.dark),
-    themeMode: ref.watch(themeModeProvider),
-    routerConfig: ref.watch(routerProvider),
-    builder: (context, child) =>
-        AppSplashOverlay(child: child ?? const SizedBox()),
-  );
+        title: 'ResortHub',
+        theme: buildTheme(Brightness.light),
+        darkTheme: buildTheme(Brightness.dark),
+        themeMode: ref.watch(themeModeProvider),
+        routerConfig: ref.watch(routerProvider),
+        builder: (context, child) =>
+            AppSplashOverlay(child: child ?? const SizedBox()),
+      );
 }
