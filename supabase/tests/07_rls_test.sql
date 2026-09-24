@@ -68,12 +68,12 @@ select is((select count(*)::int from public.reservations), 0,
 select throws_ok(
   $$select public.cancel_booking(
       'cccccccc-0000-0000-0000-000000000001','nope')$$,
-  'P0008', null, 'customer cannot cancel another customer booking');
+  'P0020', null, 'customer cannot cancel another customer booking');
 
 select throws_ok(
   $$select public.block_dates('bbbbbbbb-0000-0000-0000-000000000001',
       array[daterange('2026-12-01','2026-12-03')], 'nope')$$,
-  'P0008', null, 'customer cannot block dates');
+  'P0020', null, 'customer cannot block dates');
 
 select throws_ok(
   $$insert into public.units (property_id, name, capacity_base, capacity_max)

@@ -1,5 +1,5 @@
 begin;
-select plan(31);
+select plan(39);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -155,6 +155,47 @@ delete from public.resort_members where user_id = 'b0000000-0000-0000-0000-00000
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"b0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
 select is((select count(*)::int from public.reservations), 0, 'platform admin: no reservation rows');
+
+-- Booking, quote, coupon and refund functions (0045).
+-- As A's admin (resort A active again). `reset role` keeps the JWT claims;
+-- clear them so the status change runs with no authenticated caller.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'active' where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+-- A hold of guest A's at resort B, for confirm_booking below.
+insert into public.reservations (id, unit_id, period, kind, status, customer_id, guests, quote, hold_expires_at) values
+  ('bbbbbbbb-0000-4000-8000-000000000022','bbbbbbbb-0000-4000-8000-000000000011',
+   tstzrange('2027-05-01 14:00+05:30','2027-05-02 11:00+05:30','[)'),
+   'booking','hold','c0000000-0000-0000-0000-00000000000a',2,
+   '{"total": 1000}'::jsonb, now() + interval '15 minutes');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+select throws_ok($$select public.block_dates('bbbbbbbb-0000-4000-8000-000000000011',
+  array[daterange('2027-03-01','2027-03-02')], 'x')$$, 'P0020', null, 'A admin cannot block B dates');
+select throws_ok($$select public.cancel_booking('bbbbbbbb-0000-4000-8000-000000000021','x')$$,
+  'P0020', null, 'A admin cannot cancel B booking');
+select throws_ok($$select public.compute_refund('bbbbbbbb-0000-4000-8000-000000000021')$$,
+  'P0020', null, 'A admin cannot quote B refund');
+-- Suspended resort: new holds refused.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'suspended' where id = 'bbbbbbbb-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+select throws_ok($$select public.create_hold('bbbbbbbb-0000-4000-8000-000000000011',
+  '2027-04-01','2027-04-02',2)$$, 'P0022', null, 'cannot hold at suspended resort');
+select throws_ok($$select public.get_quote('bbbbbbbb-0000-4000-8000-000000000011',
+  tstzrange('2027-04-01 14:00+05:30','2027-04-02 11:00+05:30','[)'), 2)$$,
+  'P0022', null, 'cannot quote at suspended resort');
+select throws_ok($$select public.confirm_booking('bbbbbbbb-0000-4000-8000-000000000022','pay-1',1000)$$,
+  'P0022', null, 'cannot confirm a hold at suspended resort');
+select is((select count(*)::int from public.search_availability(
+  'bbbbbbbb-0000-4000-8000-000000000001','2027-04-01','2027-04-02',2)), 0,
+  'suspended resort absent from availability search');
+-- Guests keep cancelling their own bookings at a suspended resort.
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+select is((select status from public.cancel_booking('bbbbbbbb-0000-4000-8000-000000000021','changed plans')),
+  'cancelled'::public.reservation_status, 'guest cancels own booking at suspended resort');
 
 select * from finish();
 rollback;

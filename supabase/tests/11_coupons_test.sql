@@ -6,7 +6,7 @@
 -- example exactly -- and a flat 2000 coupon discounts 2000 for 9500.
 
 begin;
-select plan(60);
+select plan(61);
 
 select has_table('public', 'coupons', 'coupons table exists');
 select has_table('public', 'coupon_redemptions',
@@ -52,6 +52,11 @@ insert into public.coupons (property_id, code, kind, value, customer_id) values
 insert into public.coupons
   (property_id, code, kind, value, max_redemptions) values
   ('aaaaaaaa-0000-0000-0000-000000000001', 'LASTONE', 'percent', 10, 1);
+-- A valid, active coupon belonging to a different resort.
+insert into public.properties (id, name, slug)
+values ('aaaaaaaa-0000-0000-0000-000000000002', 'P2', 'p2');
+insert into public.coupons (property_id, code, kind, value) values
+  ('aaaaaaaa-0000-0000-0000-000000000002', 'OTHERRESORT', 'percent', 10);
 
 set local role authenticated;
 set local request.jwt.claims to
@@ -153,6 +158,14 @@ select throws_ok(
       4, null, 'MINE')$$,
   'P0010', null,
   'a coupon restricted to another customer raises P0010 for this one');
+
+-- Coupons are per resort: another resort's code looks exactly like an
+-- unknown one.
+select throws_ok(
+  $$select public.get_quote('bbbbbbbb-0000-0000-0000-000000000001',
+      tstzrange('2026-08-03 14:00+05:30','2026-08-04 11:00+05:30','[)'),
+      4, null, 'OTHERRESORT')$$,
+  'P0010', null, 'another resort''s coupon raises P0010, same as unknown');
 
 -- === the correctness trap: create_hold must re-quote WITH the coupon =====
 
@@ -307,7 +320,7 @@ select throws_ok(
 -- calling it directly fails at the grant layer regardless of the code
 -- guessed or the caller's identity.
 select throws_ok(
-  $$select public.resolve_coupon('SAVE10', null, 11500)$$,
+  $$select public.resolve_coupon('aaaaaaaa-0000-0000-0000-000000000001', 'SAVE10', null, 11500)$$,
   '42501', null,
   'I1: anon cannot call resolve_coupon directly -- closing the '
   'code-guessing oracle its four distinct SQLSTATEs used to leave open');
@@ -324,7 +337,7 @@ set local role authenticated;
 set local request.jwt.claims to
   '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
 select throws_ok(
-  $$select public.resolve_coupon('SAVE10',
+  $$select public.resolve_coupon('aaaaaaaa-0000-0000-0000-000000000001', 'SAVE10',
       '11111111-1111-1111-1111-111111111111', 11500)$$,
   '42501', null,
   'I1: an authenticated customer cannot call resolve_coupon directly '

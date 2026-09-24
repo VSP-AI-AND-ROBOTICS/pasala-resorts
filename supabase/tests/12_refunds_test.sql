@@ -351,7 +351,7 @@ set local request.jwt.claims to
   '{"sub":"c3333333-3333-3333-3333-333333333333","role":"authenticated"}';
 select throws_ok(
   $$select public.compute_refund('d1000000-0000-0000-0000-000000000001')$$,
-  'P0008', null,
+  'P0020', null,
   'a different customer cannot preview another customer''s refund');
 
 set local request.jwt.claims to

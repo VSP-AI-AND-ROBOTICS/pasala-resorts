@@ -190,7 +190,7 @@ set local request.jwt.claims to
 select throws_ok(
   $$select public.cancel_booking(
       'ffffffff-0000-0000-0000-000000000001','sneaky')$$,
-  'P0008', null, 'a customer cannot cancel an admin block');
+  'P0020', null, 'a customer cannot cancel an admin block');
 
 set local role postgres;
 select is(
@@ -244,12 +244,12 @@ set local request.jwt.claims to
 select throws_ok(
   format($$select public.cancel_booking('%s','not mine')$$,
          current_setting('app.other_booking_id')),
-  'P0008', null, 'a customer cannot cancel another customer booking');
+  'P0020', null, 'a customer cannot cancel another customer booking');
 
 select throws_ok(
   $$select public.block_dates('bbbbbbbb-0000-0000-0000-000000000001',
       array[daterange('2027-03-01','2027-03-03')], 'nope')$$,
-  'P0008', null, 'a customer cannot block dates');
+  'P0020', null, 'a customer cannot block dates');
 
 select throws_ok(
   $$select public.release_expired_holds()$$,
