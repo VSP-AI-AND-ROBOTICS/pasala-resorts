@@ -1,5 +1,5 @@
 begin;
-select plan(39);
+select plan(43);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -196,6 +196,29 @@ select is((select count(*)::int from public.search_availability(
 set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
 select is((select status from public.cancel_booking('bbbbbbbb-0000-4000-8000-000000000021','changed plans')),
   'cancelled'::public.reservation_status, 'guest cancels own booking at suspended resort');
+
+-- Stay and guest-service functions (0045): check_in_booking, current_charges.
+-- `reset role` keeps the JWT claims; clear them so the status change runs
+-- with no authenticated caller.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'active' where id = 'bbbbbbbb-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000c","role":"authenticated"}';
+select throws_ok($$select public.check_in_booking('bbbbbbbb-0000-4000-8000-000000000021')$$,
+  'P0020', null, 'A staff cannot check in a B guest');
+select throws_ok($$select public.current_charges('bbbbbbbb-0000-4000-8000-000000000021')$$,
+  'P0020', null, 'A staff cannot read B charges');
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'suspended' where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000c","role":"authenticated"}';
+select throws_ok($$select public.check_in_booking('aaaaaaaa-0000-4000-8000-000000000021')$$,
+  'P0022', null, 'staff write at suspended resort raises P0022');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+select lives_ok($$select public.cancel_booking('aaaaaaaa-0000-4000-8000-000000000021','changed plans')$$,
+  'guest can still cancel at a suspended resort');
 
 select * from finish();
 rollback;

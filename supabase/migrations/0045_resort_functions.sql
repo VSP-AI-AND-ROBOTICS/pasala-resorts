@@ -589,3 +589,407 @@ begin
   end loop;
 end;
 $$;
+
+-- ---------------------------------------------------------------------
+-- Stay and guest-service functions.
+
+-- Staff-or-above of the reservation's resort only -- moves a paid booking
+-- to `checked_in` once the guest has arrived and been verified.
+create or replace function public.check_in_booking(
+  p_reservation_id uuid
+) returns public.reservations
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_row public.reservations;
+begin
+  select * into v_row from public.reservations
+  where id = p_reservation_id for update;
+
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  perform public.assert_resort_role(v_row.property_id, true, 'owner','admin','staff');
+
+  if v_row.status = 'checked_in' then
+    return v_row;   -- idempotent: re-tapping Check In does nothing harmful
+  end if;
+
+  if v_row.status <> 'confirmed' then
+    raise exception 'reservation is %', v_row.status using errcode = 'P0009';
+  end if;
+
+  update public.reservations
+     set status = 'checked_in', checked_in_at = clock_timestamp()
+   where id = p_reservation_id
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+-- Computed fresh on every call. Callable by the reservation's own
+-- customer, or any staff role at its resort (read-only, so allowed while
+-- the resort is suspended).
+create or replace function public.current_charges(
+  p_reservation_id uuid
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid       uuid := auth.uid();
+  v_res       public.reservations;
+  v_stay      numeric(12,2);
+  v_food      numeric(12,2);
+  v_activity  numeric(12,2);
+  v_paid      numeric(12,2);
+  v_total     numeric(12,2);
+begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_res from public.reservations where id = p_reservation_id;
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  if v_res.customer_id is distinct from v_uid then
+    perform public.assert_resort_role(v_res.property_id, false,
+      'owner','admin','staff');
+  end if;
+
+  v_stay := coalesce((v_res.quote ->> 'total')::numeric, 0);
+
+  select coalesce(sum(total), 0) into v_food
+  from public.food_orders
+  where reservation_id = p_reservation_id and status <> 'cancelled';
+
+  select coalesce(sum(amount), 0) into v_activity
+  from public.activity_bookings
+  where reservation_id = p_reservation_id and status <> 'cancelled';
+
+  select coalesce(sum(amount), 0) into v_paid
+  from public.payments
+  where reservation_id = p_reservation_id and status = 'succeeded';
+
+  v_total := v_stay + v_food + v_activity;
+
+  return jsonb_build_object(
+    'stay_amount', v_stay,
+    'food_amount', v_food,
+    'activity_amount', v_activity,
+    'total', v_total,
+    'paid', v_paid,
+    'balance', greatest(v_total - v_paid, 0)
+  );
+end;
+$$;
+
+-- Staff-or-above of the reservation's resort, or the reservation's own
+-- customer (self-checkout, widened in 0039).
+create or replace function public.checkout_booking(
+  p_reservation_id uuid,
+  p_payment_ref    text,
+  p_amount         numeric
+) returns public.reservations
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_row     public.reservations;
+  v_charges jsonb;
+  v_balance numeric(12,2);
+begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_row from public.reservations
+  where id = p_reservation_id for update;
+
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  if v_row.customer_id is distinct from v_uid then
+    perform public.assert_resort_role(v_row.property_id, true, 'owner','admin','staff');
+  end if;
+
+  if v_row.status = 'checked_out' then
+    return v_row;   -- idempotent: a retried checkout must not double-charge
+  end if;
+
+  if v_row.status <> 'checked_in' then
+    raise exception 'reservation is %', v_row.status using errcode = 'P0009';
+  end if;
+
+  v_charges := public.current_charges(p_reservation_id);
+  v_balance := (v_charges ->> 'balance')::numeric;
+
+  if v_balance > 0 and (p_amount is null or p_amount is distinct from v_balance) then
+    raise exception 'payment amount % does not match balance due %',
+      p_amount, v_balance
+      using errcode = 'P0009';
+  end if;
+
+  if v_balance > 0 then
+    insert into public.payments
+      (reservation_id, amount, kind, status, gateway, gateway_ref)
+    values (p_reservation_id, v_balance, 'balance', 'succeeded', 'mock', p_payment_ref);
+  end if;
+
+  update public.reservations
+     set status = 'checked_out', checked_out_at = clock_timestamp()
+   where id = p_reservation_id
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+-- In-stay food ordering. Guest-facing: only the reservation's own customer
+-- may order, and only while their resort is `active`.
+create or replace function public.place_food_order(
+  p_reservation_id uuid,
+  p_items          jsonb,
+  p_notes          text default null
+) returns public.food_orders
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid   uuid := auth.uid();
+  v_res   public.reservations;
+  v_item  jsonb;
+  v_food  public.food_items;
+  v_qty   int;
+  v_order public.food_orders;
+  v_total numeric(12,2) := 0;
+begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_res from public.reservations where id = p_reservation_id;
+  if not found or v_res.customer_id is distinct from v_uid then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  if not exists (select 1 from public.properties
+                  where id = v_res.property_id and status = 'active') then
+    raise exception using errcode = 'P0022', message = 'resort_suspended';
+  end if;
+
+  if v_res.status not in ('confirmed', 'checked_in') then
+    raise exception 'this stay is not open for ordering' using errcode = 'P0009';
+  end if;
+
+  if jsonb_array_length(p_items) = 0 then
+    raise exception 'an order needs at least one item' using errcode = 'P0003';
+  end if;
+
+  insert into public.food_orders (reservation_id, status, total, notes)
+  values (p_reservation_id, 'placed', 0, p_notes)
+  returning * into v_order;
+
+  for v_item in select jsonb_array_elements(p_items) loop
+    select * into v_food from public.food_items
+    where id = (v_item ->> 'food_item_id')::uuid and is_available;
+    if not found then
+      raise exception 'menu item % is not available', v_item ->> 'food_item_id'
+        using errcode = 'P0002';
+    end if;
+
+    v_qty := (v_item ->> 'quantity')::int;
+    if v_qty is null or v_qty <= 0 then
+      raise exception 'quantity must be positive' using errcode = 'P0003';
+    end if;
+
+    insert into public.food_order_items
+      (order_id, food_item_id, item_name, unit_price, quantity, line_total)
+    values
+      (v_order.id, v_food.id, v_food.name, v_food.price, v_qty, v_food.price * v_qty);
+
+    v_total := v_total + v_food.price * v_qty;
+  end loop;
+
+  update public.food_orders set total = v_total where id = v_order.id
+  returning * into v_order;
+
+  return v_order;
+end;
+$$;
+
+-- In-stay activity booking. Guest-facing: only the reservation's own
+-- customer may book, and only while their resort is `active`.
+create or replace function public.book_activity(
+  p_reservation_id uuid,
+  p_activity_id    uuid,
+  p_booking_date   date,
+  p_start_time     time,
+  p_people         int
+) returns public.activity_bookings
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid      uuid := auth.uid();
+  v_res      public.reservations;
+  v_activity public.activities;
+  v_booked   int;
+  v_booking  public.activity_bookings;
+begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_res from public.reservations where id = p_reservation_id;
+  if not found or v_res.customer_id is distinct from v_uid then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  if not exists (select 1 from public.properties
+                  where id = v_res.property_id and status = 'active') then
+    raise exception using errcode = 'P0022', message = 'resort_suspended';
+  end if;
+
+  if v_res.status not in ('confirmed', 'checked_in') then
+    raise exception 'this stay is not open for activity booking' using errcode = 'P0009';
+  end if;
+
+  if p_people <= 0 then
+    raise exception 'people must be positive' using errcode = 'P0003';
+  end if;
+
+  -- Locks the activity row itself, not the (aggregate) booking count --
+  -- `for update` cannot target an aggregate directly. This serializes every
+  -- concurrent booking attempt on the same activity behind one lock, which
+  -- is coarser than locking just this slot, but activity capacity is
+  -- advisory (see this function's own header comment) so contention across
+  -- unrelated slots on a popular activity is an acceptable tradeoff for a
+  -- correct, simple capacity check.
+  select * into v_activity from public.activities
+  where id = p_activity_id and is_available
+  for update;
+  if not found then
+    raise exception 'activity is not available' using errcode = 'P0002';
+  end if;
+
+  select coalesce(sum(people), 0) into v_booked
+  from public.activity_bookings
+  where activity_id = p_activity_id
+    and booking_date = p_booking_date
+    and start_time = p_start_time
+    and status = 'booked';
+
+  if v_booked + p_people > v_activity.capacity_per_slot then
+    raise exception 'this slot is full' using errcode = 'P0010';
+  end if;
+
+  insert into public.activity_bookings
+    (reservation_id, activity_id, booking_date, start_time, people, amount)
+  values
+    (p_reservation_id, p_activity_id, p_booking_date, p_start_time, p_people,
+     v_activity.price_per_person * p_people)
+  returning * into v_booking;
+
+  return v_booking;
+end;
+$$;
+
+-- In-stay service requests (cleaning, water, ...). Guest-facing: only the
+-- reservation's own customer may request, and only while their resort is
+-- `active`.
+create or replace function public.create_service_request(
+  p_reservation_id uuid,
+  p_category       public.service_request_category,
+  p_description    text default ''
+) returns public.service_requests
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_res public.reservations;
+  v_req public.service_requests;
+begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_res from public.reservations where id = p_reservation_id;
+  if not found or v_res.customer_id is distinct from v_uid then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  if not exists (select 1 from public.properties
+                  where id = v_res.property_id and status = 'active') then
+    raise exception using errcode = 'P0022', message = 'resort_suspended';
+  end if;
+
+  if v_res.status not in ('confirmed', 'checked_in') then
+    raise exception 'this stay is not open for service requests' using errcode = 'P0009';
+  end if;
+
+  insert into public.service_requests (reservation_id, category, description)
+  values (p_reservation_id, p_category, p_description)
+  returning * into v_req;
+
+  return v_req;
+end;
+$$;
+
+-- Maintenance issue reporting. The reservation's own customer, or
+-- staff-or-above of its resort, may file a report.
+create or replace function public.report_maintenance_issue(
+  p_reservation_id uuid,
+  p_category       public.maintenance_category,
+  p_description    text default '',
+  p_photo_url      text default null,
+  p_priority       public.maintenance_priority default 'medium'
+) returns public.maintenance_issues
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid   uuid := auth.uid();
+  v_res   public.reservations;
+  v_issue public.maintenance_issues;
+begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_res from public.reservations where id = p_reservation_id;
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  if v_res.customer_id is distinct from v_uid then
+    perform public.assert_resort_role(v_res.property_id, true, 'owner','admin','staff');
+  end if;
+
+  if v_res.status not in ('confirmed', 'checked_in') then
+    raise exception 'this stay is not open for maintenance reports' using errcode = 'P0009';
+  end if;
+
+  insert into public.maintenance_issues
+    (reservation_id, category, description, photo_url, priority)
+  values (p_reservation_id, p_category, p_description, p_photo_url, p_priority)
+  returning * into v_issue;
+
+  return v_issue;
+end;
+$$;

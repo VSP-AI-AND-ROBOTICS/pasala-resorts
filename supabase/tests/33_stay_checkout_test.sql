@@ -40,7 +40,7 @@ set local request.jwt.claims to
 
 select throws_ok(
   $$select public.check_in_booking('97900000-0000-0000-0000-000000000001')$$,
-  'P0008', null, 'a customer cannot check themselves in'
+  'P0020', null, 'a customer cannot check themselves in'
 );
 
 set local request.jwt.claims to
