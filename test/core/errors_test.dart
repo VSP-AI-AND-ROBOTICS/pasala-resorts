@@ -219,4 +219,25 @@ void main() {
     expect(credentials.runtimeType, isNot(permission.runtimeType));
     expect(credentials.runtimeType, isNot(network.runtimeType));
   });
+
+  group('P0033 coupon_invalid', () {
+    test('each reason word gets its own copy', () {
+      final failure = map('P0033', 'code_taken');
+      expect(failure, isA<CouponInvalid>());
+      expect((failure as CouponInvalid).reason, 'code_taken');
+      expect(failure.message, 'That code is already in use at this resort.');
+      expect(map('P0033', 'guest_not_eligible').message,
+          'That guest has no booking at this resort.');
+      expect(map('P0033', 'usage_limit_below_used').message,
+          'The usage limit cannot be lower than the times already used.');
+      expect(map('P0033', 'dates_invalid').message,
+          'The end date must be on or after the start date.');
+    });
+
+    test('an unknown reason still reads as a coupon problem, never raw text',
+        () {
+      expect(map('P0033', 'something_new').message,
+          'That coupon could not be saved. Check the details and try again.');
+    });
+  });
 }

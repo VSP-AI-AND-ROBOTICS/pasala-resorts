@@ -84,6 +84,35 @@ class AlreadyDispatched extends BookingFailure {
       : super('Housekeeping is already on its way to this room.');
 }
 
+/// P0033 -- `create_coupon` / `update_coupon` (0051) refused the input.
+/// The server sends one reason word ([reason]); the copy lives here. The
+/// coupon form checks the same rules first, so most of these are
+/// backstops -- `code_taken` and `guest_not_eligible` are the ones only
+/// the server can know.
+class CouponInvalid extends BookingFailure {
+  const CouponInvalid._(this.reason, super.message);
+
+  factory CouponInvalid(String reason) => CouponInvalid._(
+    reason,
+    switch (reason) {
+      'code_invalid' => 'Use 3–24 letters, numbers, - or _ for the code.',
+      'code_taken' => 'That code is already in use at this resort.',
+      'kind_required' => 'Choose a percentage or a fixed amount.',
+      'value_invalid' =>
+        'Enter a discount above 0 (at most 100 for a percentage).',
+      'min_amount_invalid' => 'The minimum booking amount cannot be negative.',
+      'dates_invalid' => 'The end date must be on or after the start date.',
+      'usage_limit_invalid' => 'The usage limit must be at least 1.',
+      'usage_limit_below_used' =>
+        'The usage limit cannot be lower than the times already used.',
+      'guest_not_eligible' => 'That guest has no booking at this resort.',
+      _ => 'That coupon could not be saved. Check the details and try again.',
+    },
+  );
+
+  final String reason;
+}
+
 /// A 400/422 from Supabase auth: a mistyped password on sign-in, or a
 /// duplicate email on sign-up. Kept distinct from [NotPermitted] (I7) --
 /// without this, every one of those looked identical to "you don't have
@@ -193,6 +222,10 @@ BookingFailure mapPostgrestError(Object error) {
     // (`reason_required`, `already_dispatched`), so the copy lives here.
     'P0030' => const ReasonRequired(),
     'P0031' => const AlreadyDispatched(),
+    // P0033: coupon management (0051). The server sends a bare reason
+    // word (`code_taken`, `guest_not_eligible`, ...); CouponInvalid holds
+    // the copy.
+    'P0033' => CouponInvalid(message),
     '23514' => InvalidState(message),
     '23505' => const DuplicateValue(),
     _ => UnknownFailure(message),
