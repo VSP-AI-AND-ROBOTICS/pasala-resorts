@@ -13,6 +13,7 @@ import 'booking_rules_screen.dart';
 import 'cancellation_policy_screen.dart';
 import 'notification_settings_screen.dart';
 import 'payment_settings_screen.dart';
+import 'subscription_billing_card.dart';
 import 'tax_settings_screen.dart';
 
 /// `/owner/settings` -- the hub for every owner-level control: some open a
@@ -23,7 +24,8 @@ import 'tax_settings_screen.dart';
 /// working screen. Staff permissions -> `UsersScreen` was removed in Task
 /// 14 along with the global `UserRole` it managed; the Team screen
 /// replacing it lands in Task 18. The Plan tile at the top shows the
-/// resort's ResortHub plan, read-only.
+/// resort's ResortHub plan, read-only, with the auto-pay card under it when
+/// Razorpay billing is configured (P8).
 class OwnerSettingsScreen extends ConsumerWidget {
   const OwnerSettingsScreen({super.key});
 
@@ -55,6 +57,8 @@ class OwnerSettingsScreen extends ConsumerWidget {
             children: [
               eyebrow('PLAN'),
               _PlanTile(propertyId: propertyId),
+              // P8: renders nothing unless Razorpay auto-pay is configured.
+              SubscriptionBillingCard(propertyId: propertyId),
               const SizedBox(height: Spacing.md),
               eyebrow('PROPERTY'),
               _SettingsTile(

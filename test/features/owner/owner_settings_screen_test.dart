@@ -6,10 +6,12 @@ import 'package:pasala/core/errors.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/subscription.dart';
+import 'package:pasala/data/repositories/billing_repository.dart';
 import 'package:pasala/data/repositories/subscription_repository.dart';
 import 'package:pasala/features/browse/providers.dart';
 import 'package:pasala/features/owner/owner_settings_screen.dart';
 
+import '../../support/fake_billing_source.dart';
 import '../../support/fake_platform_source.dart';
 import '../../support/fake_resort_plan_source.dart';
 
@@ -38,7 +40,11 @@ class _FixedResort extends CurrentResort {
   ResortMembership? build() => _value;
 }
 
-Future<void> _pump(WidgetTester tester, FakeResortPlanSource source) async {
+Future<void> _pump(
+  WidgetTester tester,
+  FakeResortPlanSource source, {
+  FakeBillingSource? billing,
+}) async {
   await tester.pumpWidget(ProviderScope(
     // retry: null -- without it Riverpod 3 keeps retrying a failed
     // provider and the error state never settles.
@@ -47,6 +53,7 @@ Future<void> _pump(WidgetTester tester, FakeResortPlanSource source) async {
       currentResortProvider.overrideWith(() => _FixedResort(_resort)),
       propertyProvider.overrideWith((ref, id) async => _property),
       resortPlanSourceProvider.overrideWithValue(source),
+      billingSourceProvider.overrideWithValue(billing ?? FakeBillingSource()),
     ],
     child: const MaterialApp(home: OwnerSettingsScreen()),
   ));
@@ -98,6 +105,29 @@ void main() {
     await _pump(tester, source);
 
     expect(_inPlanTile('Could not load your plan'), findsOneWidget);
+    expect(find.text('Farmhouse information'), findsOneWidget);
+  });
+
+  testWidgets('the auto-pay card sits under the plan tile when configured',
+      (tester) async {
+    final source = FakeResortPlanSource()
+      ..plan = resortPlan(
+          tier: SubscriptionTier.pro, paidThrough: DateTime(2026, 10, 31));
+    await _pump(tester, source,
+        billing: FakeBillingSource()..availabilityValue = billablePlans);
+
+    expect(find.byKey(const Key('owner-billing-card')), findsOneWidget);
+    expect(
+        tester.getTopLeft(find.byKey(const Key('owner-billing-card'))).dy,
+        greaterThan(
+            tester.getTopLeft(find.byKey(const Key('owner-plan-tile'))).dy));
+  });
+
+  testWidgets('without Razorpay the Settings screen is unchanged',
+      (tester) async {
+    await _pump(tester, FakeResortPlanSource()..plan = resortPlan());
+
+    expect(find.byKey(const Key('owner-billing-card')), findsNothing);
     expect(find.text('Farmhouse information'), findsOneWidget);
   });
 }
