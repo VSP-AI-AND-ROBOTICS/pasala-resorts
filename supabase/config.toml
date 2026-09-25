@@ -390,6 +390,12 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# P6: Razorpay signs its webhook calls (X-Razorpay-Signature); it cannot
+# send a Supabase JWT. payments-create-order and payments-verify keep
+# the default verify_jwt = true.
+[functions.payments-webhook]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
