@@ -2,93 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pasala/data/models/ical_feed.dart';
 import 'package:pasala/data/repositories/ical_repository.dart';
 import 'package:pasala/features/ota/ical_screen.dart';
 
-/// In-memory stand-in for [IcalRepository], mirroring `FakeOutboxSource`.
-/// Never touches [Env] -- [exportUrl] returns a fixed test string, which is
-/// the whole reason [IcalSource.exportUrl] exists as an overridable method
-/// rather than a free function reaching into `Env.supabaseAnonKey`
-/// (`flutter test` runs with no `--dart-define`, so that getter would
-/// assert/crash the instant a widget under test tried to build the real
-/// URL).
-class FakeIcalSource implements IcalSource {
-  List<IcalFeed> rows = [];
-  String token = 'faketoken123';
-  Object? feedsError;
-  IcalSyncResult syncResult = const IcalSyncResult(status: 'ok', conflicts: 0);
-  final added = <String>[];
-  final removed = <String>[];
-  bool rotated = false;
-
-  @override
-  Future<List<IcalFeed>> feeds(String unitId) async {
-    if (feedsError != null) throw feedsError!;
-    return rows;
-  }
-
-  @override
-  Future<void> addFeed({
-    required String unitId,
-    required String url,
-    String? label,
-  }) async {
-    added.add(url);
-    rows = [
-      ...rows,
-      IcalFeed(
-        id: 'new-${rows.length}',
-        unitId: unitId,
-        url: url,
-        label: label,
-        isActive: true,
-      ),
-    ];
-  }
-
-  @override
-  Future<void> removeFeed(String feedId) async {
-    removed.add(feedId);
-    rows = rows.where((f) => f.id != feedId).toList();
-  }
-
-  @override
-  Future<IcalSyncResult> syncFeed(String feedId) async => syncResult;
-
-  @override
-  Future<String> exportToken(String unitId) async => token;
-
-  @override
-  Future<String> rotateExportToken(String unitId) async {
-    rotated = true;
-    token = 'rotated-token';
-    return token;
-  }
-
-  @override
-  String exportUrl(String token) =>
-      'https://fake.supabase.test/rest/v1/rpc/ical_export_public'
-      '?token=$token&apikey=fake-anon-key';
-}
-
-IcalFeed _feed({
-  String id = 'f1',
-  String unitId = 'u1',
-  String url = 'https://www.airbnb.com/calendar/ical/1.ics',
-  String? label = 'Airbnb',
-  DateTime? lastSyncedAt,
-  String? lastError,
-}) =>
-    IcalFeed(
-      id: id,
-      unitId: unitId,
-      url: url,
-      label: label,
-      isActive: true,
-      lastSyncedAt: lastSyncedAt,
-      lastError: lastError,
-    );
+import '../../support/fake_ical_source.dart';
 
 void main() {
   Future<void> pump(WidgetTester tester, FakeIcalSource source,
@@ -105,8 +22,7 @@ void main() {
 
     expect(
       find.text(
-        'https://fake.supabase.test/rest/v1/rpc/ical_export_public'
-        '?token=abc123&apikey=fake-anon-key',
+        'https://fake.supabase.test/functions/v1/ical-export/abc123.ics',
       ),
       findsOneWidget,
     );
@@ -132,7 +48,7 @@ void main() {
     final clipboardCall = calls.firstWhere(
       (c) => c.method == 'Clipboard.setData',
     );
-    expect(clipboardCall.arguments['text'], contains('token=copytoken'));
+    expect(clipboardCall.arguments['text'], contains('/copytoken.ics'));
     expect(find.text('Export URL copied'), findsOneWidget);
   });
 
@@ -141,7 +57,7 @@ void main() {
     final source = FakeIcalSource()..token = 'old-token';
     await pump(tester, source);
 
-    expect(find.textContaining('token=old-token'), findsOneWidget);
+    expect(find.textContaining('/old-token.ics'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('ical-rotate-token')));
     await tester.pumpAndSettle();
@@ -154,7 +70,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(source.rotated, isTrue);
-    expect(find.textContaining('token=rotated-token'), findsOneWidget);
+    expect(find.textContaining('/rotated-token.ics'), findsOneWidget);
   });
 
   testWidgets('cancelling the rotate dialog leaves the token unchanged', (
@@ -169,7 +85,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(source.rotated, isFalse);
-    expect(find.textContaining('token=stays-the-same'), findsOneWidget);
+    expect(find.textContaining('/stays-the-same.ics'), findsOneWidget);
   });
 
   testWidgets('no import feeds yet shows a message, not an error', (
@@ -183,7 +99,7 @@ void main() {
   testWidgets('a feed with no sync history shows "Never synced"', (
     tester,
   ) async {
-    await pump(tester, FakeIcalSource()..rows = [_feed()]);
+    await pump(tester, FakeIcalSource()..rows = [icalFeed()]);
 
     expect(find.byKey(const Key('ical-feed-title')), findsOneWidget);
     expect(find.text('Never synced'), findsOneWidget);
@@ -194,7 +110,7 @@ void main() {
       tester,
       FakeIcalSource()
         ..rows = [
-          _feed(
+          icalFeed(
             lastSyncedAt: DateTime.utc(2026, 8, 1, 10, 0),
             lastError: 'HTTP 503',
           ),
@@ -209,7 +125,7 @@ void main() {
     tester,
   ) async {
     final source = FakeIcalSource()
-      ..rows = [_feed()]
+      ..rows = [icalFeed()]
       ..syncResult = const IcalSyncResult(status: 'ok', conflicts: 0);
     await pump(tester, source);
 
@@ -223,7 +139,7 @@ void main() {
     tester,
   ) async {
     final source = FakeIcalSource()
-      ..rows = [_feed()]
+      ..rows = [icalFeed()]
       ..syncResult = const IcalSyncResult(status: 'ok', conflicts: 2);
     await pump(tester, source);
 
@@ -243,7 +159,7 @@ void main() {
     tester,
   ) async {
     final source = FakeIcalSource()
-      ..rows = [_feed()]
+      ..rows = [icalFeed()]
       ..syncResult = const IcalSyncResult(status: 'error', error: 'HTTP 503');
     await pump(tester, source);
 
@@ -256,7 +172,7 @@ void main() {
   testWidgets('removing a feed calls removeFeed and drops it from the list', (
     tester,
   ) async {
-    final source = FakeIcalSource()..rows = [_feed(id: 'gone')];
+    final source = FakeIcalSource()..rows = [icalFeed(id: 'gone')];
     await pump(tester, source);
 
     expect(find.byKey(const Key('ical-feed-title')), findsOneWidget);

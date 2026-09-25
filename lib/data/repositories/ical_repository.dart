@@ -7,25 +7,56 @@ import '../../core/supabase_client.dart';
 import '../models/ical_feed.dart';
 
 /// One `ical_poll_feed` outcome, as returned by the RPC: `status` is one
-/// of `requested` (fired, not yet resolved -- pg_net is genuinely
-/// asynchronous, see migration 0018's header), `pending` (still waiting
-/// on a previously fired request), `ok` (a response was collected and
-/// processed -- `created`/`updated`/`unchanged`/`conflicts` count the
-/// events in it), or `error` (the fetch or the feed itself failed --
-/// `error` carries why). Never thrown as an exception -- a feed that
-/// fails to sync is exactly the "last error, shown honestly" case the
-/// screen exists for, not a crash.
+/// of `requested` (a fetch was fired; pg_net is asynchronous, see 0018),
+/// `pending` (still waiting on a fetch fired earlier), `ok` (a response was
+/// collected and processed -- the counts describe its events) or `error`
+/// (the fetch or the feed itself failed -- `error` carries why). Never
+/// thrown -- a failing feed is what the OTA screen exists to show.
 class IcalSyncResult {
-  const IcalSyncResult({required this.status, this.error, this.conflicts});
+  const IcalSyncResult({
+    required this.status,
+    this.error,
+    this.events,
+    this.created,
+    this.updated,
+    this.unchanged,
+    this.conflicts,
+    this.echoes,
+    this.failed,
+  });
 
   final String status;
   final String? error;
+
+  /// Events read from the feed (cancelled ones excluded).
+  final int? events;
+  final int? created;
+  final int? updated;
+  final int? unchanged;
+
+  /// Events that overlap a booking here and were skipped.
   final int? conflicts;
+
+  /// Events that only repeat our own bookings back (0058) -- not a problem.
+  final int? echoes;
+
+  /// Events that could not be read or imported.
+  final int? failed;
+
+  /// A response was collected (`ok` or `error`), as opposed to a fetch
+  /// still being on its way (`requested`, `pending`).
+  bool get isFinal => status == 'ok' || status == 'error';
 
   factory IcalSyncResult.fromJson(Map<String, dynamic> json) => IcalSyncResult(
         status: json['status'] as String,
         error: json['error'] as String?,
+        events: (json['events'] as num?)?.toInt(),
+        created: (json['created'] as num?)?.toInt(),
+        updated: (json['updated'] as num?)?.toInt(),
+        unchanged: (json['unchanged'] as num?)?.toInt(),
         conflicts: (json['conflicts'] as num?)?.toInt(),
+        echoes: (json['echoes'] as num?)?.toInt(),
+        failed: (json['failed'] as num?)?.toInt(),
       );
 }
 
