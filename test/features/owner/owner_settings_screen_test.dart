@@ -100,4 +100,14 @@ void main() {
     expect(_inPlanTile('Could not load your plan'), findsOneWidget);
     expect(find.text('Farmhouse information'), findsOneWidget);
   });
+
+  testWidgets('Photos opens the photo screen', (tester) async {
+    await _pump(tester, FakeResortPlanSource());
+
+    await tester.tap(find.text('Photos'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No photos yet'), findsOneWidget);
+    expect(find.text('Add photo'), findsOneWidget);
+  });
 }
