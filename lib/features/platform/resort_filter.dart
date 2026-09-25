@@ -8,7 +8,7 @@ import '../../data/repositories/platform_repository.dart';
 /// device over `platform_resorts()`, which is fine at tens or hundreds of
 /// resorts. [query] matches the resort name or any owner email, ignoring
 /// case and surrounding spaces. A [tier] hides resorts on other tiers and
-/// resorts with no plan; null ("All tiers") keeps them all. Order is kept.
+/// resorts with no plan; null ("All Tiers") keeps them all. Order is kept.
 List<ResortSummary> filterResorts(
   List<ResortSummary> resorts, {
   String query = '',
@@ -61,7 +61,7 @@ class ResortFilterBar extends StatelessWidget {
             onChanged: onTierChanged,
             items: [
               const DropdownMenuItem<SubscriptionTier?>(
-                  value: null, child: Text('All tiers')),
+                  value: null, child: Text('All Tiers')),
               for (final t in SubscriptionTier.values)
                 DropdownMenuItem<SubscriptionTier?>(
                     value: t, child: Text(t.label)),

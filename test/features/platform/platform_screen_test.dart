@@ -246,7 +246,7 @@ void main() {
       expect(find.text('Resort A'), findsNothing);
     });
 
-    testWidgets('the tier dropdown narrows the list and All tiers restores it',
+    testWidgets('the tier dropdown narrows the list and All Tiers restores it',
         (tester) async {
       _tall(tester);
       final repo = FakePlatformSource()..store = [paidPro, trialStarter, noPlan];
@@ -263,7 +263,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('tier-filter')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('All tiers').last);
+      await tester.tap(find.text('All Tiers').last);
       await tester.pumpAndSettle();
       expect(find.text('Resort A'), findsOneWidget);
       expect(find.text('Resort B'), findsOneWidget);

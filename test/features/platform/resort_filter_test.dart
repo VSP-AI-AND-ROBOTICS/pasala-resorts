@@ -19,7 +19,7 @@ void main() {
       propertyId: 'p3', name: 'Hill Stay', ownerEmails: const []);
   final all = [a, b, none];
 
-  test('an empty or blank query with All tiers keeps everything, in order',
+  test('an empty or blank query with All Tiers keeps everything, in order',
       () {
     expect(filterResorts(all), all);
     expect(filterResorts(all, query: '   '), all);
