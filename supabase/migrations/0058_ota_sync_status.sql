@@ -49,8 +49,48 @@ language plpgsql
 stable
 set search_path = public, pg_temp
 as $$
+declare
+  v    text := btrim(coalesce(p_value, ''));
+  v_tz text;
+  v_ts timestamp;
 begin
-  raise exception 'ical_parse_when is not implemented yet' using errcode = '0A000';
+  -- A date, with or without VALUE=DATE: 20271009.
+  if v ~ '^[0-9]{8}$' then
+    on_date := make_date(substr(v, 1, 4)::int, substr(v, 5, 2)::int,
+                         substr(v, 7, 2)::int);
+    at_ts := on_date::timestamp at time zone p_tz;
+    return;
+  end if;
+
+  if v !~ '^[0-9]{8}T[0-9]{6}Z?$' then
+    raise exception using errcode = 'P0005',
+      message = 'unreadable date "' || v || '"';
+  end if;
+
+  v_ts := make_timestamp(substr(v, 1, 4)::int, substr(v, 5, 2)::int,
+                         substr(v, 7, 2)::int, substr(v, 10, 2)::int,
+                         substr(v, 12, 2)::int, substr(v, 14, 2)::int);
+
+  if right(v, 1) = 'Z' then
+    at_ts := v_ts at time zone 'UTC';
+    return;
+  end if;
+
+  -- TZID=Asia/Kolkata, TZID="Europe/London" or TZID=/Europe/London. A zone
+  -- Postgres does not know (a Windows name such as "India Standard Time")
+  -- and floating time both mean the resort's own zone.
+  v_tz := btrim(substring(coalesce(p_params, '')
+                          from '(?i);TZID=("[^"]*"|[^;]*)'), '"/ ');
+  if v_tz is not null and v_tz <> '' then
+    begin
+      at_ts := v_ts at time zone v_tz;
+      return;
+    exception when invalid_parameter_value then
+      null;
+    end;
+  end if;
+
+  at_ts := v_ts at time zone p_tz;
 end;
 $$;
 
@@ -68,8 +108,137 @@ language plpgsql
 stable
 set search_path = public, pg_temp
 as $$
+declare
+  v_text      text;
+  v_line      text;
+  v_upper     text;
+  v_match     text[];
+  v_depth     int := 0;   -- 0 outside, 1 in a VEVENT, >1 in a component inside it
+  v_uid       text;
+  v_start_val text;
+  v_start_par text;
+  v_end_val   text;
+  v_end_par   text;
+  v_duration  text;
+  v_summary   text;
+  v_status    text;
+  v_s         record;
+  v_e         record;
 begin
-  raise exception 'ical_parse_feed is not implemented yet' using errcode = '0A000';
+  -- A byte-order mark, then RFC 5545 unfolding: a line break followed by
+  -- one space or tab continues the previous line.
+  v_text := ltrim(coalesce(p_ics, ''), chr(65279));
+  v_text := regexp_replace(v_text, E'\r?\n[ \t]', '', 'g');
+
+  for v_line in
+    select rtrim(t, E' \t\r') from regexp_split_to_table(v_text, E'\r?\n') as t
+  loop
+    continue when v_line = '';
+    v_upper := upper(v_line);
+
+    if v_depth = 0 then
+      if v_upper = 'BEGIN:VEVENT' then
+        v_depth := 1;
+        v_uid := null; v_start_val := null; v_start_par := null;
+        v_end_val := null; v_end_par := null; v_duration := null;
+        v_summary := null; v_status := null;
+      end if;
+      continue;
+    end if;
+
+    -- A component nested in the event (VALARM): skip everything inside it.
+    if v_upper like 'BEGIN:%' then
+      v_depth := v_depth + 1;
+      continue;
+    end if;
+    if v_upper like 'END:%' and v_depth > 1 then
+      v_depth := v_depth - 1;
+      continue;
+    end if;
+    continue when v_depth > 1;
+
+    if v_upper = 'END:VEVENT' then
+      v_depth := 0;
+      continue when upper(coalesce(v_status, '')) = 'CANCELLED';
+
+      uid := v_uid;
+      summary := v_summary;
+      dtstart := null; dtend := null; start_date := null; end_date := null;
+      error := null;
+      begin
+        if v_uid is null or v_uid = '' then
+          raise exception using errcode = 'P0005', message = 'missing UID';
+        end if;
+        if v_start_val is null then
+          raise exception using errcode = 'P0005', message = 'missing DTSTART';
+        end if;
+        v_s := public.ical_parse_when(v_start_val, v_start_par, p_tz);
+        if v_end_val is not null then
+          v_e := public.ical_parse_when(v_end_val, v_end_par, p_tz);
+        end if;
+
+        if v_s.on_date is not null then
+          -- All day: nights from start_date up to (not including) end_date.
+          start_date := v_s.on_date;
+          if v_end_val is not null then
+            if v_e.on_date is null then
+              raise exception using errcode = 'P0005',
+                message = 'DTEND is a time but DTSTART is a date';
+            end if;
+            end_date := v_e.on_date;
+          elsif v_duration is not null then
+            end_date := (v_s.on_date + v_duration::interval)::date;
+          else
+            end_date := v_s.on_date + 1;
+          end if;
+          if end_date = start_date then
+            end_date := start_date + 1;
+          elsif end_date < start_date then
+            raise exception using errcode = 'P0005',
+              message = 'DTEND is before DTSTART';
+          end if;
+          dtstart := start_date::timestamp at time zone p_tz;
+          dtend   := end_date::timestamp at time zone p_tz;
+        else
+          dtstart := v_s.at_ts;
+          if v_end_val is not null then
+            dtend := v_e.at_ts;
+          elsif v_duration is not null then
+            dtend := dtstart + v_duration::interval;
+          else
+            raise exception using errcode = 'P0005', message = 'missing DTEND';
+          end if;
+          if dtend <= dtstart then
+            raise exception using errcode = 'P0005',
+              message = 'DTEND is not after DTSTART';
+          end if;
+        end if;
+      exception when others then
+        dtstart := null; dtend := null; start_date := null; end_date := null;
+        error := sqlerrm;
+      end;
+      return next;
+      continue;
+    end if;
+
+    -- NAME;PARAM=a;PARAM="b:c":value -- the value starts at the first colon
+    -- outside double quotes.
+    v_match := regexp_match(v_line,
+      '^([A-Za-z0-9-]+)((?:;(?:[^";:]|"[^"]*")*)*):(.*)$');
+    continue when v_match is null;
+
+    case upper(v_match[1])
+      when 'UID'      then v_uid := btrim(v_match[3]);
+      when 'DTSTART'  then v_start_val := v_match[3]; v_start_par := v_match[2];
+      when 'DTEND'    then v_end_val := v_match[3];   v_end_par := v_match[2];
+      when 'DURATION' then v_duration := btrim(v_match[3]);
+      when 'SUMMARY'  then v_summary := btrim(v_match[3]);
+      when 'STATUS'   then v_status := btrim(v_match[3]);
+      else null;
+    end case;
+  end loop;
+
+  return;
 end;
 $$;
 
