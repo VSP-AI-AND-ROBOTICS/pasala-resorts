@@ -7,9 +7,10 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../data/repositories/stay_repository.dart';
 import '../booking/providers.dart' show reservationProvider;
+import '../invoice/invoice_pdf_button.dart';
 
-/// Itemized final invoice -- no PDF export, matching this repo's already
-/// -deferred decision not to build PDF export for reports either.
+/// Itemized final invoice, with its PDF (`InvoicePdfButton`). The guest
+/// lands here after self-checkout, and reception after a desk checkout.
 class FinalInvoiceScreen extends ConsumerWidget {
   const FinalInvoiceScreen({super.key, required this.reservationId});
 
@@ -81,6 +82,8 @@ class FinalInvoiceScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: Spacing.lg),
+              InvoicePdfButton(reservationId: reservationId),
+              const SizedBox(height: Spacing.sm),
               FilledButton(
                 onPressed: () =>
                     context.push('/my-stay/review/$reservationId'),

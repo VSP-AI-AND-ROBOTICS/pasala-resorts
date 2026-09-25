@@ -62,6 +62,14 @@ dependencies:
   # (lib/core/current_resort.dart, key 'current_resort_id').
   shared_preferences: ^2.3.0
   geolocator: ^14.0.3
+  # Booking invoices and Finance report PDFs, laid out client-side
+  # (lib/core/pdf/). `printing` delivers them through the platform share
+  # sheet on Android/iOS/desktop; the web downloads them directly
+  # (lib/core/pdf/pdf_deliver_web.dart).
+  # Locked at pdf 3.12.0 / printing 5.14.3: pdf 3.13 and printing 5.15 need
+  # Dart 3.12 / Flutter 3.41, above this repo's 3.10.8 / 3.38.1 floor.
+  pdf: ^3.12.0
+  printing: ^5.14.3
 
 dev_dependencies:
   flutter_test:
@@ -93,6 +101,10 @@ flutter:
 
   assets:
     - assets/images/
+    # PDF fonts (Noto Sans, SIL OFL 1.1 -- assets/fonts/OFL.txt): the
+    # built-in PDF fonts have no ₹ sign.
+    - assets/fonts/NotoSans-Regular.ttf
+    - assets/fonts/NotoSans-Bold.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

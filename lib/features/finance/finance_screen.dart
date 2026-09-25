@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/current_resort.dart';
 import '../../core/format.dart';
+import '../../core/pdf/pdf_delivery.dart';
+import '../../core/pdf/pdf_exporter.dart';
+import '../../core/pdf/report_pdf.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/models/finance.dart';
 import '../reports/csv_export.dart';
@@ -10,6 +13,7 @@ import '../reports/providers.dart' show ReportFilter;
 import 'finance_collections_tab.dart';
 import 'finance_csv.dart';
 import 'finance_ledger_tab.dart';
+import 'finance_pdf.dart';
 import 'finance_settlements_tab.dart';
 import 'finance_today_tab.dart';
 import 'providers.dart';
@@ -29,7 +33,8 @@ const _failed = "This report didn't load, so there is nothing to export.";
 /// accountants (the router refuses everyone else; the report functions in
 /// 0048_finance_ledger.sql refuse them too). Today, Collections (cash
 /// basis), Ledger (accrual basis, with room tax) and Settlements, each
-/// with pull-to-refresh, and an Export CSV action for the tab on screen.
+/// with pull-to-refresh, an Export CSV action for the tab on screen, and
+/// Export PDF on Collections, Ledger and Settlements.
 class FinanceScreen extends ConsumerStatefulWidget {
   const FinanceScreen({super.key, this.initialRange});
 
@@ -54,6 +59,9 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
   late final TabController _tabController =
       TabController(length: _tabs.length, vsync: this)..addListener(_onTabChanged);
   late DateTimeRange _range = widget.initialRange ?? _currentMonth();
+
+  /// True while a PDF is being made: the button is disabled meanwhile.
+  bool _pdfBusy = false;
 
   void _onTabChanged() {
     if (!_tabController.indexIsChanging) setState(() {});
@@ -125,6 +133,53 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
     _show(delivered ? 'CSV exported.' : "CSV export isn't available on this platform yet.");
   }
 
+  /// The PDF of [tab] (Collections, Ledger or Settlements), from what its
+  /// provider already holds, like [_rowsFor].
+  AsyncValue<ReportPdf> _pdfFor(int tab, FinanceSummary summary, ReportFilter filter) =>
+      switch (tab) {
+        1 => ref.read(collectionsProvider(filter)).whenData(
+            (rows) => collectionsPdf(summary.resort, filter.from, filter.to, rows)),
+        2 => ref.read(ledgerProvider(filter)).whenData(
+            (rows) => ledgerPdf(summary.resort, filter.from, filter.to, rows)),
+        3 => ref.read(settlementsProvider(filter)).whenData(
+            (rows) => settlementsPdf(summary.resort, filter.from, filter.to, rows)),
+        _ => throw StateError('Finance has no PDF for tab $tab'),
+      };
+
+  /// Exports the report on screen as PDF: nothing until both the summary
+  /// (name, slug, GSTIN) and the report have loaded; one at a time.
+  Future<void> _exportPdf(String propertyId) async {
+    if (_pdfBusy) return;
+    final summaryAsync = ref.read(financeSummaryProvider(propertyId));
+    final summary = summaryAsync.value;
+    if (summary == null) {
+      _show(summaryAsync.hasError ? _failed : _loading);
+      return;
+    }
+    final reportAsync =
+        _pdfFor(_tabController.index, summary, _filterFor(propertyId));
+    final report = reportAsync.value;
+    if (report == null) {
+      _show(reportAsync.hasError ? _failed : _loading);
+      return;
+    }
+    final exporter = ref.read(pdfExporterProvider);
+    final deliver = ref.read(pdfDelivererProvider);
+    setState(() => _pdfBusy = true);
+    try {
+      final delivered = await deliver(report.fileName, await exporter.report(report));
+      if (mounted) {
+        _show(delivered
+            ? 'PDF exported.'
+            : "PDF export isn't available on this platform yet.");
+      }
+    } catch (_) {
+      if (mounted) _show("Couldn't create the PDF. Try again.");
+    } finally {
+      if (mounted) setState(() => _pdfBusy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final resort = ref.watch(currentResortProvider);
@@ -142,6 +197,14 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
       appBar: AppBar(
         title: const Text('Finance'),
         actions: [
+          // Collections, Ledger and Settlements only (spec Decision 9).
+          if (!onToday)
+            IconButton(
+              key: const Key('finance-export-pdf'),
+              tooltip: 'Export PDF',
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              onPressed: _pdfBusy ? null : () => _exportPdf(propertyId),
+            ),
           IconButton(
             key: const Key('finance-export'),
             tooltip: 'Export CSV',
