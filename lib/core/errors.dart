@@ -84,6 +84,36 @@ class AlreadyDispatched extends BookingFailure {
       : super('Housekeeping is already on its way to this room.');
 }
 
+/// Why `verify_stay_pass` refused a check-in pass (P0034).
+enum PassRejection { invalid, expired, otherResort }
+
+/// P0034 -- `verify_stay_pass` (0052_stay_pass.sql) refused a scanned or
+/// typed check-in pass. The server sends one of three bare code words
+/// (`pass_invalid`, `pass_expired`, `pass_other_resort`), so the copy lives
+/// here; anything else reads as invalid.
+class StayPassRejected extends BookingFailure {
+  const StayPassRejected.invalid()
+      : reason = PassRejection.invalid,
+        super('This is not a valid check-in pass.');
+
+  const StayPassRejected.expired()
+      : reason = PassRejection.expired,
+        super('This pass has expired. Ask the guest to reopen their booking, '
+            'or find them in the list.');
+
+  const StayPassRejected.otherResort()
+      : reason = PassRejection.otherResort,
+        super('This pass is for a booking at a different resort.');
+
+  factory StayPassRejected.fromServer(String code) => switch (code) {
+        'pass_expired' => const StayPassRejected.expired(),
+        'pass_other_resort' => const StayPassRejected.otherResort(),
+        _ => const StayPassRejected.invalid(),
+      };
+
+  final PassRejection reason;
+}
+
 /// A 400/422 from Supabase auth: a mistyped password on sign-in, or a
 /// duplicate email on sign-up. Kept distinct from [NotPermitted] (I7) --
 /// without this, every one of those looked identical to "you don't have
@@ -193,6 +223,8 @@ BookingFailure mapPostgrestError(Object error) {
     // (`reason_required`, `already_dispatched`), so the copy lives here.
     'P0030' => const ReasonRequired(),
     'P0031' => const AlreadyDispatched(),
+    // P0034: check-in passes (0052). Bare code words; see StayPassRejected.
+    'P0034' => StayPassRejected.fromServer(message),
     '23514' => InvalidState(message),
     '23505' => const DuplicateValue(),
     _ => UnknownFailure(message),

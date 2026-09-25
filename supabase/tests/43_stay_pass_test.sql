@@ -1,0 +1,118 @@
+-- QR scanning at the front desk (P3), added in 0052_stay_pass.sql. See
+-- docs/superpowers/specs/2026-09-25-p3-qr-scanning-at-the-front-desk-design.md.
+--
+-- One file, built up by the plan's tasks in order (contract, issue,
+-- verify): each section relies on the fixtures and the `test.*` settings
+-- the sections before it leave behind.
+--
+-- Fixtures: resort R (owner, admin, staff, accountant), resort S (one
+-- staff member), guest Gita with five bookings at R, guest Hari with one
+-- at S, and an outsider with no membership.
+--   ...021 R Cottage 1  confirmed    tomorrow -> +3 days   (Gita)
+--   ...022 R Cottage 2  checked_in   yesterday -> tomorrow (Gita)
+--   ...023 R Cottage 1  cancelled    +10 -> +12 days       (Gita)
+--   ...024 R Cottage 1  checked_out  -10 -> -8 days        (Gita)
+--   ...025 R Cottage 2  confirmed    -5 -> -3 days, a no-show whose stay has ended (Gita)
+--   ...026 S Villa      confirmed    tomorrow -> +3 days   (Hari)
+begin;
+select plan(15);
+
+insert into auth.users (id, email) values
+  ('f3000000-0000-0000-0000-000000000001','pass-r-owner@example.com'),
+  ('f3000000-0000-0000-0000-000000000002','pass-r-admin@example.com'),
+  ('f3000000-0000-0000-0000-000000000003','pass-r-staff@example.com'),
+  ('f3000000-0000-0000-0000-000000000004','pass-r-accountant@example.com'),
+  ('f3000000-0000-0000-0000-000000000005','pass-s-staff@example.com'),
+  ('f3000000-0000-0000-0000-000000000006','pass-gita@example.com'),
+  ('f3000000-0000-0000-0000-000000000007','pass-hari@example.com'),
+  ('f3000000-0000-0000-0000-000000000008','pass-outsider@example.com');
+update public.profiles set full_name = 'Gita Guest', phone = '9000000001'
+  where id = 'f3000000-0000-0000-0000-000000000006';
+update public.profiles set full_name = 'Hari Guest'
+  where id = 'f3000000-0000-0000-0000-000000000007';
+
+insert into public.properties (id, name, slug) values
+  ('f3f3f3f3-0000-4000-8000-000000000001','Pass Resort R','pass-r'),
+  ('f3f3f3f3-0000-4000-8000-000000000002','Pass Resort S','pass-s');
+
+insert into public.resort_members (property_id, user_id, role) values
+  ('f3f3f3f3-0000-4000-8000-000000000001','f3000000-0000-0000-0000-000000000001','owner'),
+  ('f3f3f3f3-0000-4000-8000-000000000001','f3000000-0000-0000-0000-000000000002','admin'),
+  ('f3f3f3f3-0000-4000-8000-000000000001','f3000000-0000-0000-0000-000000000003','staff'),
+  ('f3f3f3f3-0000-4000-8000-000000000001','f3000000-0000-0000-0000-000000000004','accountant'),
+  ('f3f3f3f3-0000-4000-8000-000000000002','f3000000-0000-0000-0000-000000000005','staff');
+
+insert into public.units (id, property_id, name, capacity_base, capacity_max) values
+  ('f3f3f3f3-0000-4000-8000-000000000011','f3f3f3f3-0000-4000-8000-000000000001','Cottage 1',2,4),
+  ('f3f3f3f3-0000-4000-8000-000000000012','f3f3f3f3-0000-4000-8000-000000000001','Cottage 2',2,4),
+  ('f3f3f3f3-0000-4000-8000-000000000013','f3f3f3f3-0000-4000-8000-000000000002','S Villa',2,4);
+
+insert into public.reservations
+  (id, unit_id, period, kind, status, customer_id, guests, checked_in_at, checked_out_at)
+values
+  ('f3f3f3f3-0000-4000-8000-000000000021','f3f3f3f3-0000-4000-8000-000000000011',
+   tstzrange(now() + interval '1 day', now() + interval '3 days', '[)'),
+   'booking','confirmed','f3000000-0000-0000-0000-000000000006',2,null,null),
+  ('f3f3f3f3-0000-4000-8000-000000000022','f3f3f3f3-0000-4000-8000-000000000012',
+   tstzrange(now() - interval '1 day', now() + interval '1 day', '[)'),
+   'booking','checked_in','f3000000-0000-0000-0000-000000000006',2,now() - interval '1 day',null),
+  ('f3f3f3f3-0000-4000-8000-000000000023','f3f3f3f3-0000-4000-8000-000000000011',
+   tstzrange(now() + interval '10 days', now() + interval '12 days', '[)'),
+   'booking','cancelled','f3000000-0000-0000-0000-000000000006',2,null,null),
+  ('f3f3f3f3-0000-4000-8000-000000000024','f3f3f3f3-0000-4000-8000-000000000011',
+   tstzrange(now() - interval '10 days', now() - interval '8 days', '[)'),
+   'booking','checked_out','f3000000-0000-0000-0000-000000000006',2,
+   now() - interval '10 days', now() - interval '8 days'),
+  ('f3f3f3f3-0000-4000-8000-000000000025','f3f3f3f3-0000-4000-8000-000000000012',
+   tstzrange(now() - interval '5 days', now() - interval '3 days', '[)'),
+   'booking','confirmed','f3000000-0000-0000-0000-000000000006',2,null,null),
+  ('f3f3f3f3-0000-4000-8000-000000000026','f3f3f3f3-0000-4000-8000-000000000013',
+   tstzrange(now() + interval '1 day', now() + interval '3 days', '[)'),
+   'booking','confirmed','f3000000-0000-0000-0000-000000000007',2,null,null);
+
+-- ---------------------------------------------------------------------
+-- Section 1: contract (Task 1)
+
+select has_function('public', 'issue_stay_pass', array['uuid'], 'issue_stay_pass(uuid) exists');
+select has_function('public', 'verify_stay_pass', array['text'], 'verify_stay_pass(text) exists');
+select is(pg_get_function_result('public.issue_stay_pass(uuid)'::regprocedure), 'text',
+  'issue_stay_pass returns text');
+select is(pg_get_function_result('public.verify_stay_pass(text)'::regprocedure), 'jsonb',
+  'verify_stay_pass returns jsonb');
+select is(
+  (select array_agg(p.proname::text order by p.proname)
+     from pg_proc p
+    where p.pronamespace = 'public'::regnamespace
+      and p.proname in ('issue_stay_pass', 'verify_stay_pass')
+      and p.prosecdef
+      and p.provolatile = 's'
+      and exists (select 1 from unnest(p.proconfig) c
+                   where c like 'search_path=%public%pg_temp%')),
+  array['issue_stay_pass', 'verify_stay_pass'],
+  'both pass functions are stable security definer with a pinned search_path');
+select ok(not has_function_privilege('anon', 'public.issue_stay_pass(uuid)', 'execute'),
+  'anon cannot execute issue_stay_pass');
+select ok(not has_function_privilege('anon', 'public.verify_stay_pass(text)', 'execute'),
+  'anon cannot execute verify_stay_pass');
+select ok(has_function_privilege('authenticated', 'public.issue_stay_pass(uuid)', 'execute'),
+  'authenticated can execute issue_stay_pass');
+select ok(has_function_privilege('authenticated', 'public.verify_stay_pass(text)', 'execute'),
+  'authenticated can execute verify_stay_pass');
+select has_table('private', 'stay_pass_secret', 'private.stay_pass_secret exists');
+select is((select count(*)::int from private.stay_pass_secret where length(secret) = 32), 1,
+  'one 32-byte secret is seeded');
+select ok(not has_schema_privilege('authenticated', 'private', 'usage'),
+  'authenticated cannot use the private schema');
+select ok(not has_schema_privilege('anon', 'private', 'usage'),
+  'anon cannot use the private schema');
+select ok(not has_table_privilege('authenticated', 'private.stay_pass_secret', 'select'),
+  'authenticated has no select on the secret');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select secret from private.stay_pass_secret$$, '42501', null,
+  'resort staff cannot read the secret');
+reset role;
+
+select * from finish();
+rollback;

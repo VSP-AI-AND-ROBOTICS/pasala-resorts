@@ -63,6 +63,38 @@ void main() {
     expect(failure.message, 'Housekeeping is already on its way to this room.');
   });
 
+  group('P0034 maps to StayPassRejected by code word', () {
+    test('pass_invalid', () {
+      final failure = map('P0034', 'pass_invalid');
+      expect(failure, isA<StayPassRejected>());
+      expect((failure as StayPassRejected).reason, PassRejection.invalid);
+      expect(failure.message, 'This is not a valid check-in pass.');
+    });
+
+    test('pass_expired', () {
+      final failure = map('P0034', 'pass_expired') as StayPassRejected;
+      expect(failure.reason, PassRejection.expired);
+      expect(failure.message,
+          'This pass has expired. Ask the guest to reopen their booking, '
+          'or find them in the list.');
+    });
+
+    test('pass_other_resort', () {
+      final failure = map('P0034', 'pass_other_resort') as StayPassRejected;
+      expect(failure.reason, PassRejection.otherResort);
+      expect(failure.message,
+          'This pass is for a booking at a different resort.');
+    });
+
+    // Review Focus 5: whatever the server sends, the desk never sees raw
+    // text, and an unknown word reads as an invalid pass.
+    test('an unknown code word reads as invalid and never leaks', () {
+      final failure = map('P0034', 'something_new') as StayPassRejected;
+      expect(failure.reason, PassRejection.invalid);
+      expect(failure.message, isNot(contains('something_new')));
+    });
+  });
+
   test('NotPermitted never leaks the server message', () {
     expect(map('42501', 'permission denied for table reservations').message,
         isNot(contains('reservations')));

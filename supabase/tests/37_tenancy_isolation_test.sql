@@ -435,6 +435,10 @@ select is(
         -- of the unit (or the resort) it is given.
         'room_status_board','set_room_status','dispatch_housekeeping',
         'list_dispatchable_staff',
+        -- 0052: stay passes. issue_stay_pass only signs the caller's own
+        -- booking; verify_stay_pass asserts Staff+ at the resort the signed
+        -- pass names and that the booking belongs to that resort.
+        'issue_stay_pass','verify_stay_pass',
         -- 0048: finance reports. Each asserts owner/admin/accountant at the
         -- resort it is given. (checkout_booking is already listed above.)
         'report_collections','report_ledger','report_settlements','finance_summary',
