@@ -2,9 +2,10 @@
 -- and by whom, and four read-only reports over one resort's money.
 -- See docs/superpowers/specs/2026-09-25-finance-ledger-design.md.
 --
--- No new tables and no triggers: the reports work every figure out from
--- payments, reservations, food_orders, activity_bookings and
--- food_activity_sales. Error codes raised: P0008, P0002, P0009 (a guest
+-- No new tables: the reports work every figure out from payments,
+-- reservations, food_orders, activity_bookings and food_activity_sales.
+-- One trigger, food_activity_sales_method_default, keeps stale app builds
+-- that send payment_method: null inserting. Error codes raised: P0008, P0002, P0009 (a guest
 -- recording a desk method, a wrong amount), P0020 not_a_member, P0022
 -- resort_suspended.
 
@@ -58,6 +59,26 @@ alter table public.food_activity_sales
   alter column payment_method set default 'cash',
   alter column payment_method set not null,
   add constraint food_activity_sales_not_gateway check (payment_method <> 'gateway');
+
+-- An app build from before 0048 sends payment_method: null explicitly,
+-- which the column default does not replace, so NOT NULL would refuse
+-- the sale. A null on insert is taken as cash, the default; an update to
+-- null is still refused.
+create function public.food_activity_sales_method_default()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  new.payment_method := coalesce(new.payment_method, 'cash');
+  return new;
+end;
+$$;
+revoke execute on function public.food_activity_sales_method_default() from public, anon, authenticated;
+
+create trigger food_activity_sales_method_default
+  before insert on public.food_activity_sales
+  for each row execute function public.food_activity_sales_method_default();
 
 -- ---------------------------------------------------------------------
 -- checkout_booking gains p_method. Postgres cannot add a parameter with

@@ -13,7 +13,7 @@
 -- "August 2026" fixtures (B1-B7, SX, W1-W3) feed Collections and the
 -- Ledger, with every amount worked out in the test that reads it.
 begin;
-select plan(91);
+select plan(92);
 
 -- Before any fixture: every payment the seed already holds became gateway.
 select is((select count(*)::int from public.payments where method <> 'gateway'), 0,
@@ -221,9 +221,15 @@ select is((select payment_method::text from public.food_activity_sales where ite
 select throws_ok($$insert into public.food_activity_sales (property_id, category, item_name, unit_price, amount, payment_method, recorded_by)
   values ('ffffffff-0000-4000-8000-000000000001', 'food', 'Probe', 10, 10, 'gateway', 'f0000000-0000-0000-0000-000000000003')$$,
   '23514', null, 'a walk-in sale can never be gateway');
-select throws_ok($$insert into public.food_activity_sales (property_id, category, item_name, unit_price, amount, payment_method, recorded_by)
-  values ('ffffffff-0000-4000-8000-000000000001', 'food', 'Probe', 10, 10, null, 'f0000000-0000-0000-0000-000000000003')$$,
+-- A stale app build still sends payment_method: null explicitly, which a
+-- column default does not cover; the before-insert trigger makes it cash.
+insert into public.food_activity_sales (property_id, category, item_name, unit_price, amount, payment_method, recorded_by)
+  values ('ffffffff-0000-4000-8000-000000000002', 'food', 'Null probe', 10, 10, null, 'f0000000-0000-0000-0000-000000000005');
+select is((select payment_method::text from public.food_activity_sales where item_name = 'Null probe'),
+  'cash', 'a walk-in sale sent with a null method is recorded as cash');
+select throws_ok($$update public.food_activity_sales set payment_method = null where item_name = 'Null probe'$$,
   '23502', null, 'a walk-in sale always has a method');
+delete from public.food_activity_sales where item_name = 'Null probe';
 select is(array[public.payment_method_from_text('Cash'),
                 public.payment_method_from_text('  NEFT '),
                 public.payment_method_from_text('Bank Transfer'),
