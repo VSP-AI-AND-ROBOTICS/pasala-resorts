@@ -442,6 +442,15 @@ select is(
         -- 0048: finance reports. Each asserts owner/admin/accountant at the
         -- resort it is given. (checkout_booking is already listed above.)
         'report_collections','report_ledger','report_settlements','finance_summary',
+        -- 0056: email and SMS delivery. claim/complete/record run only as
+        -- service_role (the outbox-dispatch Edge Function);
+        -- outbox_delivery_status asserts the caller's role at the resort
+        -- it is given and retry_outbox_message at the message's resort;
+        -- outbox_template_context and outbox_dispatch_tick run for no
+        -- client role.
+        'claim_outbox_batch','complete_outbox_message','record_outbox_dispatch_run',
+        'outbox_delivery_status','retry_outbox_message','outbox_template_context',
+        'outbox_dispatch_tick',
         -- 0051: coupons. Each asserts owner/admin at the resort it is
         -- given, or at the coupon's own resort.
         'create_coupon','update_coupon','set_coupon_active','list_coupons',

@@ -63,6 +63,12 @@ void main() {
     expect(failure.message, 'Housekeeping is already on its way to this room.');
   });
 
+  test('P0037 maps to NotRetryable with readable copy', () {
+    final failure = map('P0037', 'not_retryable');
+    expect(failure, isA<NotRetryable>());
+    expect(failure.message, 'Only failed or dry-run messages can be sent again.');
+  });
+
   test('P0035 maps to TaxRateOutOfRange with readable copy', () {
     final failure = map('P0035', 'tax_rate_out_of_range');
     expect(failure, isA<TaxRateOutOfRange>());

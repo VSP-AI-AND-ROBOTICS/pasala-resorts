@@ -1,23 +1,39 @@
-/// The three delivery channels `public.outbox_channel` knows about. None of
-/// them have a configured provider yet -- see [OutboxStatus].
+/// The delivery channels `public.outbox_channel` knows about. Email and SMS
+/// are sent by the `outbox-dispatch` Edge Function; WhatsApp rows are only
+/// queued (see docs/email-and-sms-delivery.md).
 enum OutboxChannel { email, sms, whatsapp }
 
-/// `public.outbox_status`. `sent` is a real future state -- the column
-/// exists for the sender service this phase does not build -- but nothing
-/// server-side ever writes it yet: every row this app can produce is
-/// `pending` (deliverable, queued) or `skipped` (no address/number on file,
-/// recorded rather than silently dropped). `failed` is likewise reserved
-/// for a future sender's retry bookkeeping.
-enum OutboxStatus { pending, sent, failed, skipped }
+/// `public.outbox_status`:
+/// - [pending]: waiting for the sender, or waiting to retry.
+/// - [sent]: the provider accepted it.
+/// - [failed]: a permanent error, or the last allowed attempt failed.
+/// - [skipped]: never sendable (no address on file, channel turned off).
+/// - [dryRun] (`dry_run`): handled while the channel's provider key was not
+///   set, so nothing was sent.
+enum OutboxStatus { pending, sent, failed, skipped, dryRun }
+
+/// The sender gives up after this many attempts. Mirrors
+/// `complete_outbox_message` in 0056_email_sms_delivery.sql.
+const outboxMaxAttempts = 5;
 
 OutboxChannel _channelFromDb(String raw) => OutboxChannel.values.byName(raw);
 
-OutboxStatus _statusFromDb(String raw) => OutboxStatus.values.byName(raw);
+/// Unknown status text is rejected, not defaulted -- a silent fallback
+/// would hide a new server status the app does not know how to show.
+OutboxStatus outboxStatusFromDb(String raw) => switch (raw) {
+      'pending' => OutboxStatus.pending,
+      'sent' => OutboxStatus.sent,
+      'failed' => OutboxStatus.failed,
+      'skipped' => OutboxStatus.skipped,
+      'dry_run' => OutboxStatus.dryRun,
+      _ => throw ArgumentError('Unknown outbox status: $raw'),
+    };
 
-/// One row of `public.outbox`: a single queued (or skipped) notification
-/// for one reservation, on one channel. Never carries a `sent` status in
-/// practice -- see [OutboxStatus] -- because there is no delivery provider
-/// configured for this phase.
+DateTime? _timeOrNull(Object? raw) =>
+    raw == null ? null : DateTime.parse(raw as String).toUtc();
+
+/// One row of `public.outbox`: a single notification for one reservation,
+/// on one channel.
 class OutboxMessage {
   const OutboxMessage({
     required this.id,
@@ -32,17 +48,18 @@ class OutboxMessage {
     this.body,
     this.lastError,
     this.sentAt,
+    this.nextAttemptAt,
+    this.lastAttemptAt,
   });
 
   final String id;
   final String reservationId;
   final OutboxChannel channel;
 
-  /// The address/number a real sender would deliver to, OR -- when
-  /// [status] is [OutboxStatus.skipped] -- a short human-readable reason
-  /// (e.g. `"no phone on file"`) rather than an empty string. `public.
-  /// outbox`'s own `outbox_recipient_not_empty` constraint guarantees this
-  /// is never blank.
+  /// The address/number the sender delivers to, OR -- when [status] is
+  /// [OutboxStatus.skipped] for a missing contact -- a short readable
+  /// reason (e.g. `"no phone on file"`). `outbox_recipient_not_empty`
+  /// guarantees this is never blank.
   final String recipient;
 
   final String template;
@@ -50,9 +67,17 @@ class OutboxMessage {
   final String? body;
   final OutboxStatus status;
   final int attempts;
+
+  /// The provider's refusal, the retry reason, the skip reason, or -- on a
+  /// [OutboxStatus.dryRun] row -- why it was a dry run.
   final String? lastError;
   final DateTime createdAt;
   final DateTime? sentAt;
+
+  /// When the row is next due. While a run holds the row this is the end
+  /// of its 5-minute lease; after a failed attempt it is the retry time.
+  final DateTime? nextAttemptAt;
+  final DateTime? lastAttemptAt;
 
   factory OutboxMessage.fromJson(Map<String, dynamic> json) => OutboxMessage(
         id: json['id'] as String,
@@ -62,12 +87,12 @@ class OutboxMessage {
         template: json['template'] as String,
         subject: json['subject'] as String?,
         body: json['body'] as String?,
-        status: _statusFromDb(json['status'] as String),
+        status: outboxStatusFromDb(json['status'] as String),
         attempts: (json['attempts'] as num?)?.toInt() ?? 0,
         lastError: json['last_error'] as String?,
         createdAt: DateTime.parse(json['created_at'] as String).toUtc(),
-        sentAt: json['sent_at'] == null
-            ? null
-            : DateTime.parse(json['sent_at'] as String).toUtc(),
+        sentAt: _timeOrNull(json['sent_at']),
+        nextAttemptAt: _timeOrNull(json['next_attempt_at']),
+        lastAttemptAt: _timeOrNull(json['last_attempt_at']),
       );
 }

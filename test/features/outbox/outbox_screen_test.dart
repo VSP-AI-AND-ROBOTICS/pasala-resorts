@@ -7,27 +7,14 @@ import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/outbox_repository.dart';
 import 'package:pasala/features/outbox/outbox_screen.dart';
 
+import '../../support/fake_outbox_source.dart';
+
 const _resort =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
 
 class _FixedResort extends CurrentResort {
   @override
   ResortMembership? build() => _resort;
-}
-
-/// In-memory stand-in for [OutboxRepository], mirroring
-/// `FakeReportRepository` in `reports_screen_test.dart`.
-class FakeOutboxSource implements OutboxSource {
-  List<OutboxMessage> rows = [];
-  Object? error;
-  final List<String> listedPropertyIds = [];
-
-  @override
-  Future<List<OutboxMessage>> messages(String propertyId) async {
-    listedPropertyIds.add(propertyId);
-    if (error != null) throw error!;
-    return rows;
-  }
 }
 
 OutboxMessage _row({

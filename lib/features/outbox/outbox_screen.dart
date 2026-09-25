@@ -29,16 +29,15 @@ String _statusLabel(OutboxStatus status) => switch (status) {
       OutboxStatus.sent => 'Sent',
       OutboxStatus.failed => 'Failed',
       OutboxStatus.skipped => 'Skipped',
+      OutboxStatus.dryRun => 'Dry run',
     };
 
-/// The order sections appear in: what needs attention first, then what
-/// worked, then what didn't happen. [OutboxStatus.sent] is listed even
-/// though nothing in this phase ever produces it (see [OutboxMessage]) --
-/// a future sender service will populate it, and the screen should not
-/// need a design change on the day it does.
+/// The order sections appear in (Task 9 of the P7 plan rewrites this
+/// screen around the delivery status panel).
 const _statusOrder = [
   OutboxStatus.pending,
   OutboxStatus.failed,
+  OutboxStatus.dryRun,
   OutboxStatus.skipped,
   OutboxStatus.sent,
 ];

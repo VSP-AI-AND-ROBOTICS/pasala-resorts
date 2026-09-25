@@ -62,4 +62,53 @@ void main() {
 
     expect(message.attempts, 0);
   });
+
+  test('parses a dry_run row and the retry timestamps', () {
+    final message = OutboxMessage.fromJson(const {
+      'id': 'm4',
+      'reservation_id': 'r4',
+      'channel': 'sms',
+      'recipient': '+919876543210',
+      'template': 'booking_confirmation_sms',
+      'status': 'dry_run',
+      'attempts': 1,
+      'last_error': 'Dry run: MSG91_AUTH_KEY is not set',
+      'created_at': '2026-08-01T10:00:00Z',
+      'next_attempt_at': '2026-08-01T10:05:00Z',
+      'last_attempt_at': '2026-08-01T10:00:30Z',
+    });
+
+    expect(message.status, OutboxStatus.dryRun);
+    expect(message.nextAttemptAt, DateTime.utc(2026, 8, 1, 10, 5));
+    expect(message.lastAttemptAt, DateTime.utc(2026, 8, 1, 10, 0, 30));
+  });
+
+  test('rows without retry timestamps parse them as null', () {
+    final message = OutboxMessage.fromJson(const {
+      'id': 'm5',
+      'reservation_id': 'r5',
+      'channel': 'email',
+      'recipient': 'guest@example.com',
+      'template': 'booking_confirmation',
+      'status': 'pending',
+      'attempts': 0,
+      'created_at': '2026-08-01T10:00:00Z',
+    });
+
+    expect(message.nextAttemptAt, isNull);
+    expect(message.lastAttemptAt, isNull);
+  });
+
+  test('every database status maps, and an unknown one is rejected', () {
+    expect(outboxStatusFromDb('pending'), OutboxStatus.pending);
+    expect(outboxStatusFromDb('sent'), OutboxStatus.sent);
+    expect(outboxStatusFromDb('failed'), OutboxStatus.failed);
+    expect(outboxStatusFromDb('skipped'), OutboxStatus.skipped);
+    expect(outboxStatusFromDb('dry_run'), OutboxStatus.dryRun);
+    expect(() => outboxStatusFromDb('queued'), throwsArgumentError);
+  });
+
+  test('the attempt limit mirrors the database', () {
+    expect(outboxMaxAttempts, 5);
+  });
 }

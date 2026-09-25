@@ -84,6 +84,13 @@ class AlreadyDispatched extends BookingFailure {
       : super('Housekeeping is already on its way to this room.');
 }
 
+/// P0037 -- `retry_outbox_message` refused a message that is not failed or
+/// dry run (it is already queued again, sent, or skipped).
+class NotRetryable extends BookingFailure {
+  const NotRetryable()
+      : super('Only failed or dry-run messages can be sent again.');
+}
+
 /// P0035 -- `properties_check_service_tax` refused a food or spa rate
 /// outside 0..28. The Taxes screen checks the range first, so this is a
 /// backstop.
@@ -231,6 +238,9 @@ BookingFailure mapPostgrestError(Object error) {
     // (`reason_required`, `already_dispatched`), so the copy lives here.
     'P0030' => const ReasonRequired(),
     'P0031' => const AlreadyDispatched(),
+    // P0037: outbox delivery (0056). Only retry_outbox_message reaches the
+    // app; complete_outbox_message's P0037 is service_role-only.
+    'P0037' => const NotRetryable(),
     // P0035: food and spa tax rates (0053). Bare code word from the server.
     'P0035' => const TaxRateOutOfRange(),
     // P0034: check-in passes (0052). Bare code words; see StayPassRejected.
