@@ -15,7 +15,7 @@
 --      by O, a Pro trial ending in 10 days, one active unit (Cottage 1)
 --   D  "Listing D", active, Starter, paid with no end date
 begin;
-select plan(17);
+select plan(53);
 
 -- "Today" as the listing functions see it.
 create function pg_temp.today() returns date
@@ -155,6 +155,149 @@ set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000002","
 select throws_ok($$insert into public.listing_applications (property_id, applicant_id, tier)
   values ('49100000-0000-4000-8000-00000000000d', '49000000-0000-0000-0000-000000000002', 'starter')$$,
   '42501', null, 'nobody inserts an application directly');
+reset role;
+set local request.jwt.claims to '';
+
+-- === Task 2: pending resorts and applying ==================================
+
+-- A pending resort is set up by its members exactly like an active one.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select ok(public.has_resort_role('49100000-0000-4000-8000-00000000000c', true, 'owner'),
+  'an owner may write at their pending resort');
+select lives_ok($$select public.assert_resort_role('49100000-0000-4000-8000-00000000000c', true, 'owner','admin')$$,
+  'assert_resort_role lets the owner write at a pending resort');
+select is(pg_temp.rows_affected($$update public.properties
+    set description = 'A quiet farm stay near the hills, with a pool.'
+  where id = '49100000-0000-4000-8000-00000000000c'$$), 1,
+  'the owner edits their pending resort');
+select lives_ok($$insert into public.units (id, property_id, name, capacity_base, capacity_max)
+  values ('49100000-0000-4000-8000-0000000000c2','49100000-0000-4000-8000-00000000000c','Cottage 2',2,4)$$,
+  'the owner adds a unit at a pending resort');
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select is((select count(*)::int from public.listing_applications), 1,
+  'the resort''s admin reads the application of their pending resort');
+select ok(public.has_resort_role('49100000-0000-4000-8000-00000000000c', true, 'admin'),
+  'an admin may write there too');
+
+-- Guests and anon see nothing and book nothing.
+reset role;
+set local request.jwt.claims to '';
+set local role anon;
+select is((select count(*)::int from public.properties
+            where id = '49100000-0000-4000-8000-00000000000c'), 0,
+  'anon cannot see a pending resort');
+select is((select count(*)::int from public.units
+            where property_id = '49100000-0000-4000-8000-00000000000c'), 0,
+  'anon cannot see its units');
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select is((select count(*)::int from public.properties
+            where id = '49100000-0000-4000-8000-00000000000c'), 0,
+  'a signed-in guest cannot see it either');
+select throws_ok($$select public.get_quote('49100000-0000-4000-8000-0000000000c1',
+    tstzrange('2027-05-01 14:00+05:30','2027-05-02 11:00+05:30','[)'), 2)$$,
+  'P0022', null, 'a pending resort gives no quote');
+select throws_ok($$select public.create_hold('49100000-0000-4000-8000-0000000000c1',
+    '2027-05-01', '2027-05-02', 2)$$,
+  'P0022', null, 'a pending resort takes no booking');
+
+-- Applying.
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select throws_ok($$select public.apply_for_listing('Platform Stay', 'Goa', '1 Beach Road, Goa',
+    '+91 98765 43210', 'A platform admin should not be able to apply.', 'starter')$$,
+  'P0008', null, 'the platform admin adds resorts from the console, not by applying');
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$select public.apply_for_listing(' ', 'Nashik', '12 Vineyard Road, Nashik',
+    '+91 98765 43210', 'Vineyard cottages with a pool and a view.', 'pro')$$,
+  'P0005', 'Enter the resort name (2 to 80 characters).', 'a blank name is refused');
+select throws_ok($$select public.apply_for_listing('Green Acres', 'Nashik', '12 Vineyard Road, Nashik',
+    '12345', 'Vineyard cottages with a pool and a view.', 'pro')$$,
+  'P0005', 'Enter a contact phone number, e.g. +91 98765 43210.', 'a short phone number is refused');
+select throws_ok($$select public.apply_for_listing('Green Acres', 'Nashik', '12 Vineyard Road, Nashik',
+    '+91 98765 43210', 'Nice place', 'pro')$$,
+  'P0005', 'Describe the resort in 20 to 500 characters.', 'a too-short description is refused');
+select throws_ok($$select public.apply_for_listing('Green Acres', 'Nashik', '12 Vineyard Road, Nashik',
+    '+91 98765 43210', 'Vineyard cottages with a pool and a view.', null)$$,
+  'P0005', 'Choose a plan.', 'a missing plan is refused');
+select ok(set_config('app.list_a',
+    public.apply_for_listing('  Green Acres ', 'Nashik', ' 12 Vineyard Road, Nashik ',
+      '+91 98765-43210', 'Vineyard cottages with a pool and a view.', 'pro')::text,
+    true) is not null,
+  'applicant A applies');
+select throws_ok($$select public.apply_for_listing('Second Stay', 'Nashik', '14 Vineyard Road, Nashik',
+    '+91 98765 43210', 'A second resort while the first one is pending.', 'starter')$$,
+  'P0040', 'You already have a resort waiting for review.',
+  'one open application per user');
+select is((select concat_ws('|', name, city, tier::text, property_status,
+                            (submitted_at is null)::text, coalesce(decision, 'none'))
+             from public.my_listing_applications()),
+  'Green Acres|Nashik|pro|pending|true|none', 'A sees their application');
+select ok(public.has_resort_role(current_setting('app.list_a')::uuid, true, 'owner'),
+  'A owns the new resort and can set it up');
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select ok(set_config('app.list_b',
+    public.apply_for_listing('Green Acres', 'Lonavala', '5 Lake Road, Lonavala',
+      '9876501234', 'Lakeside tents and a big lawn for events.')::text,
+    true) is not null,
+  'applicant B applies with the default plan');
+select is((select count(*)::int from public.my_listing_applications()), 1,
+  'B sees only their own application');
+reset role;
+set local request.jwt.claims to '';
+
+select is((select concat_ws('|', status, slug, city, contact_phone, address)
+             from public.properties where id = current_setting('app.list_a')::uuid),
+  'pending|green-acres|Nashik|+919876543210|12 Vineyard Road, Nashik',
+  'A''s resort is pending, trimmed, with the phone stored without spaces or dashes');
+select is((select slug from public.properties where id = current_setting('app.list_b')::uuid),
+  'green-acres-2', 'a taken name gets a numbered slug');
+select is((select concat_ws('|', tier::text, status::text, trial_ends_on - pg_temp.today())
+             from public.resort_subscriptions
+            where property_id = current_setting('app.list_a')::uuid),
+  'pro|trial|30', 'A starts a 30-day trial of the plan they chose');
+select is((select tier::text from public.resort_subscriptions
+            where property_id = current_setting('app.list_b')::uuid),
+  'starter', 'the default plan is Starter');
+select is((select array_agg(action order by action) from public.audit_log
+            where property_id = current_setting('app.list_a')::uuid),
+  array['listing:apply','subscription:create'], 'applying writes both audit rows');
+select ok(not has_function_privilege('authenticated', 'public.resort_slug_for(text)', 'execute'),
+  'resort_slug_for is internal');
+
+-- Suspend / Reactivate cannot bypass review; pending counts for nothing.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select throws_ok($$select public.set_resort_status('49100000-0000-4000-8000-00000000000c', 'active')$$,
+  'P0040', 'Approve or reject this resort instead.', 'a pending resort cannot be activated by hand');
+select throws_ok($$select public.set_resort_status('49100000-0000-4000-8000-00000000000c', 'suspended')$$,
+  'P0040', 'Approve or reject this resort instead.', 'nor suspended');
+select is((select concat_ws('|', subscribed_count, active_count, trial_count, mrr_inr::int)
+             from public.platform_summary()),
+  '1|1|0|2999', 'pending resorts count for nothing: only D is subscribed');
+reset role;
+set local request.jwt.claims to '';
+
+-- Listing photos: the resort's owners and admins upload into its folder.
+select is((select public from storage.buckets where id = 'property-photos'), true,
+  'the photo bucket is public');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select lives_ok($$insert into storage.objects (bucket_id, name)
+  values ('property-photos', '49100000-0000-4000-8000-00000000000c/1.jpg')$$,
+  'the owner uploads a photo for their pending resort');
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select lives_ok($$insert into storage.objects (bucket_id, name)
+  values ('property-photos', '49100000-0000-4000-8000-00000000000c/2.jpg')$$,
+  'the admin uploads too');
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$insert into storage.objects (bucket_id, name)
+  values ('property-photos', '49100000-0000-4000-8000-00000000000c/3.jpg')$$,
+  '42501', null, 'someone else cannot upload into that resort''s folder');
+select throws_ok($$insert into storage.objects (bucket_id, name)
+  values ('property-photos', 'not-a-resort/1.jpg')$$,
+  '42501', null, 'a path that names no resort is refused');
 reset role;
 set local request.jwt.claims to '';
 
