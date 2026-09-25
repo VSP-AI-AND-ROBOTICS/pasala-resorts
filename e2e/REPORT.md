@@ -3,8 +3,8 @@
 Date: 2026-09-25. Branch `main`, after merging `fix-e2e-guest`, `fix-e2e-ops`
 and `fix-e2e-db`, plus follow-up commit 9719ee9. The suite drives the
 release web build (`./build-app.sh`, `E2E=true`) through Flutter's semantics
-DOM against the local Supabase stack. It runs one worker, in Chromium, at
-1280x800.
+DOM against the local Supabase stack. It runs one worker, in Chromium, in two projects: `desktop` (1280x800) and
+`phone` (Pixel 7: 412x839, touch, Android Chrome).
 
 ## Run results
 
@@ -18,6 +18,9 @@ DOM against the local Supabase stack. It runs one worker, in Chromium, at
 | Playwright, first run after the merge | 42 passed, 2 failed (both fixed in 9719ee9, see below) |
 | Playwright, final run 1 | **44 passed**, 0 failed, 0 flaky, 0 skipped (4.1 min) |
 | Playwright, final run 2 | **44 passed**, 0 failed, 0 flaky, 0 skipped (4.1 min) |
+| Playwright on `feat/gaps` (P1-P11 merged), desktop project | **50 passed**, 0 failed |
+| Playwright on `feat/gaps`, phone project | **50 passed**, 0 failed |
+| Playwright on `feat/gaps`, both projects, final runs 1 and 2 | **100 passed** each, 0 flaky (10.6 and 10.9 min) |
 | `test.fail` / `test.fixme` / `test.skip` left in `e2e/tests` | **none** |
 | Teardown after each final run | 0 `@e2e.resorthub.test` users, 0 `e2e-` resorts |
 | Non-e2e row counts (every `public` table plus `auth.users`) | same as before the runs |
@@ -80,15 +83,16 @@ of those markers are now ordinary tests.
 
 ## Coverage per persona
 
-The suite has 44 tests.
+The suite has 50 tests, and each runs in both projects.
 
 | Persona | Spec | Tests | What is exercised |
 |---|---|---|---|
-| Guest / customer | `guest.spec.ts` | 9 | Signs in with no sign-up step; browse shows only active resorts and greets the guest; theme toggle; amenity filter; resort page (photo counter, address, reviews); booking with the 35% advance option through the mock gateway, then My Bookings; cancelling shows the cancelled state; My Stay pass; unit picker at a resort with several units |
+| Guest / customer | `guest.spec.ts` | 10 | Signs in with no sign-up step; browse shows only active resorts and greets the guest; theme toggle; amenity filter; search box and Clear filters; resort page (photo counter, address, reviews); booking with the 35% advance option through the mock gateway, then My Bookings; cancelling shows the cancelled state; My Stay pass; unit picker at a resort with several units |
 | Owner | `owner.spec.ts` | 7 | Lands on `/owner` with the day's figures; Team add/role change/remove; refuses to demote the only owner (readable error); plan line shows the subscription tier; Rooms tile opens the grid; Finance tile; tenancy (never sees a Resort B booking) |
-| Front desk (admin) | `frontdesk.spec.ts` | 7 | Dashboard; bookings list; check-in marks the unit occupied; check-out with a desk Cash payment and reference, after which the room needs cleaning; units and rates screens; a Resort B URL gives not-found; the desk checkout survives a reload |
+| Front desk (admin) | `frontdesk.spec.ts` | 7 | Dashboard; bookings list; check-in marks the unit occupied; check-out with a desk Cash payment and reference, back on the check-out list with a success banner and a PDF invoice download, after which the room needs cleaning; units and rates screens; a Resort B URL gives not-found; the desk checkout survives a reload |
 | Staff / incharge | `staff.spec.ts` | 6 | `/staff` Today with the staff bar; room grid tiles and counts; Maintenance needs a reason; a housekeeping dispatch reaches Assigned Work and clears the room on completion; `/owner` gives 404 (heading); admin deletes a task from `/admin/tasks` |
-| Accountant | `accountant.spec.ts` | 6 | Lands on Finance with the accountant bar; Today online vs front-desk split; Collections and Ledger; Settlements (advance vs desk balance); CSV export download; read-only room grid |
+| Accountant | `accountant.spec.ts` | 9 | Lands on Finance with the accountant bar; Today online vs front-desk split; Collections and Ledger; Settlements (advance vs desk balance); CSV export download; Collections PDF export; a settlement row's invoice PDF; the guest's invoice PDF from booking detail; read-only room grid |
+| Front desk (passes) | `stay-pass.spec.ts` | 2 | A tampered check-in pass is refused with a readable message; a guest's signed pass opens their check-in and checks them in |
 | Platform admin | `platform.spec.ts` | 7 | Totals cards; tier filter; search; tier and paid-through edit; suspend/reactivate; "+ Add resort"; sees no guest PII |
 | Smoke | `smoke.spec.ts` | 2 | Welcome page; owner sign-in |
 
@@ -109,14 +113,12 @@ The suite has 44 tests.
 ## Remaining gaps and follow-ups
 
 - **Visual checks:** colours, dark mode on every screen, and the QR image
-  are not asserted. Screenshot comparison would be needed.
+  are not asserted. Screenshot comparison would be needed. Both sizes are
+  covered by behaviour (bottom navigation, `reveal()` for below-the-fold
+  content), not by screenshots.
 - **Maps redirect and service-worker caching:** not driven. Playwright
   could check the popup URL and the network cache headers.
-- **Only the wide layout (1280x800) is covered**, apart from `clickTab`,
-  which narrows the viewport to reach the bottom navigation bar. There is
-  no phone-size pass.
 - **Items left open from the fix reviews:**
-  - The desk checkout ends on a guest invoice route (ops Minor 6).
   - The same dialog-context pop bug exists in five other screens
     (ops Minor 7).
   - A staff-picker active-unit filter and a hold-orphaning edge case in
@@ -128,3 +130,22 @@ The suite has 44 tests.
   worktrees. A reset or restart from another checkout during a run breaks
   it. That happened in this session, and the run was repeated after
   recovery.
+
+## Phone project (P5) and the gap-round checks
+
+Specs added with the gap projects: `stay-pass.spec.ts` (P3: a tampered
+pass is refused; a guest's pass checks them in), the accountant's PDF
+checks (P2: Collections Export PDF, a settlement row's invoice, the
+guest's invoice from booking detail), the desk checkout landing with its
+invoice download (P5) and the guest search box (P11).
+
+Fixes the phone project and the merged branch needed:
+- The desk checkout's Reference field could not be focused on a phone:
+  the payment Card merged its semantics, so the field's node covered the
+  whole card, over the method chips. Fixed in the app
+  (`Card(semanticContainer: false)`), not in the helper.
+- A card that gains a button (the Settlements row's "Invoice PDF", the
+  check-out banner's "Download invoice") becomes a group whose text is
+  its `aria-label`; `bodyLines` and the banner check read that too.
+- The CSV export test polls for its SnackBar instead of reading once.
+
