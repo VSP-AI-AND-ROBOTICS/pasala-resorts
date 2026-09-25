@@ -27,8 +27,15 @@ class IcalSyncRunner {
   final int maxCalls;
   final Duration interval;
 
-  Future<IcalSyncResult> syncNow(String feedId) {
-    throw UnimplementedError('IcalSyncRunner.syncNow is built in Task 6');
+  Future<IcalSyncResult> syncNow(String feedId) async {
+    // The first call only starts a fresh fetch (and may collect a stale one).
+    await source.syncFeed(feedId);
+    for (var call = 2; call <= maxCalls; call++) {
+      await wait(interval);
+      final result = await source.syncFeed(feedId);
+      if (result.isFinal) return result;
+    }
+    return const IcalSyncResult(status: 'pending');
   }
 }
 
