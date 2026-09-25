@@ -135,7 +135,8 @@ String? redirectFor({
     // and `checkout_booking` (0037_stay_checkout.sql) are the same
     // staff-or-above grant too -- reception need not be an admin account to
     // check a guest in or settle their final bill -- so `/admin/check-in`
-    // and `/admin/check-out` join them here as well. Every other
+    // and `/admin/check-out` join them here as well, with the desk
+    // checkout of one booking at `/admin/check-out/:reservationId`. Every other
     // `/admin/*` route (properties, units, rates, blocking, the bookings
     // list) stays admin-only, matching the RLS/RPC surfaces that actually
     // write data.
@@ -144,7 +145,8 @@ String? redirectFor({
             path == '/admin/reports' ||
             path == '/admin/outbox' ||
             path == '/admin/check-in' ||
-            path == '/admin/check-out');
+            path == '/admin/check-out' ||
+            path.startsWith('/admin/check-out/'));
     final isAdminHere =
         resort != null && const {ResortRole.owner, ResortRole.admin}.contains(resort.role);
     if (!isAdminHere && !staffOrAboveOk) return '/404';
@@ -507,6 +509,19 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/check-out',
             builder: (_, _) => const ReceptionCheckoutScreen(),
+          ),
+          // Reception's desk checkout. The reservation id and desk mode
+          // both live in the URL so a web refresh or back/forward rebuilds
+          // it -- a route `extra` does not survive either.
+          GoRoute(
+            path: '/admin/check-out/:reservationId',
+            pageBuilder: (_, state) => fadeSlidePage(
+              CheckoutScreen(
+                reservationId: state.pathParameters['reservationId']!,
+                desk: true,
+              ),
+              state,
+            ),
           ),
           GoRoute(
             path: '/admin/kitchen-orders',

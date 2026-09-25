@@ -73,6 +73,9 @@ CurrentCharges _charges(double balance) => CurrentCharges(
       balance: balance,
     );
 
+/// Opens reception's desk checkout of `r1` at `/admin/check-out/r1`.
+const _desk = #desk;
+
 Future<void> _pump(
   WidgetTester tester, {
   required Object extra,
@@ -86,10 +89,14 @@ Future<void> _pump(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   final router = GoRouter(
-    initialLocation: '/my-stay/checkout',
-    initialExtra: extra,
+    initialLocation: extra == _desk ? '/admin/check-out/r1' : '/my-stay/checkout',
+    initialExtra: extra == _desk ? null : extra,
     routes: [
       GoRoute(path: '/my-stay/checkout', builder: (_, state) => checkoutScreenFor(state.extra)),
+      GoRoute(
+          path: '/admin/check-out/:reservationId',
+          builder: (_, state) => CheckoutScreen(
+              reservationId: state.pathParameters['reservationId']!, desk: true)),
       GoRoute(
           path: '/my-stay/invoice/:id',
           builder: (_, state) => Text('INVOICE ${state.pathParameters['id']}')),
@@ -122,7 +129,7 @@ void main() {
   group('desk checkout', () {
     testWidgets('offers the five desk methods, Cash selected, and a reference field',
         (tester) async {
-      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: _FakeStayRepository());
+      await _pump(tester, extra: _desk, stay: _FakeStayRepository());
 
       for (final m in PaymentMethod.desk) {
         expect(find.byKey(Key('desk-method-${m.wire}')), findsOneWidget, reason: m.label);
@@ -137,7 +144,7 @@ void main() {
         (tester) async {
       final stay = _FakeStayRepository();
       final gateway = _FakeGateway();
-      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: stay, gateway: gateway);
+      await _pump(tester, extra: _desk, stay: stay, gateway: gateway);
 
       await tester.tap(find.byKey(const Key('desk-method-upi')));
       await tester.pumpAndSettle();
@@ -154,7 +161,7 @@ void main() {
 
     testWidgets('a blank reference is sent as none', (tester) async {
       final stay = _FakeStayRepository();
-      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: stay);
+      await _pump(tester, extra: _desk, stay: stay);
 
       await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
       await tester.pumpAndSettle();
@@ -164,7 +171,7 @@ void main() {
     });
 
     testWidgets('the reference stops at 64 characters', (tester) async {
-      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: _FakeStayRepository());
+      await _pump(tester, extra: _desk, stay: _FakeStayRepository());
 
       await tester.enterText(find.byKey(const Key('desk-reference')), 'x' * 70);
       await tester.pump();
@@ -176,7 +183,7 @@ void main() {
     // Review Focus 4.
     testWidgets('with nothing left to pay there is no method to pick', (tester) async {
       final stay = _FakeStayRepository();
-      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: stay, balance: 0);
+      await _pump(tester, extra: _desk, stay: stay, balance: 0);
 
       expect(find.byKey(const Key('desk-method-cash')), findsNothing);
       expect(find.byKey(const Key('desk-reference')), findsNothing);
@@ -191,7 +198,7 @@ void main() {
     testWidgets('a refusal is shown and the screen stays', (tester) async {
       final stay = _FakeStayRepository()
         ..checkoutError = const InvalidState('desk payment methods are recorded by resort staff');
-      await _pump(tester, extra: const DeskCheckoutArgs('r1'), stay: stay);
+      await _pump(tester, extra: _desk, stay: stay);
 
       await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
       await tester.pumpAndSettle();
@@ -203,7 +210,7 @@ void main() {
     testWidgets('a desk checkout refetches the finance figures', (tester) async {
       final finance = FakeFinanceSource();
       await _pump(tester,
-          extra: const DeskCheckoutArgs('r1'), stay: _FakeStayRepository(), finance: finance);
+          extra: _desk, stay: _FakeStayRepository(), finance: finance);
       final before = finance.summaryCalls.length;
 
       await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
@@ -247,12 +254,6 @@ void main() {
       final screen = checkoutScreenFor('r1') as CheckoutScreen;
       expect(screen.reservationId, 'r1');
       expect(screen.desk, isFalse);
-    });
-
-    test('DeskCheckoutArgs is the desk checkout', () {
-      final screen = checkoutScreenFor(const DeskCheckoutArgs('r1')) as CheckoutScreen;
-      expect(screen.reservationId, 'r1');
-      expect(screen.desk, isTrue);
     });
 
     test('anything else is refused', () {

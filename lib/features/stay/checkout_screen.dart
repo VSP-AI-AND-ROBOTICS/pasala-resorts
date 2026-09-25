@@ -12,19 +12,9 @@ import '../../data/repositories/stay_repository.dart';
 import '../booking/payment_gateway.dart';
 import '../finance/providers.dart';
 
-/// The `extra` reception passes to `/my-stay/checkout` to settle a guest's
-/// bill at the desk. A guest's own checkout passes the plain reservation id.
-class DeskCheckoutArgs {
-  const DeskCheckoutArgs(this.reservationId);
-
-  final String reservationId;
-}
-
-/// Builds `/my-stay/checkout` from its route `extra`: a reservation id is
-/// the guest's own checkout, [DeskCheckoutArgs] is reception's.
+/// Builds the guest's own `/my-stay/checkout` from its route `extra`, the
+/// reservation id. Reception's desk checkout is `/admin/check-out/:id`.
 Widget checkoutScreenFor(Object? extra) => switch (extra) {
-      DeskCheckoutArgs(:final reservationId) =>
-        CheckoutScreen(reservationId: reservationId, desk: true),
       final String reservationId => CheckoutScreen(reservationId: reservationId),
       _ => throw ArgumentError.value(extra, 'extra', 'checkout needs a reservation id'),
     };

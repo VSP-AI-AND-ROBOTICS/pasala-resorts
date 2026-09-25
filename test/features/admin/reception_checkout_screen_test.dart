@@ -8,7 +8,6 @@ import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/room_status_repository.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
 import 'package:pasala/features/admin/reception_checkout_screen.dart';
-import 'package:pasala/features/stay/checkout_screen.dart';
 
 import '../../support/fake_room_board_source.dart';
 
@@ -41,7 +40,7 @@ Widget _appFor(List<Reservation> guests) {
           path: '/admin/check-out',
           builder: (_, _) => const ReceptionCheckoutScreen()),
       GoRoute(
-          path: '/my-stay/checkout',
+          path: '/admin/check-out/:reservationId',
           builder: (_, _) => const Text('CHECKOUT SCREEN')),
     ],
   );
@@ -121,7 +120,7 @@ void main() {
             path: '/admin/check-out',
             builder: (_, _) => const ReceptionCheckoutScreen()),
         GoRoute(
-            path: '/my-stay/checkout',
+            path: '/admin/check-out/:reservationId',
             builder: (_, _) => const Text('CHECKOUT SCREEN')),
       ],
     );
@@ -155,20 +154,27 @@ void main() {
     expect(board.boardCalls.length, greaterThan(before));
   });
 
-  testWidgets('Check Out opens the desk checkout for that booking', (tester) async {
+  // The desk checkout is addressed by its URL alone -- a route `extra`
+  // does not survive a web refresh or back/forward.
+  testWidgets('Check Out opens the desk checkout for that booking by URL',
+      (tester) async {
+    String? location;
     Object? extra;
     final router = GoRouter(
       initialLocation: '/admin/check-out',
       routes: [
         GoRoute(
             path: '/admin/check-out',
-            builder: (_, _) => const ReceptionCheckoutScreen()),
-        GoRoute(
-            path: '/my-stay/checkout',
-            builder: (_, state) {
-              extra = state.extra;
-              return const Text('CHECKOUT SCREEN');
-            }),
+            builder: (_, _) => const ReceptionCheckoutScreen(),
+            routes: [
+              GoRoute(
+                  path: ':reservationId',
+                  builder: (_, state) {
+                    location = state.matchedLocation;
+                    extra = state.extra;
+                    return const Text('CHECKOUT SCREEN');
+                  }),
+            ]),
       ],
     );
     await tester.pumpWidget(ProviderScope(
@@ -184,6 +190,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Check Out'));
     await tester.pumpAndSettle();
 
-    expect(extra, isA<DeskCheckoutArgs>().having((a) => a.reservationId, 'reservationId', 'r1'));
+    expect(location, '/admin/check-out/r1');
+    expect(extra, isNull);
   });
 }

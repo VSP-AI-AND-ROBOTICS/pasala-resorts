@@ -1,11 +1,15 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/core/router.dart';
 import 'package:pasala/data/models/app_user.dart';
+import 'package:pasala/data/models/current_charges.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
+import 'package:pasala/data/repositories/stay_repository.dart';
+import 'package:pasala/features/stay/checkout_screen.dart';
 
 const _ownerM =
     ResortMembership(propertyId: 'r1', resortName: 'R1', role: ResortRole.owner);
@@ -43,6 +47,11 @@ Iterable<String> _paths(List<RouteBase> routes) sync* {
 class _NoResort extends CurrentResort {
   @override
   ResortMembership? build() => null;
+}
+
+class _StaffResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _staffM;
 }
 
 void main() {
@@ -198,6 +207,7 @@ void main() {
       expect(_to(_staff, _staffM, '/admin/outbox'), null);
       expect(_to(_staff, _staffM, '/admin/check-in'), null);
       expect(_to(_staff, _staffM, '/admin/check-out'), null);
+      expect(_to(_staff, _staffM, '/admin/check-out/res-1'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
@@ -239,6 +249,7 @@ void main() {
       expect(_to(_accountant, _accountantM, '/admin/outbox'), null);
       expect(_to(_accountant, _accountantM, '/admin/check-in'), null);
       expect(_to(_accountant, _accountantM, '/admin/check-out'), null);
+      expect(_to(_accountant, _accountantM, '/admin/check-out/res-1'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
@@ -455,6 +466,49 @@ void main() {
       final router = container.read(routerProvider);
 
       expect(_paths(router.configuration.routes), contains('/finance'));
+    });
+  });
+
+  group('desk checkout', () {
+    test('customers are refused /admin/check-out/:reservationId', () {
+      expect(_to(_customer, null, '/admin/check-out/res-1'), '/404');
+    });
+
+    // A web refresh or back/forward rebuilds the page from the URL alone:
+    // no route `extra` survives it, so the reservation id and desk mode
+    // must both live in the path.
+    testWidgets('builds the desk checkout from the URL alone', (tester) async {
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
+        currentResortProvider.overrideWith(_StaffResort.new),
+        currentChargesProvider.overrideWith((ref, id) async => const CurrentCharges(
+              stayAmount: 3000,
+              foodAmount: 0,
+              activityAmount: 0,
+              total: 3000,
+              paid: 1000,
+              balance: 2000,
+            )),
+      ]);
+      addTearDown(container.dispose);
+      // Riverpod 3 auto-disposes an unlistened provider before its stream
+      // emits; keep the signed-in user alive, as the widget tree would.
+      container.listen(currentUserProvider, (_, _) {});
+      await container.read(currentUserProvider.future);
+      final router = container.read(routerProvider);
+
+      // Straight to the URL, as a reload does -- no splash, no `extra`.
+      router.go('/admin/check-out/res-1');
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(routerConfig: router),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      final screen = tester.widget<CheckoutScreen>(find.byType(CheckoutScreen));
+      expect(screen.reservationId, 'res-1');
+      expect(screen.desk, isTrue);
     });
   });
 }
