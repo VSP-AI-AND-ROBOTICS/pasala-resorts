@@ -69,8 +69,7 @@ and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
   underlying function; an earlier draft of this README claimed one that was
   never actually built.)
 - `/admin/reports`: revenue and occupancy by date range and property,
-  exportable as CSV. PDF export was explicitly deferred — see
-  "Known limitations".
+  exportable as CSV or PDF (see "Invoices and PDF exports").
 - Both screens are staff-or-above (not admin-only): the accountant role
   exists specifically to read financials.
 
@@ -80,10 +79,10 @@ and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
   booking value, and optional per-customer restriction. Applied inside
   `get_quote`, so a coupon can never produce a client-computed total, and
   redemption counting is race-safe (proven with two genuinely concurrent
-  `create_hold` calls via `dblink`). There is no admin UI for creating
-  coupons yet — create them directly in the `coupons` table (Supabase
-  Studio or `psql`); the customer-facing "Have a coupon?" field in the
-  booking screen and all quote/redemption logic are otherwise complete.
+  `create_hold` calls via `dblink`). Owners and admins manage them on the
+  Coupons screen (owner hub → Coupons, or admin More → Coupons): create,
+  edit, deactivate, and see each code's usage; a coupon can be limited to
+  one guest who has booked at the resort.
 - Refund policy: rules by days-before-check-in, stored in `refund_rules` and
   editable directly in that table (Supabase Studio or `psql`) — "admin-
   configurable" describes the data model and RLS (staff/accountant can
@@ -391,6 +390,26 @@ booking, and the shared test-only password.
   setup also clears leftovers first).
 - Tests run one at a time (`workers: 1`) because they share one database.
 
+## Front-desk check-in passes
+
+The QR a guest sees on their booking (confirmation, booking detail, My
+Stay) is a signed check-in pass: `rh1.` plus the booking id, the resort id
+and the end of the stay, signed with HMAC-SHA256 under a random
+per-database secret (`supabase/migrations/0052_stay_pass.sql`). Reception
+opens it from `/admin/check-in` with **Scan pass** (the device camera), or
+by typing or pasting it into the search field. A USB or Bluetooth barcode
+scanner that types and presses Enter works too. Guests can always read out
+the booking code under the QR instead.
+
+- The secret lives in `private.stay_pass_secret`, which the API cannot
+  reach. `supabase db reset` (or the first migration run) creates it.
+- To rotate it, which invalidates every pass issued so far (guests get a
+  fresh one the next time they open their booking):
+  `update private.stay_pass_secret set secret = extensions.gen_random_bytes(32);`
+- The web camera needs HTTPS or `localhost`. On iOS the app asks with
+  `NSCameraUsageDescription`; Android gets the camera permission from the
+  `mobile_scanner` plugin.
+
 ## Per-platform host
 
 Local Supabase binds to `127.0.0.1`. Each platform reaches that differently:
@@ -587,8 +606,6 @@ task-by-task record.
   import is tested against fixtures in both OTAs' real formats and the export
   is served as `text/calendar`; how a live OTA reads our export is what is
   left to check. Events removed from an OTA feed are not removed here.
-- **No coupon management UI.** Coupons are created directly in the
-  `coupons` table.
 - **No refund-policy or advance-payment configuration UI.** `refund_rules`
   tiers and `properties.advance_pct` are both editable only by writing to
   the table directly (Supabase Studio or `psql`) — "admin-configurable"
@@ -597,9 +614,6 @@ task-by-task record.
 - **The balance portion of an advance/balance booking is never collected.**
   The split is computed and stored on confirmation; nothing prompts for or
   records the balance payment afterward.
-- **PDF report export was explicitly deferred.** Reports export as CSV
-  only — there is deliberately no disabled/greyed-out PDF button standing
-  in for it.
 - **The admin dashboard's occupancy tab was not click-verified live** in
   the development sandbox (canvas click flakiness); it is covered by a
   widget test instead.
@@ -617,3 +631,18 @@ For the full task-by-task record (every defect found, every ruling made,
 every deferred item), see:
 - `.superpowers/sdd/2026-07-28-pasala-booking-core/progress.md` (phase 1)
 - `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md` (phase 2)
+
+## Invoices and PDF exports
+
+- **Booking invoice (PDF)** — on a checked-in or checked-out booking's detail
+  screen (guests from My Bookings, owners/admins from Admin → Bookings), on the
+  Final Invoice screen after checkout, per row in Finance → Settlements, and
+  from reception's check-out list right after a desk checkout.
+  Built client-side from the stored quote, the booking's food orders,
+  activity bookings and payments, checked against `current_charges`; a
+  checked-in stay gets a "Provisional bill". Invoice number:
+  `<RESORT-SLUG>-<first 8 hex of the booking id>`.
+- **Report PDFs** — Finance → Collections / Ledger / Settlements ("Export PDF"
+  next to "Export CSV") and Owner → Reports.
+- Web downloads the file; Android/iOS/desktop open the share sheet
+  (`package:printing`). Fonts: Noto Sans (SIL OFL 1.1, `assets/fonts/`).
