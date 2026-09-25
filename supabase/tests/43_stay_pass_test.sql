@@ -15,7 +15,7 @@
 --   ...025 R Cottage 2  confirmed    -5 -> -3 days, a no-show whose stay has ended (Gita)
 --   ...026 S Villa      confirmed    tomorrow -> +3 days   (Hari)
 begin;
-select plan(15);
+select plan(35);
 
 insert into auth.users (id, email) values
   ('f3000000-0000-0000-0000-000000000001','pass-r-owner@example.com'),
@@ -113,6 +113,88 @@ set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000003","
 select throws_ok($$select secret from private.stay_pass_secret$$, '42501', null,
   'resort staff cannot read the secret');
 reset role;
+
+-- ---------------------------------------------------------------------
+-- Section 2: issue_stay_pass and the pass format (Task 2)
+
+-- base64url helpers, as the superuser (private is unreachable otherwise).
+-- \xfbff is '+/8=' in plain base64.
+select is(private.b64url_encode('\xfbff'::bytea), '-_8',
+  'b64url uses - and _ and drops the padding');
+select is(private.b64url_decode(private.b64url_encode('\x00ff10abcdef'::bytea)),
+  '\x00ff10abcdef'::bytea, 'b64url round-trips');
+
+-- Gita, the guest.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select ok(set_config('test.tok_r1',
+  public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000021'), true)
+  ~ '^rh1\.[A-Za-z0-9_-]{75}$',
+  'the guest gets a well-formed pass for a confirmed booking');
+select is(public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000021'),
+  current_setting('test.tok_r1'), 'issuing again gives the same pass');
+select ok(set_config('test.tok_in',
+  public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000022'), true) ~ '^rh1\.',
+  'a checked-in booking has a pass too');
+select ok(set_config('test.tok_past',
+  public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000025'), true) ~ '^rh1\.',
+  'a confirmed booking whose stay has ended still gets its (expired) pass');
+select throws_ok($$select public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000023')$$,
+  'P0009', 'reservation is cancelled', 'no pass for a cancelled booking');
+select throws_ok($$select public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000024')$$,
+  'P0009', 'reservation is checked_out', 'no pass after checkout');
+select throws_ok($$select public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000026')$$,
+  'P0002', 'reservation not found', 'no pass for another guest''s booking');
+select throws_ok($$select public.issue_stay_pass('f3f3f3f3-0000-4000-8000-0000000000ff')$$,
+  'P0002', 'reservation not found', 'no pass for an unknown booking');
+
+-- Hari, the other guest: his pass is used by Section 3.
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000007","role":"authenticated"}';
+select ok(set_config('test.tok_s1',
+  public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000026'), true) ~ '^rh1\.',
+  'the other guest gets a pass for their own booking');
+
+-- Staff do not mint passes, and cannot reach the helpers.
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000021')$$,
+  'P0002', 'reservation not found', 'resort staff cannot mint a guest''s pass');
+select throws_ok($$select private.stay_pass_token('f3f3f3f3-0000-4000-8000-000000000021',
+  'f3f3f3f3-0000-4000-8000-000000000001', 4102444800)$$,
+  '42501', null, 'authenticated cannot call the private helpers');
+
+set local request.jwt.claims to '{"role":"authenticated"}';
+select throws_ok($$select public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000021')$$,
+  'P0008', 'authentication required', 'a caller with no user id is refused');
+
+reset role;
+set local role anon;
+set local request.jwt.claims to '{"role":"anon"}';
+select throws_ok($$select public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000021')$$,
+  '42501', null, 'anon cannot call issue_stay_pass');
+
+-- What the pass carries, decoded as the superuser.
+reset role;
+select is(encode(substring(private.b64url_decode(substr(current_setting('test.tok_r1'), 5))
+                           from 1 for 16), 'hex')::uuid,
+  'f3f3f3f3-0000-4000-8000-000000000021'::uuid, 'the pass carries the reservation id');
+select is(encode(substring(private.b64url_decode(substr(current_setting('test.tok_r1'), 5))
+                           from 17 for 16), 'hex')::uuid,
+  'f3f3f3f3-0000-4000-8000-000000000001'::uuid, 'the pass carries the resort id');
+select is(('x' || encode(substring(private.b64url_decode(substr(current_setting('test.tok_r1'), 5))
+                                   from 33 for 8), 'hex'))::bit(64)::bigint,
+  (select extract(epoch from upper(period))::bigint from public.reservations
+    where id = 'f3f3f3f3-0000-4000-8000-000000000021'),
+  'the pass expires when the stay ends');
+select is(substring(private.b64url_decode(substr(current_setting('test.tok_r1'), 5)) from 41 for 16),
+  private.stay_pass_mac(substring(private.b64url_decode(substr(current_setting('test.tok_r1'), 5))
+                                  from 1 for 40)),
+  'the tag is the HMAC of the body');
+select is(current_setting('test.tok_r1'),
+  private.stay_pass_token('f3f3f3f3-0000-4000-8000-000000000021',
+    'f3f3f3f3-0000-4000-8000-000000000001',
+    (select extract(epoch from upper(period))::bigint from public.reservations
+      where id = 'f3f3f3f3-0000-4000-8000-000000000021')),
+  'stay_pass_token builds the same pass');
 
 select * from finish();
 rollback;
