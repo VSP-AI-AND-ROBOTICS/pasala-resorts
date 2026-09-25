@@ -438,6 +438,10 @@ select is(
         -- 0048: finance reports. Each asserts owner/admin/accountant at the
         -- resort it is given. (checkout_booking is already listed above.)
         'report_collections','report_ledger','report_settlements','finance_summary',
+        -- 0051: coupons. Each asserts owner/admin at the resort it is
+        -- given, or at the coupon's own resort.
+        'create_coupon','update_coupon','set_coupon_active','list_coupons',
+        'find_resort_guest',
         -- 0047: tasks_housekeeping_done is a trigger function (not callable
         -- as an RPC); it fires only on a task update that tasks_update RLS
         -- and tasks_enforce_write already allowed.
