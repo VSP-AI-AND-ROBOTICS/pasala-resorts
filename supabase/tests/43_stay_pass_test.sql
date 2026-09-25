@@ -15,7 +15,7 @@
 --   ...025 R Cottage 2  confirmed    -5 -> -3 days, a no-show whose stay has ended (Gita)
 --   ...026 S Villa      confirmed    tomorrow -> +3 days   (Hari)
 begin;
-select plan(65);
+select plan(68);
 
 insert into auth.users (id, email) values
   ('f3000000-0000-0000-0000-000000000001','pass-r-owner@example.com'),
@@ -318,6 +318,26 @@ set local role authenticated;
 set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000003","role":"authenticated"}';
 select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_r1'))$$,
   'P0034', 'pass_invalid', 'after a rotation the old pass is invalid');
+reset role;
+
+-- A missing secret fails closed (review fix). Without the row the tag
+-- cannot be computed, so no pass verifies -- not even one with a zeroed
+-- tag naming a real booking at R -- and none is issued.
+delete from private.stay_pass_secret;
+select set_config('test.tok_forged', 'rh1.' || private.b64url_encode(
+     decode(replace('f3f3f3f3-0000-4000-8000-000000000021', '-', ''), 'hex')
+  || decode(replace('f3f3f3f3-0000-4000-8000-000000000001', '-', ''), 'hex')
+  || int8send(extract(epoch from now())::bigint + 86400)
+  || '\x00000000000000000000000000000000'::bytea), true);
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_forged'))$$,
+  'P0034', 'pass_invalid', 'with no secret a forged pass for an R booking is invalid');
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_r1'))$$,
+  'P0034', 'pass_invalid', 'with no secret an issued pass is invalid');
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select throws_ok($$select public.issue_stay_pass('f3f3f3f3-0000-4000-8000-000000000021')$$,
+  'XX000', 'stay pass secret is not set', 'with no secret no pass is issued');
 reset role;
 
 select * from finish();

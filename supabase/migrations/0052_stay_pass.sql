@@ -56,6 +56,9 @@ $$;
 
 -- The pass tag: HMAC-SHA256 under the deployment secret over the version
 -- prefix and the 40-byte body, cut to 16 bytes.
+-- NULL when the secret row is missing: every caller must fail closed on
+-- that (stay_pass_token raises, verify_stay_pass compares with
+-- `is distinct from`).
 create function private.stay_pass_mac(p_body bytea)
 returns bytea
 language sql
@@ -75,18 +78,23 @@ create function private.stay_pass_token(
   p_property    uuid,
   p_expires     bigint
 ) returns text
-language sql
+language plpgsql
 stable
 strict
 set search_path = pg_catalog, pg_temp
 as $$
-  with body as (
-    select decode(replace(p_reservation::text, '-', ''), 'hex')
-        || decode(replace(p_property::text, '-', ''), 'hex')
-        || int8send(p_expires) as b
-  )
-  select 'rh1.' || private.b64url_encode(b || private.stay_pass_mac(b))
-    from body;
+declare
+  v_body bytea := decode(replace(p_reservation::text, '-', ''), 'hex')
+               || decode(replace(p_property::text, '-', ''), 'hex')
+               || int8send(p_expires);
+  v_mac  bytea := private.stay_pass_mac(v_body);
+begin
+  -- No secret row means no tag: refuse rather than hand out a NULL pass.
+  if v_mac is null then
+    raise exception 'stay pass secret is not set' using errcode = 'XX000';
+  end if;
+  return 'rh1.' || private.b64url_encode(v_body || v_mac);
+end;
 $$;
 
 revoke all on all functions in schema private from public, anon, authenticated;
@@ -158,8 +166,11 @@ begin
 
   v_raw  := private.b64url_decode(substr(p_token, 5));
   v_body := substring(v_raw from 1 for 40);
+  -- `is distinct from`, not `<>`: a missing secret makes the mac NULL,
+  -- and the check must then fail, not pass.
   if length(v_raw) <> 56
-     or substring(v_raw from 41 for 16) <> private.stay_pass_mac(v_body) then
+     or substring(v_raw from 41 for 16)
+        is distinct from private.stay_pass_mac(v_body) then
     raise exception using errcode = 'P0034', message = 'pass_invalid';
   end if;
 
