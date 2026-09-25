@@ -203,8 +203,10 @@ test.describe('Accountant (Resort A)', () => {
     const firstLine = readFileSync(path!, 'utf8').split(/\r?\n/)[0];
     expect(firstLine).toBe('E2E Resort A,GSTIN not set');
 
-    const lines = await bodyLines(page);
-    expect(lines.some((l) => l.includes('CSV exported.'))).toBe(true);
+    // The SnackBar follows the download by a frame or two.
+    await expect
+      .poll(async () => (await bodyLines(page)).some((l) => l.includes('CSV exported.')))
+      .toBe(true);
   });
 
   test('Collections exports a PDF next to the CSV', async ({ page }) => {
