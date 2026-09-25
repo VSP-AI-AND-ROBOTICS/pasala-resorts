@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertThrows } from "jsr:@std/assert@^1.0.13";
 import { ConfigError, loadConfig, parseBatchSize } from "./config.ts";
 
 function envOf(values: Record<string, string>): (name: string) => string | undefined {

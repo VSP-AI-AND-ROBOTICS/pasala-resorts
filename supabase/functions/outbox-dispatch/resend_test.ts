@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@^1.0.13";
 import { displayName, RESEND_URL, ResendEmailSender } from "./resend.ts";
 import { jsonResponse, stubFetch } from "./testing.ts";
 import type { EmailMessage } from "./types.ts";

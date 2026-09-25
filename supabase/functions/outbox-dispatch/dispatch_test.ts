@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@^1.0.13";
 import { channelModes, deliver, type DispatchDeps, dispatchOnce } from "./dispatch.ts";
 import { dryConfig, emailRow, FakeEmailSender, FakeSmsSender, FakeStore, liveConfig, smsRow } from "./fakes.ts";
 import type { DispatchConfig } from "./types.ts";

@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@^1.0.13";
 import { DLT_VAR_MAX, MSG91_FLOW_URL, Msg91SmsSender, normalizeIndianMobile, smsVars } from "./msg91.ts";
 import { jsonResponse, stubFetch } from "./testing.ts";
 

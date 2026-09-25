@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "jsr:@std/assert@^1.0.13";
 import { ConfigError } from "./config.ts";
 import type { DispatchDeps } from "./dispatch.ts";
 import { dryConfig, emailRow, FakeStore } from "./fakes.ts";

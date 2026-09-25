@@ -1,4 +1,4 @@
-import { assertEquals, assertInstanceOf } from "@std/assert";
+import { assertEquals, assertInstanceOf } from "jsr:@std/assert@^1.0.13";
 import { buildDeps } from "./deps.ts";
 import { handleRequest } from "./handler.ts";
 import { Msg91SmsSender } from "./msg91.ts";
