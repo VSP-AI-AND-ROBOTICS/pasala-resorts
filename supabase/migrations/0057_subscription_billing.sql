@@ -309,6 +309,11 @@ begin
 end;
 $$;
 
+-- billing-subscribe records a subscription it just created in Razorpay
+-- (spec decisions 5, 7 and 14). The resort's current row is superseded and
+-- the new one becomes current, one opening at a time per resort. Returns
+-- the row id and every replaced subscription still live, which the caller
+-- cancels in Razorpay. Recording a known id again changes nothing.
 create function public.billing_subscription_opened(
   p_property                 uuid,
   p_tier                     public.subscription_tier,
@@ -323,11 +328,68 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_row public.billing_subscriptions;
 begin
-  raise exception 'billing_subscription_opened is not implemented yet' using errcode = '0A000';
+  if p_property is null or p_tier is null
+     or coalesce(btrim(p_razorpay_plan_id), '') = ''
+     or coalesce(btrim(p_razorpay_subscription_id), '') = '' then
+    raise exception 'A resort, a tier, a plan and a subscription are required.'
+      using errcode = 'P0005';
+  end if;
+
+  perform 1 from public.properties where id = p_property;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+
+  -- Two taps at once apply one after the other, so a resort never ends up
+  -- with two current rows.
+  perform pg_advisory_xact_lock(hashtextextended('billing_subscriptions:' || p_property::text, 0));
+
+  select * into v_row from public.billing_subscriptions
+   where razorpay_subscription_id = p_razorpay_subscription_id;
+
+  if found then
+    if v_row.property_id <> p_property then
+      raise exception using errcode = 'P0021', message = 'resort_mismatch';
+    end if;
+  else
+    update public.billing_subscriptions
+       set superseded_at = now(),
+           updated_at = now()
+     where property_id = p_property and superseded_at is null;
+
+    insert into public.billing_subscriptions
+      (property_id, tier, razorpay_plan_id, razorpay_subscription_id, status,
+       short_url, start_at, created_by)
+    values
+      (p_property, p_tier, btrim(p_razorpay_plan_id), btrim(p_razorpay_subscription_id),
+       coalesce(p_status, 'created'), p_short_url, p_start_at, p_created_by)
+    returning * into v_row;
+
+    insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+    values (p_created_by, 'subscription', p_property,
+            'billing:opened ' || v_row.razorpay_subscription_id || ' ' || p_tier::text,
+            null, to_jsonb(v_row), p_property);
+  end if;
+
+  return jsonb_build_object(
+    'id', v_row.id,
+    'stale', coalesce((
+        select jsonb_agg(b.razorpay_subscription_id order by b.created_at)
+          from public.billing_subscriptions b
+         where b.property_id = p_property
+           and b.superseded_at is not null
+           and b.status in ('created','authenticated','active','pending','paused')),
+      '[]'::jsonb));
 end;
 $$;
 
+-- billing-subscribe (the owner's cancel, or cleaning up a replaced
+-- subscription) or billing-webhook records a cancellation Razorpay
+-- accepted (spec decisions 9 and 14). The plan itself changes only when
+-- Razorpay's subscription.cancelled arrives (billing_webhook_apply).
 create function public.billing_subscription_cancel_requested(
   p_razorpay_subscription_id text,
   p_at_cycle_end             boolean,
@@ -338,8 +400,33 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_old public.billing_subscriptions;
+  v_new public.billing_subscriptions;
 begin
-  raise exception 'billing_subscription_cancel_requested is not implemented yet' using errcode = '0A000';
+  select * into v_old from public.billing_subscriptions
+   where razorpay_subscription_id = p_razorpay_subscription_id
+   for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+
+  update public.billing_subscriptions b
+     set cancel_at_cycle_end = coalesce(p_at_cycle_end, false),
+         status = case
+                    when p_status in ('created','authenticated','active','pending','halted',
+                                      'cancelled','completed','expired','paused')
+                      then p_status
+                    else b.status
+                  end,
+         updated_at = now()
+   where b.id = v_old.id
+  returning * into v_new;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values (p_actor, 'subscription', v_new.property_id,
+          'billing:cancel_requested ' || p_razorpay_subscription_id,
+          to_jsonb(v_old), to_jsonb(v_new), v_new.property_id);
 end;
 $$;
 

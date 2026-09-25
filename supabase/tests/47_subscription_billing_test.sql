@@ -13,7 +13,7 @@
 --   R4 Bill Lapsed     pro, active, paid until 3 days ago
 --   R5 Bill None       no subscription row
 begin;
-select plan(50);
+select plan(67);
 
 -- "Today" as the subscription functions see it.
 create function pg_temp.today() returns date
@@ -283,6 +283,87 @@ select is((select array_agg(property_id::text) from public.platform_billing()),
   'the console lists only resorts with auto-pay or payments');
 select is((select billing_status || '|' || last_payment_inr::text from public.platform_billing()),
   'active|7999.00', 'the console sees the latest payment');
+reset role;
+set local request.jwt.claims to '';
+delete from public.billing_subscriptions;
+
+-- === Task 3: opening and cancelling subscriptions ==========================
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$select public.billing_subscription_opened('b8100000-0000-4000-8000-000000000001',
+    'starter', 'plan_StarterMon001', 'sub_FirstOpen00001', 'created', null, null,
+    'b8000000-0000-0000-0000-000000000002')$$,
+  '42501', null, 'a signed-in user cannot record a subscription');
+select throws_ok($$select public.billing_subscription_cancel_requested('sub_FirstOpen00001', true, 'active')$$,
+  '42501', null, 'a signed-in user cannot record a cancellation');
+reset role;
+set local request.jwt.claims to '';
+
+set local role service_role;
+select throws_ok($$select public.billing_subscription_opened('b8100000-0000-4000-8000-000000000001',
+    null, 'plan_StarterMon001', 'sub_FirstOpen00001', 'created', null, null, null)$$,
+  'P0005', null, 'a tier is required');
+select throws_ok($$select public.billing_subscription_opened('b8100000-0000-4000-8000-0000000000ff',
+    'starter', 'plan_StarterMon001', 'sub_FirstOpen00001', 'created', null, null, null)$$,
+  'P0002', null, 'an unknown resort is refused');
+select is(public.billing_subscription_opened('b8100000-0000-4000-8000-000000000001',
+            'starter', 'plan_StarterMon001', 'sub_FirstOpen00001', 'created',
+            'https://rzp.io/i/first', now() + interval '11 days',
+            'b8000000-0000-0000-0000-000000000002') -> 'stale',
+  '[]'::jsonb, 'the first subscription replaces nothing');
+select is(public.billing_subscription_opened('b8100000-0000-4000-8000-000000000001',
+            'starter', 'plan_StarterMon001', 'sub_FirstOpen00001', 'created',
+            'https://rzp.io/i/first', null, null) ->> 'id',
+          public.billing_subscription_opened('b8100000-0000-4000-8000-000000000001',
+            'starter', 'plan_StarterMon001', 'sub_FirstOpen00001', 'created',
+            'https://rzp.io/i/first', null, null) ->> 'id',
+  'recording the same subscription again returns the same row');
+select is(public.billing_subscription_opened('b8100000-0000-4000-8000-000000000001',
+            'pro', 'plan_ProMonthly0001', 'sub_SecondOpen0001', 'created',
+            'https://rzp.io/i/second', null, 'b8000000-0000-0000-0000-000000000002') -> 'stale',
+  '["sub_FirstOpen00001"]'::jsonb,
+  'a new subscription supersedes the current one and names it for cancelling');
+select throws_ok($$select public.billing_subscription_opened('b8100000-0000-4000-8000-000000000001',
+    'pro', 'plan_ProMonthly0001', 'sub_ThirdOpen00001', 'weird', null, null, null)$$,
+  '23514', null, 'only Razorpay''s states are stored');
+select throws_ok($$select public.billing_subscription_opened('b8100000-0000-4000-8000-000000000002',
+    'pro', 'plan_ProMonthly0001', 'sub_SecondOpen0001', 'created', null, null, null)$$,
+  'P0021', null, 'a subscription id is never moved to another resort');
+select throws_ok($$select public.billing_subscription_cancel_requested('sub_Unknown000001', true, 'active')$$,
+  'P0002', null, 'cancelling an unknown subscription is refused');
+select lives_ok($$select public.billing_subscription_cancel_requested('sub_FirstOpen00001', false,
+    'cancelled', 'b8000000-0000-0000-0000-000000000002')$$,
+  'a replaced subscription is recorded as cancelled');
+select lives_ok($$select public.billing_subscription_cancel_requested('sub_SecondOpen0001', true,
+    'active', 'b8000000-0000-0000-0000-000000000002')$$,
+  'the current one is set to cancel at the end of its cycle');
+select lives_ok($$select public.billing_subscription_cancel_requested('sub_SecondOpen0001', true, 'bogus')$$,
+  'an unknown status from Razorpay keeps the stored one');
+reset role;
+
+select is((select array_agg(razorpay_subscription_id || ':' || status || ':' || cancel_at_cycle_end::text
+                            || ':' || (superseded_at is not null)::text
+                            order by razorpay_subscription_id)
+             from public.billing_subscriptions),
+  array['sub_FirstOpen00001:cancelled:false:true','sub_SecondOpen0001:active:true:false'],
+  'one current subscription; the replaced one is cancelled');
+select is((select array[count(*) filter (where action like 'billing:opened %'),
+                        count(*) filter (where action like 'billing:cancel_requested %')]::int[]
+             from public.audit_log
+            where entity = 'subscription' and property_id = 'b8100000-0000-4000-8000-000000000001'),
+  array[2, 3], 'each opening and each cancellation is audited');
+select is((select created_by::text || '|' || (start_at is not null)::text
+             from public.billing_subscriptions where razorpay_subscription_id = 'sub_FirstOpen00001'),
+  'b8000000-0000-0000-0000-000000000002|true',
+  'the first recording is kept: who opened it and when it starts');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select is((select jsonb_build_object('cancel', s -> 'current' -> 'cancel_at_cycle_end', 'stale', s -> 'stale')
+             from public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro') s),
+  '{"cancel": true, "stale": []}'::jsonb,
+  'the owner sees the pending cancel, and nothing is left to clean up');
 reset role;
 set local request.jwt.claims to '';
 delete from public.billing_subscriptions;
