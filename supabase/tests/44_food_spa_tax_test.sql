@@ -10,7 +10,7 @@
 -- nothing paid); R2 is her booking of Cottage 2 arriving at 14:00 today
 -- (2,000 of room at 12% = 240 tax, total 2,240).
 begin;
-select plan(55);
+select plan(67);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -266,6 +266,66 @@ select is(pg_temp.rows_affected($$update public.food_activity_sales
 select is((select tax_pct::text || '/' || tax_amount::text from public.food_activity_sales
             where item_name = 'Walk-in sauna'),
   '18.00/18.00', 'a sale''s tax cannot be changed by an update');
+
+-- ---------------------------------------------------------------------
+-- Task 3: the bill, the Ledger and today's summary.
+--
+-- R1 now has O1 (525, tax 25.00), O2 (105, tax 11.25), A1 (2,360, tax
+-- 360.00) and the cancelled A2. Today's walk-ins: the thali (336, tax
+-- 36.00), yoga (590, tax 90.00) and the sauna (118, tax 18.00). R2
+-- arrives today: 2,000 of room with 240 of tax.
+
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select is((public.current_charges('44444444-0000-4000-8000-000000000051') ->> 'food_amount')::numeric,
+  630::numeric, 'the bill has 630 of food (525 + 105)');
+select is((public.current_charges('44444444-0000-4000-8000-000000000051') ->> 'food_tax')::numeric,
+  36.25, 'which includes 36.25 of tax (25.00 + 11.25)');
+select is((public.current_charges('44444444-0000-4000-8000-000000000051') ->> 'activity_amount')::numeric,
+  2360::numeric, 'a massage for one that was cancelled is not on the bill');
+select is((public.current_charges('44444444-0000-4000-8000-000000000051') ->> 'activity_tax')::numeric,
+  360.00, 'the activities include 360.00 of tax');
+select is((public.current_charges('44444444-0000-4000-8000-000000000051') ->> 'total')::numeric,
+  7990::numeric, 'tax is inside the amounts, so the total is 5,000 + 630 + 2,360');
+
+-- Anil (accountant) reads today's Ledger and summary.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is(
+  (select string_agg(l.category || '/' || l.source || '/' || l.gross || '/' || l.tax || '/' || l.net,
+                     '; ' order by l.category, l.source)
+     from public.report_ledger((now() at time zone 'Asia/Kolkata')::date,
+                               (now() at time zone 'Asia/Kolkata')::date,
+                               '44444444-0000-4000-8000-000000000001') l),
+  'food_beverage/in_stay_order/593.75/36.25/630.00; '
+  'food_beverage/walk_in/300.00/36.00/336.00; '
+  'room/booking/2000.00/240.00/2240.00; '
+  'spa_activities/activity_booking/2000.00/360.00/2360.00; '
+  'spa_activities/walk_in/600.00/108.00/708.00',
+  'the Ledger splits food, activities and walk-ins into pre-tax and tax');
+select is(
+  (select count(*)::int
+     from public.report_ledger((now() at time zone 'Asia/Kolkata')::date,
+                               (now() at time zone 'Asia/Kolkata')::date,
+                               '44444444-0000-4000-8000-000000000001') l
+    where l.taxable + l.tax <> l.net),
+  0, 'every Ledger line has taxable + tax = net');
+select is((public.finance_summary('44444444-0000-4000-8000-000000000001') ->> 'room_tax')::numeric,
+  240.00, 'room tax is the booking''s tax only');
+select is((public.finance_summary('44444444-0000-4000-8000-000000000001') ->> 'food_tax')::numeric,
+  72.25, 'food tax is today''s orders and food walk-ins (36.25 + 36.00)');
+select is((public.finance_summary('44444444-0000-4000-8000-000000000001') ->> 'spa_tax')::numeric,
+  468.00, 'spa tax is today''s bookings and activity walk-ins (360.00 + 108.00)');
+select is(
+  (select (s -> 'resort' ->> 'fnb_tax_pct') || '/' || (s -> 'resort' ->> 'spa_tax_pct')
+     from public.finance_summary('44444444-0000-4000-8000-000000000001') s),
+  '12.00/18.00', 'the summary carries the resort''s food and spa rates');
+
+-- The kitchen cancels O2; its tax leaves Gita's bill.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000002","role":"authenticated"}';
+update public.food_orders set status = 'cancelled'
+ where reservation_id = '44444444-0000-4000-8000-000000000051' and total = 105;
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select is((public.current_charges('44444444-0000-4000-8000-000000000051') ->> 'food_tax')::numeric,
+  25.00, 'a cancelled order''s tax leaves the bill');
 
 select * from finish();
 rollback;
