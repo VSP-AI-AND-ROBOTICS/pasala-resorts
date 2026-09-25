@@ -32,8 +32,23 @@ void main() {
     expect(map('P0020', 'not_a_member'), isA<NotAMember>());
   });
 
+  test('P0021 maps to ResortMismatch with readable copy, never the raw code',
+      () {
+    final failure = map('P0021', 'resort_mismatch');
+    expect(failure, isA<ResortMismatch>());
+    expect(failure.message, 'That belongs to a different resort.');
+    expect(failure.message, isNot(contains('resort_mismatch')));
+  });
+
   test('P0022 maps to ResortSuspended', () {
     expect(map('P0022'), isA<ResortSuspended>());
+  });
+
+  test('P0023 maps to LastOwner with readable copy, never the raw code', () {
+    final failure = map('P0023', 'last_owner');
+    expect(failure, isA<LastOwner>());
+    expect(failure.message, 'A resort must keep at least one owner.');
+    expect(failure.message, isNot(contains('last_owner')));
   });
 
   test('P0030 maps to ReasonRequired with readable copy', () {

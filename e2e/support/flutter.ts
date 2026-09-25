@@ -7,11 +7,20 @@ import { expect, type Locator, type Page } from '@playwright/test';
 
 /**
  * Resolves once Flutter has rendered a real screen: the semantics host has
- * at least one labelled node and the router has left `/splash`.
+ * at least one node with a role (a button, a text field, or a heading --
+ * Flutter web renders a `header` node as a bare `<h1>`..`<h6>`, not an
+ * `flt-semantics[role]`, which is all a screen like NotFoundScreen has) and
+ * the router has left `/splash`.
  */
 export async function waitForFlutter(page: Page, timeout = 30_000): Promise<void> {
   await page
-    .locator('flt-semantics-host flt-semantics[role], flt-semantics-host input[aria-label]')
+    .locator(
+      [
+        'flt-semantics-host flt-semantics[role]',
+        'flt-semantics-host input[aria-label]',
+        'flt-semantics-host :is(h1, h2, h3, h4, h5, h6)',
+      ].join(', '),
+    )
     .first()
     .waitFor({ state: 'attached', timeout });
   await expect.poll(() => currentPath(page), { timeout }).not.toBe('/splash');

@@ -3,7 +3,6 @@ import { resortA } from '../fixtures/world.ts';
 import { createTask, deleteAllTasks } from '../support/tasks-api.ts';
 import {
   clickTab,
-  currentPath,
   fillField,
   goTo,
   landingPath,
@@ -170,28 +169,21 @@ test.describe('Staff / Incharge (Resort A)', () => {
   test('staff cannot reach /owner', async ({ page }) => {
     await login(page, staff);
 
-    // NotFoundScreen is a bare `Text('Page not found')` with no semantics
-    // role or aria-label at all, so the generic waitForFlutter (which waits
-    // for a role/aria-label node) never resolves there -- check the router
-    // path and the page text directly instead of using goTo/expectAt.
-    await page.evaluate(() => {
-      window.location.hash = '/owner';
-    });
-    await expect.poll(() => currentPath(page), { timeout: 15_000 }).toBe('/404');
-    await expect(page.getByText('Page not found', { exact: true })).toBeVisible();
+    // The router redirects a staff member off /owner to /404; NotFoundScreen's
+    // "Page not found" is a heading, so goTo's waitForFlutter sees it render.
+    await goTo(page, '/owner', '/404');
+    await expect(page.getByRole('heading', { name: 'Page not found', exact: true })).toBeVisible();
 
     // Back to a normal screen (with the app bar) to sign out through the UI.
     await goTo(page, '/staff');
     await logout(page);
   });
 
-  // BUG lib/features/admin/tasks_screen.dart _delete: the confirm dialog's
-  // buttons pop `Navigator.of(context)` with the *screen's* context. The
-  // dialog is on the root navigator, but /admin/tasks lives in the router's
-  // ShellRoute, so "Delete" pops the Tasks page off the shell navigator
-  // instead of closing the dialog: the screen goes blank and the task is
-  // never deleted. Remove test.fail once fixed.
-  test.fail('an admin can delete a task from /admin/tasks', async ({ page }) => {
+  // Regression: /admin/tasks lives in the router's ShellRoute, and the
+  // confirm dialog's buttons used to pop the screen's (shell) navigator
+  // instead of the dialog, blanking the page without deleting the task
+  // (lib/features/admin/tasks_screen.dart _delete).
+  test('an admin can delete a task from /admin/tasks', async ({ page }) => {
     const title = 'E2E delete me';
     await createTask(resortA.team.admin, resortA.id, staff, title);
     try {
@@ -231,5 +223,5 @@ test.describe('Staff / Incharge (Resort A)', () => {
 // deletes a unit/property outside of a signed-in admin request. This
 // spec works around it by deleting every task it creates as Resort A's
 // admin through the REST API (support/tasks-api.ts, a real authenticated
-// session), in the test and again in afterAll; the admin UI cannot be used
-// for that because of the task-delete bug above.
+// session), in the test and again in afterAll, so cleanup does not depend
+// on the admin UI.

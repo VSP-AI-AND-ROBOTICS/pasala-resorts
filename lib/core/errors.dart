@@ -55,6 +55,21 @@ class NoAccountFound extends BookingFailure {
       : super('No account with that email — ask them to sign up first.');
 }
 
+/// P0023 -- the last-owner guard (`set_role` / `remove_resort_member`)
+/// refused to demote or remove a resort's only owner. The server sends the
+/// bare code word `last_owner`, so the copy lives here.
+class LastOwner extends BookingFailure {
+  const LastOwner() : super('A resort must keep at least one owner.');
+}
+
+/// P0021 -- the resort-consistency trigger (0043_resort_tenancy.sql)
+/// refused a row whose parent (a unit, a reservation, a task ...) belongs
+/// to a different resort. The server sends the bare code word
+/// `resort_mismatch`, so the copy lives here.
+class ResortMismatch extends BookingFailure {
+  const ResortMismatch() : super('That belongs to a different resort.');
+}
+
 /// P0030 -- `set_room_status` refused Maintenance without a reason. The
 /// room sheet asks for one first, so this is a backstop.
 class ReasonRequired extends BookingFailure {
@@ -166,15 +181,14 @@ BookingFailure mapPostgrestError(Object error) {
     // The message is written for the admin reading it and safe to show
     // verbatim, same as the other InvalidState-mapped codes above.
     'P0014' => InvalidState(message),
-    // P0020-P0023: resort-tenancy errors. P0020 (not_a_member) and P0022
-    // (resort_suspended) get dedicated failures with their own copy;
-    // P0021 (resort_mismatch) and P0023 (last_owner) carry a
-    // server-written message that's already safe to show verbatim, same
-    // as the other InvalidState-mapped codes above.
+    // P0020-P0023: resort-tenancy errors. P0020 (not_a_member), P0021
+    // (resort_mismatch), P0022 (resort_suspended) and P0023 (last_owner)
+    // get dedicated failures with their own copy -- the server sends only
+    // a bare code word for each.
     'P0020' => const NotAMember(),
-    'P0021' => InvalidState(message),
+    'P0021' => const ResortMismatch(),
     'P0022' => const ResortSuspended(),
-    'P0023' => InvalidState(message),
+    'P0023' => const LastOwner(),
     // P0030/P0031: room status (0047). The server sends bare codes
     // (`reason_required`, `already_dispatched`), so the copy lives here.
     'P0030' => const ReasonRequired(),

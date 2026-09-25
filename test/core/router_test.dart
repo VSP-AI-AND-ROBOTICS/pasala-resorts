@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +12,12 @@ import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
 import 'package:pasala/features/stay/checkout_screen.dart';
+import 'package:pasala/core/supabase_client.dart';
+import 'package:pasala/core/widgets/failure_view.dart';
+import 'package:pasala/core/errors.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 const _ownerM =
     ResortMembership(propertyId: 'r1', resortName: 'R1', role: ResortRole.owner);
@@ -394,6 +402,19 @@ void main() {
       expect(_to(twoResorts, null, '/choose-resort'), null);
     });
 
+    test('/choose-resort moves on once a resort is picked', () {
+      const staffAtB = ResortMembership(
+          propertyId: 'b', resortName: 'B', role: ResortRole.staff);
+      const twoResorts = AppUser(id: 'u2', email: 'e2', memberships: [
+        ResortMembership(propertyId: 'a', resortName: 'A', role: ResortRole.owner),
+        staffAtB,
+      ]);
+      // The chooser never navigates itself: picking only sets the resort.
+      expect(_to(twoResorts, staffAtB, '/choose-resort'), '/staff');
+      expect(_to(twoResorts, staffAtB, '/choose-resort'),
+          landingPathFor(twoResorts, staffAtB));
+    });
+
     test('/owner/team requires owner', () {
       expect(_to(_superAdmin, _ownerM, '/owner/team'), null);
       expect(_to(_admin, _adminM, '/owner/team'), '/404');
@@ -511,4 +532,354 @@ void main() {
       expect(screen.desk, isTrue);
     });
   });
+
+  // E2E bug (e2e/tests/frontdesk.spec.ts): reloading the desk checkout
+  // landed on the user's landing page instead of the checkout.
+  group('reload / cold start', () {
+    test('keeps one GoRouter while the signed-in user and resort change',
+        () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final users = StreamController<AppUser?>();
+      addTearDown(users.close);
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => users.stream),
+        currentResortProvider.overrideWith(_StaffResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      // Listened, as MaterialApp.router's `ref.watch` would.
+      container.listen(currentUserProvider, (_, _) {});
+      final first = container.listen(routerProvider, (_, _) {}).read();
+      users.add(_staff);
+      await container.read(currentUserProvider.future);
+      users.add(const AppUser(id: 's', email: 'staff@pasala.test', memberships: [_staffM]));
+      await pumpEventQueue();
+
+      // A fresh GoRouter restarts at its initialLocation (/splash), which
+      // sends a signed-in user to their landing page -- losing the page.
+      expect(container.read(routerProvider), same(first));
+    });
+
+    testWidgets(
+        'a cold start at /admin/check-out/:id lands there once the session '
+        'has loaded', (tester) async {
+      final users = StreamController<AppUser?>();
+      addTearDown(users.close);
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => users.stream),
+        currentResortProvider.overrideWith(_StaffResort.new),
+        currentChargesProvider.overrideWith((ref, id) async => const CurrentCharges(
+              stayAmount: 3000,
+              foodAmount: 0,
+              activityAmount: 0,
+              total: 3000,
+              paid: 1000,
+              balance: 2000,
+            )),
+      ]);
+      addTearDown(container.dispose);
+
+      // A reload: the browser URL is the app's first route, and the stored
+      // session has not been read yet (the user stream has not emitted).
+      tester.platformDispatcher.defaultRouteNameTestValue =
+          '/admin/check-out/res-1';
+      addTearDown(tester.platformDispatcher.clearDefaultRouteNameTestValue);
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: Consumer(
+          builder: (_, ref, _) =>
+              MaterialApp.router(routerConfig: ref.watch(routerProvider)),
+        ),
+      ));
+      await tester.pump();
+      // Flutter web answers defaultRouteName from the URL only until the
+      // app's first navigation, then '/' (the engine resets it).
+      tester.platformDispatcher.defaultRouteNameTestValue = '/';
+
+      users.add(_staff);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      final router = container.read(routerProvider);
+      final url = router.routeInformationParser
+          .restoreRouteInformation(router.routerDelegate.currentConfiguration)!
+          .uri;
+      expect(url.path, '/admin/check-out/res-1');
+      final screen = tester.widget<CheckoutScreen>(find.byType(CheckoutScreen));
+      expect(screen.reservationId, 'res-1');
+      expect(screen.desk, isTrue);
+    });
+
+    testWidgets(
+        'a signed-out cold start at a protected path never shows it: splash '
+        'then welcome', (tester) async {
+      final users = StreamController<AppUser?>();
+      addTearDown(users.close);
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => users.stream),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      tester.platformDispatcher.defaultRouteNameTestValue =
+          '/admin/check-out/res-1';
+      addTearDown(tester.platformDispatcher.clearDefaultRouteNameTestValue);
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: Consumer(
+          builder: (_, ref, _) =>
+              MaterialApp.router(routerConfig: ref.watch(routerProvider)),
+        ),
+      ));
+      await tester.pump();
+      tester.platformDispatcher.defaultRouteNameTestValue = '/';
+
+      users.add(null);
+      await tester.pump();
+      expect(find.byType(CheckoutScreen), findsNothing);
+      // The splash auto-advances to /welcome after 1.5s.
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 1));
+
+      final router = container.read(routerProvider);
+      expect(router.routerDelegate.currentConfiguration.uri.path, '/welcome');
+      expect(find.byType(CheckoutScreen), findsNothing);
+    });
+  });
+
+  // Review of the single-GoRouter change: the router is no longer rebuilt
+  // when the user or resort changes, so every flow that relied on a rebuild
+  // sending the user to `landingPathFor` must still get there -- and the
+  // page being left must not be rebuilt against a resort it no longer has
+  // (many screens read `ref.watch(currentResortProvider)!`).
+  group('resort changes still land (routerProvider)', () {
+    testWidgets(
+        'picking a resort on /choose-resort moves a 2-resort user to that '
+        "resort's landing page", (tester) async {
+      const user = AppUser(
+          id: 'u', email: 'u@pasala.test', memberships: [_pickA, _pickB]);
+      final app = await _pumpApp(tester, () => user);
+      expect(_pathOf(app.router), '/choose-resort');
+
+      await tester.tap(find.byKey(const Key('choose-resort-b')));
+      await _settle(tester);
+
+      expect(_pathOf(app.router), landingPathFor(user, _pickB));
+      expect(_pathOf(app.router), '/staff');
+      await _tearDownApp(tester);
+    });
+
+    testWidgets(
+        'a remembered pick that loads after the user moves them off '
+        '/choose-resort', (tester) async {
+      const user = AppUser(
+          id: 'u', email: 'u@pasala.test', memberships: [_pickA, _pickB]);
+      final app = await _pumpApp(tester, () => user);
+      expect(_pathOf(app.router), '/choose-resort');
+
+      // As if shared_preferences answered after the user fetch.
+      unawaited(app.container.read(currentResortProvider.notifier).select('a'));
+      await _settle(tester);
+
+      expect(_pathOf(app.router), '/owner');
+      await _tearDownApp(tester);
+    });
+
+    testWidgets(
+        'switching to a resort with a different role lands there, even when '
+        'the stored pick takes frames to save', (tester) async {
+      const user = AppUser(
+          id: 'u', email: 'u@pasala.test', memberships: [_pickA, _adminAtB]);
+      final app = await _pumpApp(
+        tester,
+        () => user,
+        prefs: {'current_resort_id': 'a'},
+        // Slower than the page transition: the switcher's page (/owner,
+        // which an admin may not open) is gone before the write lands.
+        prefsDelay: const Duration(seconds: 2),
+      );
+      expect(_pathOf(app.router), '/owner');
+
+      await tester.tap(find.byKey(const Key('resort-switcher')));
+      await _settle(tester);
+      await tester.tap(find.byKey(const Key('resort-switcher-b')));
+      await _settle(tester);
+
+      expect(app.container.read(currentResortProvider), _adminAtB);
+      expect(_pathOf(app.router), '/admin');
+      await _tearDownApp(tester);
+    });
+
+    testWidgets(
+        'losing access to the only resort lands on the landing page for '
+        'the re-fetched user, not /404', (tester) async {
+      AppUser user = const AppUser(
+          id: 'u', email: 'u@pasala.test', memberships: [_adminAtB]);
+      final app = await _pumpApp(tester, () => user);
+      app.router.go('/admin/outbox');
+      await _settle(tester);
+      expect(_pathOf(app.router), '/admin/outbox');
+
+      // The server no longer lists the membership, and a screen shows the
+      // NotAMember failure it got back.
+      user = const AppUser(id: 'u', email: 'u@pasala.test');
+      app.overlay.value = const FailureView(error: NotAMember());
+      await _settle(tester);
+
+      expect(app.container.read(currentResortProvider), isNull);
+      expect(_pathOf(app.router), '/');
+      await _tearDownApp(tester);
+    });
+
+    testWidgets(
+        'losing access to one of three resorts lands on /choose-resort',
+        (tester) async {
+      const c = ResortMembership(
+          propertyId: 'c', resortName: 'C', role: ResortRole.staff);
+      AppUser user = const AppUser(
+          id: 'u', email: 'u@pasala.test', memberships: [_pickA, _adminAtB, c]);
+      final app = await _pumpApp(tester, () => user,
+          prefs: {'current_resort_id': 'b'});
+      expect(_pathOf(app.router), '/admin');
+
+      user = const AppUser(
+          id: 'u', email: 'u@pasala.test', memberships: [_pickA, c]);
+      app.overlay.value = const FailureView(error: NotAMember());
+      await _settle(tester);
+
+      expect(app.container.read(currentResortProvider), isNull);
+      expect(_pathOf(app.router), '/choose-resort');
+      await _tearDownApp(tester);
+    });
+
+    testWidgets('signing out from a resort screen lands on /login',
+        (tester) async {
+      AppUser? user = const AppUser(
+          id: 'u', email: 'u@pasala.test', memberships: [_adminAtB]);
+      final app = await _pumpApp(tester, () => user);
+      app.router.go('/admin/outbox');
+      await _settle(tester);
+      expect(_pathOf(app.router), '/admin/outbox');
+
+      // The auth stream reports the session gone.
+      user = null;
+      app.container.invalidate(currentUserProvider);
+      await _settle(tester);
+
+      expect(_pathOf(app.router), '/login');
+      await _tearDownApp(tester);
+    });
+  });
 }
+
+// Used by the 'resort changes still land' group.
+const _pickA =
+    ResortMembership(propertyId: 'a', resortName: 'A', role: ResortRole.owner);
+const _pickB =
+    ResortMembership(propertyId: 'b', resortName: 'B', role: ResortRole.staff);
+const _adminAtB =
+    ResortMembership(propertyId: 'b', resortName: 'B', role: ResortRole.admin);
+
+/// `shared_preferences` whose writes take [delay] to land, like a real
+/// platform channel -- frames run before the write's future completes.
+class _SlowPrefsStore extends InMemorySharedPreferencesStore {
+  _SlowPrefsStore(super.data, this.delay) : super.withData();
+
+  final Duration delay;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
+    return super.setValue(valueType, key, value);
+  }
+
+  @override
+  Future<bool> remove(String key) async {
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
+    return super.remove(key);
+  }
+}
+
+
+typedef _App = ({
+  ProviderContainer container,
+  GoRouter router,
+  ValueNotifier<Widget?> overlay,
+});
+
+/// The real app: `routerProvider` inside `MaterialApp.router`, the real
+/// `CurrentResort`, and a user stream that re-reads [user] on every
+/// (re)subscription, so an `invalidate` re-fetches whatever [user] is now.
+/// `overlay` mounts a widget over the current page (e.g. the `FailureView`
+/// a screen shows). The landing screens' Supabase calls fail fast (tests
+/// answer every HTTP request with a 400); only the router's location is
+/// asserted.
+Future<_App> _pumpApp(
+  WidgetTester tester,
+  AppUser? Function() user, {
+  Map<String, Object> prefs = const {},
+  Duration prefsDelay = Duration.zero,
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  SharedPreferencesStorePlatform.instance = _SlowPrefsStore(
+      {for (final e in prefs.entries) 'flutter.${e.key}': e.value},
+      prefsDelay);
+  final container = ProviderContainer(
+    overrides: [
+      currentUserProvider.overrideWith((ref) => Stream.value(user())),
+      supabaseProvider.overrideWithValue(SupabaseClient(
+        'http://localhost:54321',
+        'test-anon-key',
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      )),
+    ],
+    retry: (_, _) => null,
+  );
+  addTearDown(container.dispose);
+  final overlay = ValueNotifier<Widget?>(null);
+  addTearDown(overlay.dispose);
+  await tester.pumpWidget(UncontrolledProviderScope(
+    container: container,
+    child: Consumer(builder: (_, ref, _) {
+      final router = ref.watch(routerProvider);
+      return MaterialApp.router(
+        routerConfig: router,
+        builder: (_, child) => Stack(children: [
+          child!,
+          // Under the router, as a page's own FailureView would be.
+          InheritedGoRouter(
+            goRouter: router,
+            child: ValueListenableBuilder<Widget?>(
+              valueListenable: overlay,
+              builder: (_, widget, _) => widget == null
+                  ? const SizedBox.shrink()
+                  : Material(type: MaterialType.transparency, child: widget),
+            ),
+          ),
+        ]),
+      );
+    }),
+  ));
+  await _settle(tester);
+  return (
+    container: container,
+    router: container.read(routerProvider),
+    overlay: overlay,
+  );
+}
+
+/// Unmounts the app and lets in-flight timers (page transitions, the
+/// splash delay) finish before the test's invariants are checked.
+Future<void> _tearDownApp(WidgetTester tester) async {
+  await tester.pumpWidget(const SizedBox());
+  await _settle(tester);
+}
+
+Future<void> _settle(WidgetTester tester) async {
+  for (var i = 0; i < 6; i++) {
+    await tester.pump(const Duration(milliseconds: 500));
+  }
+}
+
+String _pathOf(GoRouter router) =>
+    router.routerDelegate.currentConfiguration.uri.path;

@@ -151,7 +151,7 @@ void main() {
       'dropdown on the old role', (tester) async {
     final source = FakeResortMemberSource()
       ..rows = [_member(userId: 'u1', role: ResortRole.admin)]
-      ..setRoleError = const InvalidState('Resort must keep at least one owner.');
+      ..setRoleError = const LastOwner();
     await pump(tester, source: source);
 
     await tester.tap(find.byKey(const Key('role-dropdown-u1')));
@@ -159,7 +159,7 @@ void main() {
     await tester.tap(find.text('Owner').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('Resort must keep at least one owner.'), findsOneWidget);
+    expect(find.text('A resort must keep at least one owner.'), findsOneWidget);
     // The dropdown still shows the OLD role -- the change was refused, so
     // the UI must not have applied it optimistically.
     expect(find.text('Admin'), findsWidgets);

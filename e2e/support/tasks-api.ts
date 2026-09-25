@@ -8,8 +8,8 @@
 // are left at a fixture resort (fixtures/sql.ts). Specs that create tasks
 // delete them here, as the resort's admin.
 //
-// Why not the UI: deleting a task on /admin/tasks is broken (see the
-// test.fail in tests/staff.spec.ts).
+// Why not the UI: cleanup must not depend on the screens under test (the
+// /admin/tasks delete flow is itself covered in tests/staff.spec.ts).
 
 import { PASSWORD, type FixtureUser } from '../fixtures/world.ts';
 

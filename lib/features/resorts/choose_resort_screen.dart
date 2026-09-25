@@ -10,8 +10,9 @@ import '../../data/repositories/auth_repository.dart';
 /// memberships who hasn't picked one yet (see `resolveCurrentResort` and
 /// `redirectFor`). Lists each membership's resort name and role label;
 /// picking one calls `currentResortProvider.notifier.select`, and the
-/// router's own redirect (which watches `currentResortProvider`) carries
-/// the user onward from there via `landingPathFor`, so this screen never
+/// router -- which re-checks the current page whenever the resort changes,
+/// and sends `/choose-resort` with a resort picked on to `landingPathFor`
+/// (see `redirectFor`) -- carries the user onward, so this screen never
 /// navigates itself.
 class ChooseResortScreen extends ConsumerWidget {
   const ChooseResortScreen({super.key});

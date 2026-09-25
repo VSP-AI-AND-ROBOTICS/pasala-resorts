@@ -8,8 +8,8 @@
 // `bookings.arrivingToday` / `bookings.checkedIn` -- see that file's header
 // comment for why. The one exception is the very last test, which reads
 // (but never completes checkout for) the shared `bookings.checkedIn`
-// fixture to reproduce an app bug; it leaves that booking checked in, same
-// as it found it.
+// fixture to check the desk checkout survives a reload; it leaves that
+// booking checked in, same as it found it.
 //
 // Tests 3 and 4 form one continuous, one-way workflow (confirmed -> checked
 // in -> checked out) against the same `frontdeskBookingId` reservation, so
@@ -151,32 +151,19 @@ test('a Resort B unit\'s rates URL shows not-found for a Resort A admin', async 
   await expect(page.getByText('Page not found', { exact: true })).toBeVisible();
 });
 
-// BUG: the desk checkout screen does not survive a page reload, contrary to
-// its own doc comment.
-//
-// `ReceptionCheckoutScreen._` (lib/features/admin/reception_checkout_screen.dart:53)
-// does `await context.push('/admin/check-out/${g.id}')`, but the browser's
-// URL/hash stays at plain `/admin/check-out` -- the reservation id never
-// lands in the address bar, even though the correct reservation's screen
-// renders (confirmed via `window.location.href`, bypassing any Playwright
-// caching). Router.dart's own comment on the
-// `/admin/check-out/:reservationId` route
-// (lib/core/router.dart:513-515) says "the reservation id and desk mode
-// both live in the URL so a web refresh or back/forward rebuilds it" --
-// that is not what happens: since the id was never in the URL, a reload
-// re-boots the app at `initialLocation: '/splash'` (router.dart:264) and
-// `redirectFor` sends a signed-in user straight to their landing page
-// (`/admin`), per splash_screen.dart's own doc comment ("a signed-in user
-// never even sees it, since redirectFor ... sends them straight to their
-// landing path"). The checkout in progress is lost; reception has to find
-// the guest in the check-out list again.
+// Regression: the desk checkout must survive a page reload. It used to be
+// opened with `context.push`, which never puts the reservation id in the
+// address bar (go_router reflects only declarative locations), and on a
+// reload the router bounced a signed-in user to their landing page -- it
+// treated the not-yet-loaded session as signed out, and was rebuilt from
+// `/splash` once the session arrived (lib/core/router.dart routerProvider).
 //
 // Uses world.ts's shared `bookings.checkedIn` (Lake Villa / Hari InHouse)
 // read-only: it navigates to the desk checkout screen and reloads, but
 // never submits a payment, so the booking is left checked in exactly as
 // this spec found it.
-test.fail(
-  'BUG reception_checkout_screen.dart:53 / router.dart:513-515: desk checkout page does not survive a page reload',
+test(
+  'the desk checkout page survives a page reload',
   async ({ page }) => {
     await login(page, admin);
     await goTo(page, '/admin/check-out');
@@ -188,8 +175,7 @@ test.fail(
     await row.getByRole('button', { name: 'Check Out', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Checkout' })).toBeVisible();
 
-    // Should be the reservation-specific URL; the checkout button's own
-    // context.push never puts it there (the bug), so this already fails.
+    // The reservation-specific URL, so a reload can rebuild the page.
     await expect
       .poll(() => page.evaluate(() => window.location.hash))
       .toBe(`#/admin/check-out/${bookings.checkedIn.id}`);

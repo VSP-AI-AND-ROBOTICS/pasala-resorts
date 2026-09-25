@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override, ProviderListenable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pasala/core/errors.dart';
@@ -7,12 +8,15 @@ import 'package:pasala/data/models/current_charges.dart';
 import 'package:pasala/data/models/payment_method.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/repositories/finance_repository.dart';
+import 'package:pasala/data/repositories/room_status_repository.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
 import 'package:pasala/features/booking/payment_gateway.dart';
 import 'package:pasala/features/finance/providers.dart';
+import 'package:pasala/features/staff/providers.dart';
 import 'package:pasala/features/stay/checkout_screen.dart';
 
 import '../../support/fake_finance_source.dart';
+import '../../support/fake_room_board_source.dart';
 
 typedef _Checkout = ({
   String reservationId,
@@ -83,6 +87,8 @@ Future<void> _pump(
   _FakeGateway? gateway,
   double balance = 2000,
   FakeFinanceSource? finance,
+  List<Override> overrides = const [],
+  List<ProviderListenable<Object?>> keepAlive = const [],
 }) async {
   tester.view.physicalSize = const Size(800, 1600);
   tester.view.devicePixelRatio = 1.0;
@@ -109,6 +115,7 @@ Future<void> _pump(
       currentChargesProvider.overrideWith((ref, id) async => _charges(balance)),
       paymentGatewayProvider.overrideWithValue(gateway ?? _FakeGateway()),
       financeSourceProvider.overrideWithValue(finance ?? FakeFinanceSource()),
+      ...overrides,
     ],
     child: MaterialApp.router(
       routerConfig: router,
@@ -117,6 +124,9 @@ Future<void> _pump(
         child!,
         Consumer(builder: (_, ref, _) {
           ref.watch(financeSummaryProvider('p1'));
+          for (final provider in keepAlive) {
+            ref.watch(provider);
+          }
           return const SizedBox.shrink();
         }),
       ]),
@@ -217,6 +227,51 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(finance.summaryCalls.length, greaterThan(before));
+    });
+
+    // The desk checkout used to be pushed from the check-out list, which
+    // refetched these on return; it is now reached by URL (so a reload
+    // keeps it), and a successful checkout goes on to the invoice, so the
+    // screen refetches what checkout_booking changed itself.
+    testWidgets(
+        'a desk checkout refetches the room board, the check-out queue and '
+        'the bookings list', (tester) async {
+      final board = FakeRoomBoardSource();
+      var checkedInCalls = 0;
+      var bookingsCalls = 0;
+      await _pump(
+        tester,
+        extra: _desk,
+        stay: _FakeStayRepository(),
+        overrides: [
+          roomBoardSourceProvider.overrideWithValue(board),
+          checkedInProvider.overrideWith((ref, propertyId) async {
+            checkedInCalls++;
+            return const <Reservation>[];
+          }),
+          allBookingsProvider.overrideWith((ref, propertyId) async {
+            bookingsCalls++;
+            return const <Reservation>[];
+          }),
+        ],
+        // Stand in for the open Rooms tab, check-out list and dashboard.
+        keepAlive: [
+          roomBoardProvider('p1'),
+          checkedInProvider('p1'),
+          allBookingsProvider('p1'),
+        ],
+      );
+      final boardBefore = board.boardCalls.length;
+      final checkedInBefore = checkedInCalls;
+      final bookingsBefore = bookingsCalls;
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('INVOICE r1'), findsOneWidget);
+      expect(board.boardCalls.length, greaterThan(boardBefore));
+      expect(checkedInCalls, greaterThan(checkedInBefore));
+      expect(bookingsCalls, greaterThan(bookingsBefore));
     });
   });
 

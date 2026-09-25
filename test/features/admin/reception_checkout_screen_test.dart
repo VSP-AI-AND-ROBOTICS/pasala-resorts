@@ -5,11 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/models/resort_membership.dart';
-import 'package:pasala/data/repositories/room_status_repository.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
 import 'package:pasala/features/admin/reception_checkout_screen.dart';
-
-import '../../support/fake_room_board_source.dart';
 
 const _resort =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
@@ -110,48 +107,49 @@ void main() {
     expect(find.text('Guest'), findsOneWidget);
   });
 
-  testWidgets('returning from checkout refetches the room board',
-      (tester) async {
-    final board = FakeRoomBoardSource();
+  // E2E bug (e2e/tests/frontdesk.spec.ts): `context.push` never reaches the
+  // browser's address bar (go_router reports only declarative locations to
+  // the platform), so the URL stayed at /admin/check-out and a reload lost
+  // the checkout. The URL the router reports must carry the booking id.
+  testWidgets('Check Out puts the booking id in the browser URL, and back '
+      'returns to the list', (tester) async {
     final router = GoRouter(
       initialLocation: '/admin/check-out',
       routes: [
         GoRoute(
             path: '/admin/check-out',
-            builder: (_, _) => const ReceptionCheckoutScreen()),
-        GoRoute(
-            path: '/admin/check-out/:reservationId',
-            builder: (_, _) => const Text('CHECKOUT SCREEN')),
+            builder: (_, _) => const ReceptionCheckoutScreen(),
+            routes: [
+              GoRoute(
+                  path: ':reservationId',
+                  builder: (_, _) => const Text('CHECKOUT SCREEN')),
+            ]),
       ],
     );
+    addTearDown(router.dispose);
+    Uri browserUrl() => router.routeInformationParser
+        .restoreRouteInformation(router.routerDelegate.currentConfiguration)!
+        .uri;
     await tester.pumpWidget(ProviderScope(
       overrides: [
         checkedInProvider.overrideWith(
             (ref, propertyId) async => [_checkedIn('r1', customerName: 'Ravi Kumar')]),
         currentResortProvider.overrideWith(_FixedResort.new),
-        roomBoardSourceProvider.overrideWithValue(board),
       ],
-      child: MaterialApp.router(
-        routerConfig: router,
-        // Stands in for an open Rooms tab, which keeps the board alive.
-        builder: (context, child) => Stack(children: [
-          child!,
-          Consumer(builder: (_, ref, _) {
-            ref.watch(roomBoardProvider('p1'));
-            return const SizedBox.shrink();
-          }),
-        ]),
-      ),
+      child: MaterialApp.router(routerConfig: router),
     ));
     await tester.pumpAndSettle();
-    final before = board.boardCalls.length;
 
     await tester.tap(find.widgetWithText(FilledButton, 'Check Out'));
     await tester.pumpAndSettle();
-    GoRouter.of(tester.element(find.text('CHECKOUT SCREEN'))).pop();
-    await tester.pumpAndSettle();
 
-    expect(board.boardCalls.length, greaterThan(before));
+    expect(find.text('CHECKOUT SCREEN'), findsOneWidget);
+    expect(browserUrl().path, '/admin/check-out/r1');
+
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('Ravi Kumar'), findsOneWidget);
+    expect(browserUrl().path, '/admin/check-out');
   });
 
   // The desk checkout is addressed by its URL alone -- a route `extra`

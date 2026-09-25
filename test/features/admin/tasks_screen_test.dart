@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/staff_task.dart';
@@ -243,6 +244,69 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
 
+    expect(repo.deletedIds, ['t1']);
+    expect(find.text('Restock minibar'), findsNothing);
+  });
+
+  // E2E bug (e2e/tests/staff.spec.ts): in the real app /admin/tasks lives
+  // inside the router's ShellRoute, so the screen's own context resolves to
+  // the shell navigator while showDialog puts the dialog on the root one.
+  // The dialog's buttons must pop the dialog, not the Tasks page.
+  testWidgets('confirming delete inside a ShellRoute closes the dialog, not '
+      'the page', (tester) async {
+    final repo = FakeTaskRepository()
+      ..addToResort('p1', const StaffTask(
+        id: 't1',
+        assigneeId: 'staff-1',
+        assigneeName: 'Sita Staff',
+        title: 'Restock minibar',
+        description: 'Villa 2',
+        status: TaskStatus.todo,
+      ));
+    final router = GoRouter(
+      initialLocation: '/admin/tasks',
+      routes: [
+        ShellRoute(
+          builder: (_, _, child) => Scaffold(body: child),
+          routes: [
+            GoRoute(path: '/admin', builder: (_, _) => const Text('Admin home')),
+            GoRoute(path: '/admin/tasks', builder: (_, _) => const TasksScreen()),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        taskRepositoryProvider.overrideWithValue(repo),
+        rosterOverride,
+        currentResortProvider.overrideWith(_FixedResort.new),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    // Cancel first: the dialog closes and the page stays.
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(TasksScreen), findsOneWidget);
+    expect(repo.deletedIds, isEmpty);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(TasksScreen), findsOneWidget);
     expect(repo.deletedIds, ['t1']);
     expect(find.text('Restock minibar'), findsNothing);
   });

@@ -7,15 +7,19 @@ import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
-import '../../data/repositories/room_status_repository.dart';
 import '../../data/repositories/stay_repository.dart';
-import '../staff/providers.dart' show allBookingsProvider;
 
 /// `/admin/check-out` -- every `checked_in` guest, one tap through to the
 /// same `CheckoutScreen` a customer's own self-checkout uses, in desk mode
 /// at `/admin/check-out/:reservationId` -- `checkout_booking` already
 /// permits staff-or-above, so this is reception settling the final bill on
 /// the guest's behalf rather than a separate code path.
+///
+/// Check Out uses `context.go`, not `push`: go_router only puts declarative
+/// locations in the browser's address bar, so a pushed checkout left the
+/// URL at `/admin/check-out` and a reload lost it. The desk route is a
+/// child of this one, so `go` still stacks it above the list (with a back
+/// arrow). A successful checkout refetches this list itself.
 class ReceptionCheckoutScreen extends ConsumerWidget {
   const ReceptionCheckoutScreen({super.key});
 
@@ -47,19 +51,9 @@ class ReceptionCheckoutScreen extends ConsumerWidget {
                   '${g.guests ?? '—'} guests',
                 ),
                 trailing: FilledButton(
-                  onPressed: () async {
-                    // Desk checkout: reception records the method and
-                    // reference instead of charging the guest's gateway.
-                    await context.push('/admin/check-out/${g.id}');
-                    if (context.mounted) {
-                      ref.invalidate(checkedInProvider(propertyId));
-                      // See the matching comment in reception_checkin_screen.dart
-                      // -- the dashboard's own cards read this same list.
-                      ref.invalidate(allBookingsProvider);
-                      // checkout_booking marks the room for cleaning.
-                      ref.invalidate(roomBoardProvider(propertyId));
-                    }
-                  },
+                  // Desk checkout: reception records the method and
+                  // reference instead of charging the guest's gateway.
+                  onPressed: () => context.go('/admin/check-out/${g.id}'),
                   child: const Text('Check Out'),
                 ),
               ),

@@ -1,9 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/models/app_user.dart';
 import '../data/models/resort_membership.dart';
 import '../data/repositories/auth_repository.dart';
+import 'router.dart' show landingPathFor;
 
 const _rememberedResortKey = 'current_resort_id';
 
@@ -109,8 +111,23 @@ final currentResortProvider =
 
 /// Called wherever a `NotAMember` failure surfaces: the user lost access to
 /// the current resort (removed, or the resort was archived). Forget the
-/// pick and re-fetch the user so the router re-runs `landingPathFor`.
-Future<void> handleResortAccessLost(ProviderContainer container) async {
+/// pick, re-fetch the user, and -- given the app's [router] -- send them to
+/// `landingPathFor` the re-fetched memberships.
+///
+/// The navigation is explicit because the router is built once and only
+/// re-checks the current page: clearing the pick moves a user off a resort
+/// page to `/choose-resort`, or `/404` with a single (now stale)
+/// membership, and nothing there moves them on once the re-fetch lands.
+/// A user the re-fetch finds signed out is left to the router's own
+/// redirect to `/login`.
+Future<void> handleResortAccessLost(
+  ProviderContainer container, {
+  GoRouter? router,
+}) async {
   await container.read(currentResortProvider.notifier).clear();
   container.invalidate(currentUserProvider);
+  if (router == null) return;
+  final user = await container.read(currentUserProvider.future);
+  if (user == null) return;
+  router.go(landingPathFor(user, container.read(currentResortProvider)));
 }

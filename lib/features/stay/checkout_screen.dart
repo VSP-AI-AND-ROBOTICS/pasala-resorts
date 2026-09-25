@@ -8,9 +8,11 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/payment_method.dart';
+import '../../data/repositories/room_status_repository.dart';
 import '../../data/repositories/stay_repository.dart';
 import '../booking/payment_gateway.dart';
 import '../finance/providers.dart';
+import '../staff/providers.dart' show allBookingsProvider;
 
 /// Builds the guest's own `/my-stay/checkout` from its route `extra`, the
 /// reservation id. Reception's desk checkout is `/admin/check-out/:id`.
@@ -88,6 +90,15 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       ref.invalidate(currentChargesProvider(widget.reservationId));
       // Collections, settlements and today's figures include this payment.
       invalidateFinance(ref);
+      if (widget.desk) {
+        // Reception's own views of this booking: the check-out queue and the
+        // dashboard's bookings drop it, and checkout_booking marks the room
+        // for cleaning. (The desk screen is reached by URL, not pushed from
+        // the check-out list, so the list cannot refetch on return.)
+        ref.invalidate(checkedInProvider);
+        ref.invalidate(allBookingsProvider);
+        ref.invalidate(roomBoardProvider);
+      }
       context.go('/my-stay/invoice/${widget.reservationId}');
     } on BookingFailure catch (e) {
       if (!mounted) return;
