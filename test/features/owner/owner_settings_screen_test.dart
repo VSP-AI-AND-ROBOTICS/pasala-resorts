@@ -8,6 +8,7 @@ import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/subscription.dart';
 import 'package:pasala/data/repositories/subscription_repository.dart';
 import 'package:pasala/features/browse/providers.dart';
+import 'package:pasala/features/owner/location_settings_screen.dart';
 import 'package:pasala/features/owner/owner_settings_screen.dart';
 
 import '../../support/fake_platform_source.dart';
@@ -38,14 +39,15 @@ class _FixedResort extends CurrentResort {
   ResortMembership? build() => _value;
 }
 
-Future<void> _pump(WidgetTester tester, FakeResortPlanSource source) async {
+Future<void> _pump(WidgetTester tester, FakeResortPlanSource source,
+    {Property property = _property}) async {
   await tester.pumpWidget(ProviderScope(
     // retry: null -- without it Riverpod 3 keeps retrying a failed
     // provider and the error state never settles.
     retry: (_, _) => null,
     overrides: [
       currentResortProvider.overrideWith(() => _FixedResort(_resort)),
-      propertyProvider.overrideWith((ref, id) async => _property),
+      propertyProvider.overrideWith((ref, id) async => property),
       resortPlanSourceProvider.overrideWithValue(source),
     ],
     child: const MaterialApp(home: OwnerSettingsScreen()),
@@ -99,5 +101,41 @@ void main() {
 
     expect(_inPlanTile('Could not load your plan'), findsOneWidget);
     expect(find.text('Farmhouse information'), findsOneWidget);
+  });
+
+  testWidgets('Map location says when the resort has no coordinates',
+      (tester) async {
+    await _pump(tester, FakeResortPlanSource());
+
+    expect(find.text('Map location'), findsOneWidget);
+    expect(find.text('Not set. Guests will not see how far away you are.'),
+        findsOneWidget);
+  });
+
+  testWidgets('Map location shows the saved coordinates and opens the editor',
+      (tester) async {
+    const located = Property(
+      id: 'p1',
+      name: 'Pasala Farm House',
+      slug: 'pasala-farm-house',
+      description: null,
+      address: null,
+      images: [],
+      amenities: [],
+      checkInTime: '14:00',
+      checkOutTime: '11:00',
+      isActive: true,
+      latitude: 17.385044,
+      longitude: 78.486671,
+    );
+    await _pump(tester, FakeResortPlanSource(), property: located);
+
+    expect(find.text('17.3850, 78.4867'), findsOneWidget);
+
+    await tester.tap(find.text('Map location'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(LocationSettingsScreen), findsOneWidget);
+    expect(find.text('Use my current location'), findsOneWidget);
   });
 }
