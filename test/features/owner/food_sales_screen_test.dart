@@ -186,6 +186,47 @@ void main() {
     expect(find.text('No sales logged in this period'), findsOneWidget);
   });
 
+  testWidgets('a sale shows the tax it includes', (tester) async {
+    final repo = FakeFoodSaleRepository()
+      ..store.add(FoodSale(
+        id: 's1',
+        propertyId: 'p1',
+        saleDate: DateTime.now(),
+        category: SaleCategory.food,
+        itemName: 'Walk-in thali',
+        quantity: 1,
+        unitPrice: 210,
+        amount: 210,
+        taxPct: 12,
+        taxAmount: 22.5,
+      ))
+      ..store.add(FoodSale(
+        id: 's2',
+        propertyId: 'p1',
+        saleDate: DateTime.now(),
+        category: SaleCategory.food,
+        itemName: 'Tea',
+        quantity: 1,
+        unitPrice: 20,
+        amount: 20,
+      ));
+
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('sale-row-s1')),
+            matching: find.textContaining('Includes tax ₹22.50')),
+        findsOneWidget);
+    // A sale without tax (logged at 0%, or before 0053) says nothing.
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('sale-row-s2')),
+            matching: find.textContaining('Includes tax')),
+        findsNothing);
+  });
+
   testWidgets('the FAB opens the create-sale form', (tester) async {
     await tester.pumpWidget(_appFor(FakeFoodSaleRepository()));
     await tester.pumpAndSettle();
