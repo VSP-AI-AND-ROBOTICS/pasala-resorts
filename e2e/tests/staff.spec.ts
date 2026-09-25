@@ -3,7 +3,6 @@ import { resortA } from '../fixtures/world.ts';
 import { createTask, deleteAllTasks } from '../support/tasks-api.ts';
 import {
   clickTab,
-  currentPath,
   fillField,
   goTo,
   landingPath,
@@ -170,15 +169,10 @@ test.describe('Staff / Incharge (Resort A)', () => {
   test('staff cannot reach /owner', async ({ page }) => {
     await login(page, staff);
 
-    // NotFoundScreen is a bare `Text('Page not found')` with no semantics
-    // role or aria-label at all, so the generic waitForFlutter (which waits
-    // for a role/aria-label node) never resolves there -- check the router
-    // path and the page text directly instead of using goTo/expectAt.
-    await page.evaluate(() => {
-      window.location.hash = '/owner';
-    });
-    await expect.poll(() => currentPath(page), { timeout: 15_000 }).toBe('/404');
-    await expect(page.getByText('Page not found', { exact: true })).toBeVisible();
+    // The router redirects a staff member off /owner to /404; NotFoundScreen's
+    // "Page not found" is a heading, so goTo's waitForFlutter sees it render.
+    await goTo(page, '/owner', '/404');
+    await expect(page.getByRole('heading', { name: 'Page not found', exact: true })).toBeVisible();
 
     // Back to a normal screen (with the app bar) to sign out through the UI.
     await goTo(page, '/staff');
