@@ -1,7 +1,7 @@
 -- P7: email and SMS delivery (0056_email_sms_delivery.sql). Sections are
 -- added task by task; each relies on the state the earlier ones leave.
 begin;
-select plan(20);
+select plan(37);
 
 -- === fixtures ===============================================================
 -- The seed's confirmed booking queued outbox rows of its own; clear them
@@ -129,6 +129,92 @@ select is(
         'outbox_dispatch_tick','outbox_template_context',
         'record_outbox_dispatch_run','retry_outbox_message'],
   'the seven new definer functions pin their search_path');
+
+-- === Task 2: template context and claiming =====================================
+select is(public.outbox_template_context('d7a00000-0000-4000-8000-000000000021') ->> 'guest_name',
+  'Asha Rao', 'the template context names the guest');
+select is(public.outbox_template_context('d7a00000-0000-4000-8000-000000000021') ->> 'property_name',
+  'P7 Resort A', 'the template context names the resort');
+select is(public.render_template('booking_confirmation', 'd7a00000-0000-4000-8000-000000000021') ->> 'subject',
+  'Your stay at P7 Resort A is confirmed',
+  'render_template still renders, through the shared context');
+select throws_ok($$select public.outbox_template_context('d7a00000-0000-4000-8000-0000000000ff')$$,
+  'P0002', null, 'an unknown reservation has no context');
+
+-- A turns SMS off after its messages were queued.
+insert into public.notification_settings (property_id, email_enabled, sms_enabled)
+values ('d7a00000-0000-4000-8000-000000000001', true, false);
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+select throws_ok($$select * from public.claim_outbox_batch(10)$$,
+  '42501', null, 'a resort owner cannot claim outbox rows');
+reset role;
+set local request.jwt.claims to '';
+
+set local role service_role;
+create temp table p7_claim1 as select * from public.claim_outbox_batch(10);
+reset role;
+
+select is((select count(*)::int from p7_claim1), 4,
+  'the claim returns the four due email rows (A''s SMS is off, WhatsApp is never claimed)');
+select is((select count(*)::int from p7_claim1 where channel = 'whatsapp'), 0,
+  'whatsapp rows are never claimed');
+select is(
+  (select status::text || ' / ' || last_error from public.outbox
+    where template = 'booking_confirmation_sms'
+      and property_id = 'd7a00000-0000-4000-8000-000000000001'),
+  'skipped / sms notifications are disabled in this property''s settings',
+  'a queued SMS whose channel was switched off is skipped at claim time');
+select is((select status::text from public.outbox where template = 'booking_confirmation_whatsapp'
+             and property_id = 'd7a00000-0000-4000-8000-000000000001'),
+  'pending', 'the whatsapp row stays pending');
+select is((select array_agg(distinct attempts) from p7_claim1), array[1],
+  'each claimed row counts one attempt');
+select is(
+  (select count(*)::int from public.outbox o join p7_claim1 c on c.id = o.id
+    where o.attempts = 1 and o.last_attempt_at = now()
+      and o.next_attempt_at = now() + interval '5 minutes'),
+  4, 'claimed rows are leased for five minutes');
+select ok(
+  (select bool_and(vars ->> 'property_name' is not null
+                   and not vars ? 'customer_email'
+                   and not vars ? 'customer_phone')
+     from p7_claim1),
+  'claimed rows carry template variables without contact details');
+select is(
+  (select vars ->> 'property_name' from p7_claim1
+    where property_id = 'd7b00000-0000-4000-8000-000000000001' limit 1),
+  'P7 Resort B', 'each row carries its own resort''s variables');
+
+set local role service_role;
+select is((select count(*)::int from public.claim_outbox_batch(10)), 0,
+  'a second run in the same minute claims nothing (the rows are leased)');
+reset role;
+
+-- The lease on two A rows runs out; the one due longest comes first.
+update public.outbox set next_attempt_at = now() - interval '2 minutes'
+ where template = 'booking_confirmation' and property_id = 'd7a00000-0000-4000-8000-000000000001';
+update public.outbox set next_attempt_at = now() - interval '1 minute'
+ where template = 'payment_success' and property_id = 'd7a00000-0000-4000-8000-000000000001';
+
+set local role service_role;
+create temp table p7_claim2 as select * from public.claim_outbox_batch(1);
+reset role;
+select is((select template || ' #' || attempts from p7_claim2), 'booking_confirmation #2',
+  'p_limit is honoured and the longest-due row comes first, on its second attempt');
+
+-- A row that has used all five attempts is failed, not sent a sixth time.
+update public.outbox set attempts = 5
+ where template = 'payment_success' and property_id = 'd7a00000-0000-4000-8000-000000000001';
+set local role service_role;
+select is((select count(*)::int from public.claim_outbox_batch(10)), 0,
+  'a row at the attempt limit is not claimed');
+reset role;
+select is(
+  (select status::text from public.outbox
+    where template = 'payment_success' and property_id = 'd7a00000-0000-4000-8000-000000000001'),
+  'failed', 'a row at the attempt limit is failed');
 
 select * from finish();
 rollback;

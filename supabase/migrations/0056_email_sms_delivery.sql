@@ -53,7 +53,9 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------
--- outbox_template_context (Task 2 replaces this stub)
+-- outbox_template_context: the variables a template can use. Moved out of
+-- render_template (0045) unchanged, so the email text and the SMS
+-- variables MSG91 receives come from the same place.
 
 create function public.outbox_template_context(p_reservation_id uuid)
 returns jsonb
@@ -62,13 +64,104 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_row      public.reservations;
+  v_unit     public.units;
+  v_property public.properties;
+  v_profile  public.profiles;
+  v_email    text;
 begin
-  raise exception using errcode = '0A000', message = 'not_implemented';
+  select * into v_row from public.reservations where id = p_reservation_id;
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  select * into v_unit from public.units where id = v_row.unit_id;
+  select * into v_property from public.properties where id = v_unit.property_id;
+  select * into v_profile from public.profiles where id = v_row.customer_id;
+  select email into v_email from auth.users where id = v_row.customer_id;
+
+  -- Every value is coalesced: replace() returns NULL if any argument is
+  -- NULL, which would collapse the whole rendered text (see 0017).
+  return jsonb_build_object(
+    'guest_name',     coalesce(v_profile.full_name, 'Guest'),
+    'unit_name',      coalesce(v_unit.name, 'your unit'),
+    'property_name',  coalesce(v_property.name, 'Pasala Resorts'),
+    'check_in',       coalesce(to_char(
+                         lower(v_row.period) at time zone v_property.timezone,
+                         'DD Mon YYYY'), ''),
+    'check_out',      coalesce(to_char(
+                         upper(v_row.period) at time zone v_property.timezone,
+                         'DD Mon YYYY'), ''),
+    'total',          coalesce(v_row.quote ->> 'total', '0'),
+    'currency',       coalesce(v_row.quote ->> 'currency', 'INR'),
+    'cancel_reason',  coalesce(v_row.cancel_reason, 'no reason given'),
+    'customer_email', coalesce(v_email, ''),
+    'customer_phone', coalesce(v_profile.phone, '')
+  );
+end;
+$$;
+
+-- render_template, copied from its latest definition (0045, lines
+-- 1863-1935); only the context block now calls outbox_template_context.
+-- create or replace keeps its ACL (revoked from every client role in 0017).
+create or replace function public.render_template(
+  p_template       text,
+  p_reservation_id uuid
+) returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_tpl      public.outbox_templates;
+  v_property uuid;
+  v_ctx      jsonb;
+  v_subject  text;
+  v_body     text;
+  v_key      text;
+begin
+  select property_id into v_property from public.reservations where id = p_reservation_id;
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  select * into v_tpl from public.outbox_templates
+  where name = p_template
+    and (property_id = v_property or property_id is null)
+  order by property_id nulls last
+  limit 1;
+  if not found then
+    raise exception 'unknown outbox template %', p_template
+      using errcode = 'P0002';
+  end if;
+
+  v_ctx := public.outbox_template_context(p_reservation_id);
+
+  v_subject := v_tpl.subject_template;
+  v_body    := v_tpl.body_template;
+
+  for v_key in select jsonb_object_keys(v_ctx) loop
+    if v_subject is not null then
+      v_subject := replace(v_subject, '{{' || v_key || '}}', v_ctx ->> v_key);
+    end if;
+    v_body := replace(v_body, '{{' || v_key || '}}', v_ctx ->> v_key);
+  end loop;
+
+  return jsonb_build_object('subject', v_subject, 'body', v_body);
 end;
 $$;
 
 -- ---------------------------------------------------------------------
--- claim_outbox_batch (Task 2 replaces this stub)
+-- claim_outbox_batch: up to p_limit due email/SMS rows for one dispatcher
+-- run. Each claimed row counts one attempt and is leased for 5 minutes
+-- (next_attempt_at), so an overlapping run skips it and a run that dies
+-- halfway gives it back. The row lock ends when this returns, before the
+-- provider call -- hence the lease. A row whose channel was switched off
+-- after it was queued is skipped, with the same reason
+-- enqueue_outbox_message uses; a row already at the attempt limit is
+-- failed, never sent a sixth time. WhatsApp rows are never claimed.
 
 create function public.claim_outbox_batch(p_limit int default 25)
 returns table (id uuid, property_id uuid, reservation_id uuid,
@@ -78,8 +171,67 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+#variable_conflict use_column
+declare
+  v_limit   int := least(greatest(coalesce(p_limit, 25), 1), 200);
+  v_row     public.outbox;
+  v_enabled boolean;
 begin
-  raise exception using errcode = '0A000', message = 'not_implemented';
+  for v_row in
+    select o.*
+      from public.outbox o
+     where o.status = 'pending'
+       and o.channel in ('email', 'sms')
+       and o.next_attempt_at <= now()
+     order by o.next_attempt_at, o.created_at, o.id
+     limit v_limit
+     for update skip locked
+  loop
+    v_enabled := coalesce(
+      (select case v_row.channel
+                when 'email' then ns.email_enabled
+                when 'sms'   then ns.sms_enabled
+              end
+         from public.notification_settings ns
+        where ns.property_id = v_row.property_id),
+      true);
+
+    if not v_enabled then
+      update public.outbox o
+         set status = 'skipped',
+             last_error = format('%s notifications are disabled in this property''s settings',
+                                 v_row.channel)
+       where o.id = v_row.id;
+      continue;
+    end if;
+
+    if v_row.attempts >= 5 then
+      update public.outbox o
+         set status = 'failed',
+             last_error = coalesce(v_row.last_error, 'gave up after 5 attempts')
+       where o.id = v_row.id;
+      continue;
+    end if;
+
+    update public.outbox o
+       set attempts        = o.attempts + 1,
+           last_attempt_at = now(),
+           next_attempt_at = now() + interval '5 minutes'
+     where o.id = v_row.id;
+
+    id             := v_row.id;
+    property_id    := v_row.property_id;
+    reservation_id := v_row.reservation_id;
+    channel        := v_row.channel;
+    recipient      := v_row.recipient;
+    template       := v_row.template;
+    subject        := v_row.subject;
+    body           := v_row.body;
+    attempts       := v_row.attempts + 1;
+    vars           := public.outbox_template_context(v_row.reservation_id)
+                        - 'customer_email' - 'customer_phone';
+    return next;
+  end loop;
 end;
 $$;
 
