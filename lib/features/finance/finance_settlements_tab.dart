@@ -6,6 +6,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../data/models/finance.dart';
+import '../invoice/invoice_pdf_button.dart';
 import '../reports/providers.dart' show ReportFilter;
 import 'finance_tables.dart';
 import 'providers.dart';
@@ -105,7 +106,20 @@ class _SettlementCard extends StatelessWidget {
               Text('Balance at desk ${formatMoney(r.balanceDesk)} (${_deskLine(r)})'),
             if (r.recordedByName != null) Text('Recorded by ${r.recordedByName}'),
             const SizedBox(height: Spacing.xs),
-            if (r.outstanding != 0) _OutstandingFlag(row: r) else const Text('Settled'),
+            Row(children: [
+              Expanded(
+                child: r.outstanding != 0
+                    ? Align(
+                        alignment: Alignment.centerLeft,
+                        child: _OutstandingFlag(row: r),
+                      )
+                    : const Text('Settled'),
+              ),
+              InvoicePdfButton(
+                reservationId: r.reservationId,
+                style: InvoicePdfButtonStyle.icon,
+              ),
+            ]),
           ],
         ),
       ),
@@ -140,6 +154,7 @@ class _SettlementsTable extends StatelessWidget {
             DataColumn(label: Text('Method')),
             DataColumn(label: Text('Reference')),
             DataColumn(label: Text('Outstanding')),
+            DataColumn(label: Text('Invoice')),
           ],
           rows: [
             for (final r in rows)
@@ -162,6 +177,10 @@ class _SettlementsTable extends StatelessWidget {
                 DataCell(r.outstanding != 0
                     ? _OutstandingFlag(row: r)
                     : Text(formatMoney(0))),
+                DataCell(InvoicePdfButton(
+                  reservationId: r.reservationId,
+                  style: InvoicePdfButtonStyle.icon,
+                )),
               ]),
           ],
         ),

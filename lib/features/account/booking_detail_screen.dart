@@ -14,6 +14,7 @@ import '../../data/models/reservation.dart';
 import '../../data/repositories/booking_repository.dart';
 import '../../data/repositories/stay_repository.dart' show currentStayProvider;
 import '../booking/providers.dart' show reservationProvider;
+import '../invoice/invoice_pdf_button.dart';
 import '../staff/providers.dart' show allBookingsProvider;
 import 'providers.dart';
 
@@ -217,6 +218,20 @@ class _DetailState extends ConsumerState<_Detail> {
         if (quote != null) ...[
           const SizedBox(height: Spacing.lg),
           _DetailCard(child: _QuoteBreakdown(quote: quote)),
+        ],
+        // A guest booking's invoice, once the guest has checked in: the
+        // guest's own copy, and the one owners/admins reach from
+        // /admin/bookings. buildInvoice refuses every other state anyway.
+        if (reservation.kind == ReservationKind.booking &&
+            (reservation.status == ReservationStatus.checkedIn ||
+                reservation.status == ReservationStatus.checkedOut)) ...[
+          const SizedBox(height: Spacing.lg),
+          _DetailCard(
+            child: SizedBox(
+              width: double.infinity,
+              child: InvoicePdfButton(reservationId: reservation.id),
+            ),
+          ),
         ],
         if (!isBlock &&
             (reservation.status == ReservationStatus.confirmed ||
