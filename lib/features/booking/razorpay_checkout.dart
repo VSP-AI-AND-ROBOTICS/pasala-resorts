@@ -5,6 +5,15 @@ import '../../data/models/payment_order.dart';
 
 const unsupportedCheckoutMessage =
     'Online payment is not available on this device.';
+const paymentFailedMessage = 'Payment failed. Try again or choose another method.';
+const networkFailedMessage = 'Network error during payment. Try again.';
+const checkoutLoadFailedMessage =
+    'Could not load the payment window. Check your connection and try again.';
+const incompleteResponseMessage =
+    'The payment window gave an incomplete answer. If money was taken, '
+    'contact the resort.';
+const externalWalletMessage =
+    'That wallet is not supported here. Choose another payment method.';
 
 /// What the payment window needs. Only the public key id -- never a secret.
 class CheckoutRequest {
@@ -85,3 +94,19 @@ class UnsupportedRazorpayCheckout implements RazorpayCheckout {
   Future<CheckoutOutcome> open(CheckoutRequest request) async =>
       const CheckoutFailed(unsupportedCheckoutMessage);
 }
+
+/// The options both payment windows take (Razorpay's documented Checkout
+/// options). Empty prefill fields are left out.
+Map<String, Object?> checkoutOptions(CheckoutRequest request) => {
+      'key': request.keyId,
+      'order_id': request.orderId,
+      'amount': request.amountPaise,
+      'currency': request.currency,
+      'name': request.name,
+      'description': request.description,
+      'prefill': <String, Object?>{
+        if (request.prefillName != null) 'name': request.prefillName,
+        if (request.prefillEmail != null) 'email': request.prefillEmail,
+        if (request.prefillContact != null) 'contact': request.prefillContact,
+      },
+    };
