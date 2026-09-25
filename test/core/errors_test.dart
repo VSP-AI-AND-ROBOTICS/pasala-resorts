@@ -127,6 +127,13 @@ void main() {
     });
   });
 
+  test('P0036 maps to OnlinePaymentRequired with readable copy', () {
+    final failure = map('P0036', 'online_payment_required');
+    expect(failure, isA<OnlinePaymentRequired>());
+    expect(failure.message,
+        'Online payment is not available right now. Please try again in a few minutes.');
+  });
+
   test('NotPermitted never leaks the server message', () {
     expect(map('42501', 'permission denied for table reservations').message,
         isNot(contains('reservations')));

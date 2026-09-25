@@ -60,11 +60,16 @@ class _FakeStayRepository implements StayRepository {
 
 class _FakeGateway implements PaymentGateway {
   final charges = <num>[];
+  final purposes = <PaymentPurpose>[];
+
+  /// What [charge] answers; a success with `mock_<id>` when null.
+  PaymentResult? result;
 
   @override
   Future<PaymentResult> charge({required String reservationId, required num amount, PaymentPurpose purpose = PaymentPurpose.advance}) async {
     charges.add(amount);
-    return PaymentResult.success('mock_$reservationId');
+    purposes.add(purpose);
+    return result ?? PaymentResult.success('mock_$reservationId');
   }
 }
 
@@ -87,6 +92,7 @@ Future<void> _pump(
   _FakeGateway? gateway,
   double balance = 2000,
   FakeFinanceSource? finance,
+  void Function()? onChargesRead,
   List<Override> overrides = const [],
   List<ProviderListenable<Object?>> keepAlive = const [],
 }) async {
@@ -116,7 +122,10 @@ Future<void> _pump(
     retry: (_, _) => null,
     overrides: [
       stayRepositoryProvider.overrideWithValue(stay),
-      currentChargesProvider.overrideWith((ref, id) async => _charges(balance)),
+      currentChargesProvider.overrideWith((ref, id) async {
+        onChargesRead?.call();
+        return _charges(balance);
+      }),
       paymentGatewayProvider.overrideWithValue(gateway ?? _FakeGateway()),
       financeSourceProvider.overrideWithValue(finance ?? FakeFinanceSource()),
       ...overrides,
@@ -305,6 +314,37 @@ void main() {
         (reservationId: 'r1', paymentRef: 'mock_r1', amount: 2000, method: PaymentMethod.gateway),
       ]);
       expect(find.text('INVOICE r1'), findsOneWidget);
+    });
+
+    testWidgets('pays the balance as a balance payment', (tester) async {
+      final gateway = _FakeGateway();
+      await _pump(tester, extra: 'r1', stay: _FakeStayRepository(), gateway: gateway);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Pay ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(gateway.purposes, [PaymentPurpose.balance]);
+    });
+
+    testWidgets('a failed payment shows why and re-reads the charges', (tester) async {
+      final stay = _FakeStayRepository();
+      final gateway = _FakeGateway()
+        ..result = const PaymentResult.failure(
+            'Your payment could not be added to this booking, so it is being refunded in full.');
+      var chargesReads = 0;
+      await _pump(tester,
+          extra: 'r1', stay: stay, gateway: gateway, onChargesRead: () => chargesReads++);
+      final readsBefore = chargesReads;
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Pay ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('Your payment could not be added to this booking, so it is being refunded in full.'),
+          findsOneWidget);
+      expect(chargesReads, greaterThan(readsBefore));
+      expect(stay.checkouts, isEmpty);
+      expect(find.text('INVOICE r1'), findsNothing);
     });
 
     testWidgets('with nothing to pay it sends no-balance-due', (tester) async {

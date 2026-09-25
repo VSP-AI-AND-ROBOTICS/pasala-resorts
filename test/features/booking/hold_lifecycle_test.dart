@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,6 +26,13 @@ import 'package:pasala/features/calendar/providers.dart';
 /// already occupies.
 class _FakeBookingActions implements BookingActions {
   Quote? quoteToReturn;
+
+  /// How long a new hold lives. `Duration.zero` makes it already expired
+  /// by the hold ticker's first tick.
+  Duration holdTtl = const Duration(minutes: 15);
+
+  /// Thrown by [confirm] when set (e.g. P0036 while payments are live).
+  Object? confirmError;
 
   final Map<String, Reservation> _live = {};
   final List<String> calls = [];
@@ -76,7 +85,7 @@ class _FakeBookingActions implements BookingActions {
       end: to.toUtc(),
       kind: ReservationKind.booking,
       status: ReservationStatus.hold,
-      holdExpiresAt: DateTime.now().toUtc().add(const Duration(minutes: 15)),
+      holdExpiresAt: DateTime.now().toUtc().add(holdTtl),
       occasion: occasion,
     );
     _live[id] = reservation;
@@ -90,6 +99,7 @@ class _FakeBookingActions implements BookingActions {
     required num amount,
   }) async {
     calls.add('confirm');
+    if (confirmError != null) throw confirmError!;
     final held = _live[reservationId];
     if (held == null) throw const NotFound();
     final confirmed = Reservation(
@@ -142,6 +152,23 @@ class _ScriptedGateway implements PaymentGateway {
     final result = _results[callCount.clamp(0, _results.length - 1)];
     callCount++;
     return result;
+  }
+}
+
+/// A [PaymentGateway] whose charge stays open until the test completes
+/// [completer] -- a payment window the guest has not finished with yet.
+class _PendingGateway implements PaymentGateway {
+  final completer = Completer<PaymentResult>();
+  final purposes = <PaymentPurpose>[];
+
+  @override
+  Future<PaymentResult> charge({
+    required String reservationId,
+    required num amount,
+    PaymentPurpose purpose = PaymentPurpose.advance,
+  }) {
+    purposes.add(purpose);
+    return completer.future;
   }
 }
 
@@ -746,6 +773,66 @@ void main() {
             'exactly one createHold total',
       );
       expect(find.text('confirmed:hold-0'), findsOneWidget);
+    });
+
+    testWidgets(
+        'the hold countdown does not expire the hold while the payment '
+        'window is open, and the booking completes when it closes',
+        (tester) async {
+      final actions = _FakeBookingActions()
+        ..quoteToReturn = _quote()
+        ..holdTtl = Duration.zero;
+      final gateway = _PendingGateway();
+
+      await tester.pumpWidget(bookingApp(actions: actions, gateway: gateway));
+      await tester.pumpAndSettle();
+
+      final now = DateTime.now();
+      final from = DateTime(now.year, now.month, now.day).add(const Duration(days: 5));
+      final to = from.add(const Duration(days: 2));
+      final cursor = _MonthCursor(DateTime(now.year, now.month));
+      await pickRange(tester, cursor, from, to);
+      await tapVisible(tester, const Key('pay-button'));
+
+      // Three ticks of the 1-second hold ticker, all with the hold at zero.
+      await tester.pump(const Duration(seconds: 3));
+
+      expect(gateway.purposes, [PaymentPurpose.advance]);
+      expect(find.textContaining('hold expired'), findsNothing,
+          reason: 'a payment in flight owns the hold until it finishes');
+      expect(actions.calls, ['quote', 'createHold']);
+
+      gateway.completer.complete(const PaymentResult.success('pay_P6test0001'));
+      await tester.pumpAndSettle();
+
+      expect(actions.calls, ['quote', 'createHold', 'confirm']);
+      expect(find.text('confirmed:hold-0'), findsOneWidget);
+    });
+
+    testWidgets(
+        'P0036 after a mock fallback shows the readable message and keeps '
+        'the hold to resume', (tester) async {
+      final actions = _FakeBookingActions()
+        ..quoteToReturn = _quote()
+        ..confirmError = const OnlinePaymentRequired();
+      final gateway = _ScriptedGateway([const PaymentResult.success('mock_ref')]);
+
+      await tester.pumpWidget(bookingApp(actions: actions, gateway: gateway));
+      await tester.pumpAndSettle();
+
+      final now = DateTime.now();
+      final from = DateTime(now.year, now.month, now.day).add(const Duration(days: 5));
+      final to = from.add(const Duration(days: 2));
+      final cursor = _MonthCursor(DateTime(now.year, now.month));
+      await pickRange(tester, cursor, from, to);
+      await tapVisible(tester, const Key('pay-button'));
+
+      expect(
+          find.text('Online payment is not available right now. Please try '
+              'again in a few minutes.'),
+          findsOneWidget);
+      expect(find.byKey(const Key('resume-hold-button')), findsOneWidget);
+      expect(actions.cancelledIds, isEmpty);
     });
 
     testWidgets(
