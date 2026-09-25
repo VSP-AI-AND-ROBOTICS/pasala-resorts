@@ -11,6 +11,7 @@ import '../admin/units_screen.dart';
 import '../browse/providers.dart';
 import 'booking_rules_screen.dart';
 import 'cancellation_policy_screen.dart';
+import 'location_settings_screen.dart';
 import 'notification_settings_screen.dart';
 import 'payment_settings_screen.dart';
 import 'subscription_billing_card.dart';
@@ -78,6 +79,18 @@ class OwnerSettingsScreen extends ConsumerWidget {
                 color: scheme.primary,
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => PropertyPhotosScreen(propertyId: property.id),
+                )),
+              ),
+              _SettingsTile(
+                icon: Icons.place_outlined,
+                title: 'Map location',
+                subtitle: property.location == null
+                    ? 'Not set. Guests will not see how far away you are.'
+                    : '${property.latitude!.toStringAsFixed(4)}, '
+                        '${property.longitude!.toStringAsFixed(4)}',
+                color: scheme.primary,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => LocationSettingsScreen(property: property),
                 )),
               ),
               _SettingsTile(

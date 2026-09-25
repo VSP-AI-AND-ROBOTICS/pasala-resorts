@@ -5,7 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pasala/core/location/location_service.dart';
 import 'package:pasala/core/location/place_label.dart';
+import 'package:pasala/core/location/position_service.dart';
 import 'package:pasala/features/browse/location_badge.dart';
+
+import '../../support/fake_position_service.dart';
 
 class _FakeLocationService implements LocationService {
   _FakeLocationService(this._resolve);
@@ -90,5 +93,46 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('"Set location" also asks for the position again', (
+    tester,
+  ) async {
+    final service = _FakeLocationService(() async => null);
+    final position = FakePositionService();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          locationServiceProvider.overrideWithValue(service),
+          positionServiceProvider.overrideWithValue(position),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                const LocationBadge(),
+                // Stands in for the browse screen, which watches the
+                // position for its Distance sort.
+                Consumer(
+                  builder: (context, ref, _) {
+                    ref.watch(currentPositionProvider);
+                    return const SizedBox.shrink();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(position.approximateCalls, 1);
+
+    await tester.tap(find.text('Set location'));
+    await tester.pumpAndSettle();
+
+    expect(service.callCount, 2);
+    expect(position.approximateCalls, 2);
   });
 }

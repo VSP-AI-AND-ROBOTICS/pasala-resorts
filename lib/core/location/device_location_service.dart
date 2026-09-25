@@ -4,18 +4,23 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'geo_point.dart';
 import 'location_cache.dart';
 import 'location_service.dart';
 import 'nominatim.dart';
 import 'place_label.dart';
+import 'position_service.dart';
 
-/// The real [LocationService]: a device permission check/request, a
-/// low-accuracy position fix, and a reverse-geocode lookup against
-/// OpenStreetMap's Nominatim -- with the label cached for
-/// [LocationCache.validFor] so a returning guest isn't asked again on
-/// every app open. Sends nothing to this app's own backend; the
-/// coordinate goes to Nominatim only, and only to resolve a city name.
-class DeviceLocationService implements LocationService {
+/// The real [LocationService] and [PositionService]. It checks and
+/// requests the device permission, takes a position fix, and
+/// reverse-geocodes it against OpenStreetMap's Nominatim.
+///
+/// The label and a coarse position are each cached for
+/// [LocationCache.validFor], so a returning guest is not asked again on
+/// every app open. Only a coarse ([GeoPoint.coarse]) position is ever
+/// sent to this app's backend, for distance sorting. The exact
+/// coordinate goes only to Nominatim, to resolve a city name.
+class DeviceLocationService implements LocationService, PositionService {
   DeviceLocationService({required Future<SharedPreferences> prefs, http.Client? client})
     : _prefsFuture = prefs,
       _client = client ?? http.Client();
@@ -23,17 +28,18 @@ class DeviceLocationService implements LocationService {
   final Future<SharedPreferences> _prefsFuture;
   final http.Client _client;
 
+  /// The low-accuracy fix in flight, shared by [currentPlace] and
+  /// [approximatePosition]. The browse screen asks for both at once, and
+  /// without sharing a cold start would request the permission twice.
+  Future<Position?>? _lowFix;
+
   static const _reverseUrl = 'https://nominatim.openstreetmap.org/reverse';
 
   @override
   Future<PlaceLabel?> currentPlace() async {
-    // Wrapped end-to-end, not just around the geolocator/http calls below:
-    // `_prefsFuture` and `cache.write` are also fallible (see
-    // `core/current_resort.dart`'s own "wrap every shared_preferences
-    // access" rule) and must degrade to the same "unresolved" outcome as a
-    // denied permission or a network failure, never an uncaught error that
-    // reaches `currentPlaceProvider` as an `AsyncError` the badge has no
-    // dedicated state for.
+    // Wrapped end-to-end, not just around the geolocator/http calls:
+    // `_prefsFuture` and `cache.write` are fallible too, and must degrade
+    // to "unresolved" like a denied permission, never an uncaught error.
     try {
       final prefs = await _prefsFuture;
       final cache = LocationCache(prefs);
@@ -41,7 +47,10 @@ class DeviceLocationService implements LocationService {
       final cached = cache.read();
       if (cached != null) return cached;
 
-      final resolved = await _resolve();
+      final position = await _sharedLowFix();
+      if (position == null) return null;
+      final resolved =
+          await _reverseGeocode(position.latitude, position.longitude);
       if (resolved != null) await cache.write(resolved);
       return resolved;
     } catch (_) {
@@ -49,23 +58,51 @@ class DeviceLocationService implements LocationService {
     }
   }
 
-  Future<PlaceLabel?> _resolve() async {
-    if (!await _hasPermission()) return null;
-
-    final Position position;
+  @override
+  Future<GeoPoint?> approximatePosition() async {
     try {
-      position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.low,
-        ),
+      final prefs = await _prefsFuture;
+      final cache = LocationCache(prefs);
+
+      final cached = cache.readPoint();
+      if (cached != null) return cached;
+
+      final position = await _sharedLowFix();
+      if (position == null) return null;
+      final point = GeoPoint(position.latitude, position.longitude).coarse();
+      await cache.writePoint(point);
+      return point;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<GeoPoint?> precisePosition() async {
+    try {
+      final position = await _fix(LocationAccuracy.high);
+      return position == null
+          ? null
+          : GeoPoint(position.latitude, position.longitude);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Position?> _sharedLowFix() => _lowFix ??=
+      _fix(LocationAccuracy.low).whenComplete(() => _lowFix = null);
+
+  Future<Position?> _fix(LocationAccuracy accuracy) async {
+    if (!await _hasPermission()) return null;
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: LocationSettings(accuracy: accuracy),
       );
     } catch (_) {
       // Location services off, a platform error, or a timed-out fix --
-      // none of these should crash the badge, just leave it unresolved.
+      // none of these should crash a caller, just leave it unresolved.
       return null;
     }
-
-    return _reverseGeocode(position.latitude, position.longitude);
   }
 
   Future<bool> _hasPermission() async {
@@ -106,9 +143,8 @@ class DeviceLocationService implements LocationService {
       if (body is! Map<String, dynamic>) return null;
       return parseNominatimReverse(body);
     } catch (_) {
-      // A network failure (offline, DNS, timeout, ClientException on web)
-      // must never surface as an error state on the badge -- just leave
-      // the location unresolved so the "Set location" chip shows instead.
+      // A network failure must never surface as an error state on the
+      // badge -- just leave the location unresolved.
       return null;
     }
   }

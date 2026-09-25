@@ -1,180 +1,306 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/greeting.dart';
+import '../../core/location/geo_point.dart';
+import '../../core/location/position_service.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/theme_toggle_button.dart';
 import '../../core/theme/tokens.dart';
-import '../../core/widgets/async_view.dart';
-import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/failure_view.dart';
 import '../../core/widgets/hero_backdrop.dart';
 import '../../core/widgets/staggered_fade_in.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/property.dart';
+import '../../data/models/resort_search.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/resort_search_repository.dart';
 import '../shell/app_shell.dart' show showAccountSheet;
+import 'browse_filter_bar.dart';
 import 'location_badge.dart';
-import 'providers.dart';
+import 'resort_meta_line.dart';
 
+/// `/`: every bookable resort, searched and sorted by `search_resorts`
+/// (0060_guest_search.sql). ResortHub lists every active resort; the
+/// 2026-08-13 single-property redirect is superseded by the 2026-09-24
+/// tenancy spec.
+///
+/// The hero and the filter bar always stay on screen. Only the results
+/// area below them loads, fails or empties, so a guest typing into the
+/// search box never loses the field or its focus.
 class BrowseScreen extends ConsumerStatefulWidget {
   const BrowseScreen({super.key});
+
+  /// How long typing must pause before a search runs.
+  static const searchDebounce = Duration(milliseconds: 300);
 
   @override
   ConsumerState<BrowseScreen> createState() => _BrowseScreenState();
 }
 
 class _BrowseScreenState extends ConsumerState<BrowseScreen> {
+  final _searchController = TextEditingController();
+  Timer? _debounce;
+  String _text = '';
+  ResortSort _sort = ResortSort.recommended;
   String? _selectedAmenity;
+
+  /// The last results that finished loading, shown under a progress bar
+  /// while the next search runs (spec decision 20).
+  List<ResortSearchResult>? _lastResults;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(BrowseScreen.searchDebounce, () {
+      if (mounted) setState(() => _text = value.trim());
+    });
+  }
+
+  void _onSearchSubmitted(String value) {
+    _debounce?.cancel();
+    setState(() => _text = value.trim());
+  }
+
+  void _clearFilters() {
+    _debounce?.cancel();
+    _searchController.clear();
+    setState(() {
+      _text = '';
+      _selectedAmenity = null;
+      _sort = ResortSort.recommended;
+    });
+  }
+
+  /// Distance needs a position. Without one the sort quietly falls back to
+  /// Recommended, and the menu does not offer Distance at all.
+  ResortSearchQuery _queryFor(GeoPoint? origin) => ResortSearchQuery(
+        text: _text,
+        sort: _sort == ResortSort.distance && origin == null
+            ? ResortSort.recommended
+            : _sort,
+        amenities: [?_selectedAmenity],
+        origin: origin?.coarse(),
+      );
 
   @override
   Widget build(BuildContext context) {
-    final properties = ref.watch(propertiesProvider);
     final wide =
         MediaQuery.sizeOf(context).width >= PasalaTokens.wideBreakpoint;
+    final origin = ref.watch(currentPositionProvider).value;
+    final query = _queryFor(origin);
+    final results = ref.watch(resortSearchProvider(query));
+    // The chips come from the unfiltered list, so picking one never hides
+    // the others.
+    final everything = ref.watch(resortSearchProvider(ResortSearchQuery.all));
 
-    return AsyncView(
-      value: properties,
-      onRetry: () => ref.invalidate(propertiesProvider),
-      empty: () => const EmptyState(
-        icon: Icons.villa_outlined,
-        title: 'No properties yet',
-        message: 'Ask an admin to add one.',
-      ),
-      data: (list) {
-        // ResortHub lists every active resort, however many there are --
-        // the 2026-08-13 single-property redirect (straight to
-        // `/property/<id>` when there was exactly one) is superseded by
-        // the 2026-09-24 tenancy spec now that guests browse across
-        // resorts.
+    final fresh = results.value;
+    if (fresh != null) _lastResults = fresh;
+    final shown = fresh ?? _lastResults;
 
-        // Collect all distinct amenities present across properties
-        final allAmenities = <String>{};
-        for (final p in list) {
-          allAmenities.addAll(p.amenities);
-        }
-        final amenityList = allAmenities.toList()..sort();
+    final amenities = <String>{
+      for (final r in everything.value ?? const <ResortSearchResult>[])
+        ...r.property.amenities,
+      ?_selectedAmenity,
+    }.toList()
+      ..sort();
+    final sortOptions = [
+      for (final option in ResortSort.values)
+        if (option != ResortSort.distance || origin != null) option,
+    ];
 
-        final filteredList = _selectedAmenity == null
-            ? list
-            : list
-                .where((p) => p.amenities.contains(_selectedAmenity))
-                .toList();
-
-        return RefreshIndicator(
-          onRefresh: () async => ref.invalidate(propertiesProvider),
-          child: CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(child: _BrowseHero(wide: wide)),
-              if (amenityList.isNotEmpty)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.only(
-                      left: Spacing.md,
-                      right: Spacing.md,
-                      top: Spacing.md,
-                      bottom: Spacing.xs,
-                    ),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          FilterChip(
-                            label: const Text('All'),
-                            selected: _selectedAmenity == null,
-                            onSelected: (_) => setState(() => _selectedAmenity = null),
-                          ),
-                          const SizedBox(width: Spacing.xs),
-                          for (final amenity in amenityList) ...[
-                            FilterChip(
-                              label: Text(amenity),
-                              selected: _selectedAmenity == amenity,
-                              onSelected: (selected) => setState(() {
-                                _selectedAmenity = selected ? amenity : null;
-                              }),
-                            ),
-                            const SizedBox(width: Spacing.xs),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              if (filteredList.isEmpty)
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(Spacing.xl),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.filter_alt_off_outlined,
-                              size: 48,
-                              color: Theme.of(context).colorScheme.outline),
-                          const SizedBox(height: Spacing.md),
-                          Text(
-                            'No properties with "$_selectedAmenity"',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: Spacing.sm),
-                          TextButton(
-                            onPressed: () => setState(() => _selectedAmenity = null),
-                            child: const Text('Show all properties'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                )
-              else if (wide)
-                SliverPadding(
-                  padding: const EdgeInsets.all(Spacing.md),
-                  sliver: SliverGrid(
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: Spacing.md,
-                          crossAxisSpacing: Spacing.md,
-                          childAspectRatio: 0.82,
-                        ),
-                    delegate: SliverChildBuilderDelegate(
-                      (context, i) => StaggeredFadeIn(
-                        key: ValueKey(filteredList[i].id),
-                        index: i,
-                        child: PropertyCard(
-                          property: filteredList[i],
-                          onTap: () => context.go('/property/${filteredList[i].id}'),
-                        ),
-                      ),
-                      childCount: filteredList.length,
-                    ),
-                  ),
-                )
-              else
-                SliverPadding(
-                  padding: const EdgeInsets.all(Spacing.md),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, i) => Padding(
-                        padding: const EdgeInsets.only(bottom: Spacing.md),
-                        child: StaggeredFadeIn(
-                          key: ValueKey(filteredList[i].id),
-                          index: i,
-                          child: PropertyCard(
-                            property: filteredList[i],
-                            onTap: () => context.go('/property/${filteredList[i].id}'),
-                          ),
-                        ),
-                      ),
-                      childCount: filteredList.length,
-                    ),
-                  ),
-                ),
-            ],
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(resortSearchProvider),
+      child: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(child: _BrowseHero(wide: wide)),
+          SliverToBoxAdapter(
+            child: BrowseFilterBar(
+              controller: _searchController,
+              onSearchChanged: _onSearchChanged,
+              onSearchSubmitted: _onSearchSubmitted,
+              sort: query.sort,
+              sortOptions: sortOptions,
+              onSortChanged: (sort) => setState(() => _sort = sort),
+              amenities: amenities,
+              selectedAmenity: _selectedAmenity,
+              onAmenitySelected: (amenity) =>
+                  setState(() => _selectedAmenity = amenity),
+              showClear: query.hasFilters,
+              onClear: _clearFilters,
+            ),
           ),
-        );
-      },
+          if (results.isLoading && shown != null)
+            const SliverToBoxAdapter(
+              child: LinearProgressIndicator(
+                key: Key('browse-searching'),
+                minHeight: 2,
+              ),
+            ),
+          ..._resultSlivers(context, results, shown, query, wide),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _resultSlivers(
+    BuildContext context,
+    AsyncValue<List<ResortSearchResult>> results,
+    List<ResortSearchResult>? shown,
+    ResortSearchQuery query,
+    bool wide,
+  ) {
+    if (results.hasError && !results.isLoading) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: FailureView(
+            error: results.error!,
+            onRetry: () => ref.invalidate(resortSearchProvider(query)),
+          ),
+        ),
+      ];
+    }
+    if (shown == null) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+    if (shown.isEmpty) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: query.hasFilters
+              ? _CenteredMessage(
+                  icon: Icons.search_off,
+                  title: 'No resorts match your search',
+                  message: 'Try a different word or clear the filters.',
+                  action: TextButton(
+                    key: const Key('browse-empty-clear'),
+                    onPressed: _clearFilters,
+                    child: const Text('Clear filters'),
+                  ),
+                )
+              : const _CenteredMessage(
+                  icon: Icons.villa_outlined,
+                  title: 'No properties yet',
+                  message: 'Ask an admin to add one.',
+                ),
+        ),
+      ];
+    }
+
+    Widget card(int i) {
+      final result = shown[i];
+      return StaggeredFadeIn(
+        key: ValueKey(result.property.id),
+        index: i,
+        child: PropertyCard(
+          property: result.property,
+          distanceKm: result.distanceKm,
+          minPrice: result.minPrice,
+          avgRating: result.avgRating,
+          reviewCount: result.reviewCount,
+          onTap: () => context.go('/property/${result.property.id}'),
+        ),
+      );
+    }
+
+    if (wide) {
+      return [
+        SliverPadding(
+          padding: const EdgeInsets.all(Spacing.md),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: Spacing.md,
+              crossAxisSpacing: Spacing.md,
+              // 0.76, not 0.82: room for the meta line at the 840 px
+              // breakpoint.
+              childAspectRatio: 0.76,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, i) => card(i),
+              childCount: shown.length,
+            ),
+          ),
+        ),
+      ];
+    }
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.all(Spacing.md),
+        sliver: SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, i) => Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.md),
+              child: card(i),
+            ),
+            childCount: shown.length,
+          ),
+        ),
+      ),
+    ];
+  }
+}
+
+/// The results area's empty states. This is a plain `Column`, not
+/// `EmptyState`: `SliverFillRemaining(hasScrollBody: false)` measures its
+/// child's intrinsic height, and `EmptyState`'s `LayoutBuilder` cannot
+/// report one.
+class _CenteredMessage extends StatelessWidget {
+  const _CenteredMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: scheme.outline),
+            const SizedBox(height: Spacing.md),
+            Text(title,
+                style: textTheme.titleMedium, textAlign: TextAlign.center),
+            const SizedBox(height: Spacing.sm),
+            Text(
+              message,
+              style:
+                  textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+              textAlign: TextAlign.center,
+            ),
+            if (action != null) ...[
+              const SizedBox(height: Spacing.md),
+              action!,
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -435,10 +561,26 @@ class AmenityWrap extends StatelessWidget {
 const double _cardMediaMaxHeight = 220;
 
 class PropertyCard extends StatefulWidget {
-  const PropertyCard({super.key, required this.property, this.onTap});
+  const PropertyCard({
+    super.key,
+    required this.property,
+    this.onTap,
+    this.distanceKm,
+    this.minPrice,
+    this.avgRating,
+    this.reviewCount = 0,
+  });
 
   final Property property;
   final VoidCallback? onTap;
+
+  /// What `search_resorts` adds on the browse screen, shown by
+  /// [ResortMetaLine]. These are null on admin screens that reuse this
+  /// card, and then the line renders nothing.
+  final double? distanceKm;
+  final num? minPrice;
+  final double? avgRating;
+  final int reviewCount;
 
   @override
   State<PropertyCard> createState() => _PropertyCardState();
@@ -498,6 +640,12 @@ class _PropertyCardState extends State<PropertyCard> {
                           ),
                         ),
                       ],
+                      ResortMetaLine(
+                        avgRating: widget.avgRating,
+                        reviewCount: widget.reviewCount,
+                        distanceKm: widget.distanceKm,
+                        minPrice: widget.minPrice,
+                      ),
                       const SizedBox(height: Spacing.sm),
                       AmenityWrap(amenities: property.amenities),
                       const SizedBox(height: Spacing.sm),
