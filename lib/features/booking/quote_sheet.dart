@@ -289,7 +289,10 @@ class _QuoteSheetState extends State<QuoteSheet> {
   }
 
   void _apply() {
-    final code = _controller.text.trim();
+    // Codes are stored upper-case (0051's coupons_code_upper) and
+    // resolve_coupon compares exactly; textCapitalization does nothing on
+    // a desktop keyboard, so normalise here.
+    final code = _controller.text.trim().toUpperCase();
     if (code.isEmpty) return;
     unawaited(widget.onApplyCoupon(code));
   }

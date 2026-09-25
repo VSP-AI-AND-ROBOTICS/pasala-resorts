@@ -46,6 +46,7 @@ Widget _appFor({
       GoRoute(path: '/owner', builder: (_, _) => const OwnerHomeScreen()),
       GoRoute(path: '/admin/bookings', builder: (_, _) => const Text('Bookings screen')),
       GoRoute(path: '/staff/rooms', builder: (_, _) => const Text('Rooms screen')),
+      GoRoute(path: '/admin/coupons', builder: (_, _) => const Text('Coupons screen')),
       GoRoute(path: '/finance', builder: (_, _) => const Text('Finance screen')),
     ],
   );
@@ -100,6 +101,7 @@ void main() {
       'Occupancy',
       'Bookings',
       'Rooms',
+      'Coupons',
       'Food & activity sales',
       'Expenses',
       'Staff performance',
@@ -175,5 +177,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Finance screen'), findsOneWidget);
+  });
+
+  testWidgets('the Coupons tile opens the Coupons screen', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_appFor());
+    await tester.pumpAndSettle();
+
+    final couponsTile = find.text('Coupons');
+    await tester.ensureVisible(couponsTile);
+    await tester.pumpAndSettle();
+    await tester.tap(couponsTile);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Coupons screen'), findsOneWidget);
   });
 }

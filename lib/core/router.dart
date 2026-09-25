@@ -14,6 +14,7 @@ import '../features/admin/admin_more_screen.dart';
 import '../features/admin/admin_reviews_screen.dart';
 import '../features/admin/admin_home_screen.dart';
 import '../features/admin/attendance_screen.dart';
+import '../features/admin/coupons_screen.dart';
 import '../features/admin/kitchen_orders_screen.dart';
 import '../features/admin/maintenance_issues_screen.dart';
 import '../features/admin/reception_checkin_screen.dart';
@@ -532,6 +533,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/tasks',
             builder: (_, _) => const TasksScreen(),
+          ),
+          // Coupons (P1). Owner and admin only, through the /admin/* rule
+          // in redirectFor; list_coupons and the write functions assert the
+          // same roles in Postgres.
+          GoRoute(
+            path: '/admin/coupons',
+            builder: (_, _) => const CouponsScreen(),
           ),
           GoRoute(path: '/owner', builder: (_, _) => const OwnerHomeScreen()),
           GoRoute(

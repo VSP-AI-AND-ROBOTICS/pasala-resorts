@@ -96,7 +96,11 @@ final couponSourceProvider = Provider<CouponSource>(
 /// The coupons of one resort, keyed by property id so switching resort
 /// never shows another resort's coupons. `autoDispose`: the list refetches
 /// every time the screen is opened, and the screen invalidates it after
-/// its own writes.
+/// its own writes. `retry: null` -- Riverpod 3's default retry would
+/// otherwise re-fetch a failing list up to 10 times with a growing delay
+/// before the Coupons screen ever gets to show its own Retry button;
+/// CouponsScreen's tap-to-retry is the only retry this needs.
 final couponsProvider = FutureProvider.autoDispose.family<List<Coupon>, String>(
   (ref, propertyId) => ref.watch(couponSourceProvider).list(propertyId),
+  retry: (retryCount, error) => null,
 );

@@ -447,6 +447,29 @@ void main() {
     });
   });
 
+  group('coupons', () {
+    test('the app router registers /admin/coupons', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(null)),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      final router = container.read(routerProvider);
+
+      expect(_paths(router.configuration.routes), contains('/admin/coupons'));
+    });
+
+    test('/admin/coupons opens for owners and admins only', () {
+      expect(_to(_superAdmin, _ownerM, '/admin/coupons'), null);
+      expect(_to(_admin, _adminM, '/admin/coupons'), null);
+      expect(_to(_staff, _staffM, '/admin/coupons'), '/404');
+      expect(_to(_accountant, _accountantM, '/admin/coupons'), '/404');
+      expect(_to(_customer, null, '/admin/coupons'), '/404');
+    });
+  });
+
   group('finance', () {
     test('owner, admin and accountant open /finance', () {
       expect(_to(_superAdmin, _ownerM, '/finance'), null);
