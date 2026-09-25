@@ -15,7 +15,7 @@
 --      by O, a Pro trial ending in 10 days, one active unit (Cottage 1)
 --   D  "Listing D", active, Starter, paid with no end date
 begin;
-select plan(53);
+select plan(81);
 
 -- "Today" as the listing functions see it.
 create function pg_temp.today() returns date
@@ -300,6 +300,116 @@ select throws_ok($$insert into storage.objects (bucket_id, name)
   '42501', null, 'a path that names no resort is refused');
 reset role;
 set local request.jwt.claims to '';
+
+-- === Task 3: the checklist and submitting ==================================
+
+-- C so far: two active units (Cottage 1, Cottage 2), no rates, no photos,
+-- no payment methods, no refund rules, no GSTIN.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select is((select concat_ws('|', property_status, has_photos::text, has_unit::text, has_rates::text,
+                            has_payment_settings::text, has_cancellation_policy::text,
+                            has_tax_details::text, (submitted_at is null)::text)
+             from public.listing_setup_status('49100000-0000-4000-8000-00000000000c')),
+  'pending|false|true|false|false|false|false|true',
+  'a fresh pending resort has only its units done');
+select throws_ok($$select public.submit_listing_for_review('49100000-0000-4000-8000-00000000000c')$$,
+  'P0040', 'Finish the setup checklist before submitting.', 'an unfinished checklist cannot be submitted');
+
+-- The owner works through the checklist with the ordinary writes.
+select lives_ok($$update public.properties
+    set images = array['https://example.com/c1.jpg'],
+        payment_display_methods = array['UPI'],
+        gstin = '29abcde1234f1z5'
+  where id = '49100000-0000-4000-8000-00000000000c'$$,
+  'the owner adds a photo, a payment method and a GSTIN (lower case)');
+select lives_ok($$insert into public.refund_rules (property_id, min_days_before, refund_pct)
+  values ('49100000-0000-4000-8000-00000000000c', 7, 100)$$,
+  'the owner adds a cancellation rule');
+select lives_ok($$insert into public.rate_rules (unit_id, kind, price)
+  values ('49100000-0000-4000-8000-0000000000c1', 'base', 3000)$$,
+  'the owner prices Cottage 1');
+select is((select has_rates::text from public.listing_setup_status('49100000-0000-4000-8000-00000000000c')),
+  'false', 'every active unit needs a rate: Cottage 2 has none');
+select lives_ok($$insert into public.rate_rules (unit_id, kind, price, valid_from, valid_to)
+  values ('49100000-0000-4000-8000-0000000000c2', 'override', 3500, '2027-12-24', '2027-12-26')$$,
+  'the owner gives Cottage 2 a holiday override');
+select is((select has_rates::text from public.listing_setup_status('49100000-0000-4000-8000-00000000000c')),
+  'false', 'an override alone is a date range, not a standing price');
+select lives_ok($$update public.units set is_active = false
+  where id = '49100000-0000-4000-8000-0000000000c2'$$,
+  'the owner switches Cottage 2 off');
+select is((select has_rates::text from public.listing_setup_status('49100000-0000-4000-8000-00000000000c')),
+  'true', 'an inactive unit does not need a rate');
+select lives_ok($$update public.properties set gstin = '29ABCDE1234F1Z'
+  where id = '49100000-0000-4000-8000-00000000000c'$$,
+  'the owner mistypes the GSTIN');
+select is((select has_tax_details::text from public.listing_setup_status('49100000-0000-4000-8000-00000000000c')),
+  'false', 'a malformed GSTIN does not count');
+select lives_ok($$update public.properties set gstin = '29abcde1234f1z5'
+  where id = '49100000-0000-4000-8000-00000000000c'$$,
+  'the owner fixes it');
+select is((select concat_ws('|', property_status, has_photos::text, has_unit::text, has_rates::text,
+                            has_payment_settings::text, has_cancellation_policy::text,
+                            has_tax_details::text, (submitted_at is null)::text)
+             from public.listing_setup_status('49100000-0000-4000-8000-00000000000c')),
+  'pending|true|true|true|true|true|true|true', 'the checklist is complete');
+
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select is((select has_photos::text from public.listing_setup_status('49100000-0000-4000-8000-00000000000c')),
+  'true', 'the resort''s admin reads the checklist');
+select throws_ok($$select public.submit_listing_for_review('49100000-0000-4000-8000-00000000000c')$$,
+  'P0020', null, 'only the owner submits');
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select * from public.listing_setup_status('49100000-0000-4000-8000-00000000000c')$$,
+  'P0020', null, 'a stranger cannot read the checklist');
+
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select lives_ok($$select public.submit_listing_for_review('49100000-0000-4000-8000-00000000000c')$$,
+  'the owner submits a complete resort');
+select lives_ok($$select public.submit_listing_for_review('49100000-0000-4000-8000-00000000000c')$$,
+  'submitting twice is harmless');
+select is((select submitted_at is not null
+             from public.listing_setup_status('49100000-0000-4000-8000-00000000000c')),
+  true, 'the checklist shows the submission');
+select throws_ok($$select public.submit_listing_for_review('49100000-0000-4000-8000-00000000000d')$$,
+  'P0040', 'This resort is not waiting for review.', 'an active resort cannot be submitted');
+select is((select concat_ws('|', template, recipient, status::text, (reservation_id is null)::text)
+             from public.outbox where property_id = '49100000-0000-4000-8000-00000000000c'),
+  'listing_submitted|list-owner-c@example.com|pending|true',
+  'one submission email to the owner, with no reservation, readable by the owner');
+reset role;
+set local request.jwt.claims to '';
+
+select is((select count(*)::int from public.audit_log
+            where property_id = '49100000-0000-4000-8000-00000000000c' and action = 'listing:submit'),
+  1, 'one submit audit row');
+select ok((select body from public.outbox
+            where property_id = '49100000-0000-4000-8000-00000000000c'
+              and template = 'listing_submitted')
+          like 'Hi Chetan Owner, thank you for listing Listing C on ResortHub.%',
+  'the email is rendered with the owner''s and the resort''s names');
+select ok(not has_function_privilege('authenticated', 'public.listing_setup_flags(uuid)', 'execute'),
+  'listing_setup_flags is internal');
+select ok(not has_function_privilege('authenticated', 'public.enqueue_listing_message(uuid, text)', 'execute'),
+  'enqueue_listing_message is internal');
+
+-- P7's dispatcher claims listing emails too (not in the plan: 0056's
+-- claim_outbox_batch assumed every row has a reservation). A listing
+-- email has no reservation variables, and the resort's guest-notification
+-- toggles do not hold it back (spec decision 16).
+insert into public.notification_settings (property_id, email_enabled)
+  values ('49100000-0000-4000-8000-00000000000c', false)
+  on conflict (property_id) do update set email_enabled = false;
+select is((select vars::text from public.claim_outbox_batch(200)
+            where template = 'listing_submitted'),
+  '{}', 'the dispatcher claims a listing email, with no reservation variables');
+select is((select concat_ws('|', status::text, attempts) from public.outbox
+            where property_id = '49100000-0000-4000-8000-00000000000c'
+              and template = 'listing_submitted'),
+  'pending|1', 'the resort''s guest-email toggle does not hold back a listing email');
+delete from public.notification_settings
+  where property_id = '49100000-0000-4000-8000-00000000000c';
 
 select * from finish();
 rollback;

@@ -492,6 +492,303 @@ create policy property_photos_delete on storage.objects
                       where p.id::text = (storage.foldername(objects.name))[1]
                         and public.has_resort_role(p.id, true, 'owner','admin')));
 
+-- ---------------------------------------------------------------------
+-- Internal: the six checklist items (spec decision 10), computed on every
+-- read and never stored. A plain function, called only from the definers
+-- in this file.
+create function public.listing_setup_flags(p_property uuid)
+returns table(
+  has_photos              boolean,
+  has_unit                boolean,
+  has_rates               boolean,
+  has_payment_settings    boolean,
+  has_cancellation_policy boolean,
+  has_tax_details         boolean
+)
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select
+    cardinality(p.images) > 0,
+    exists (select 1 from public.units u where u.property_id = p.id and u.is_active),
+    exists (select 1 from public.units u where u.property_id = p.id and u.is_active)
+      and not exists (
+        select 1 from public.units u
+         where u.property_id = p.id and u.is_active
+           and not exists (select 1 from public.rate_rules r
+                            where r.unit_id = u.id and r.kind in ('base','weekend'))),
+    cardinality(p.payment_display_methods) > 0,
+    exists (select 1 from public.refund_rules rr where rr.property_id = p.id),
+    coalesce(upper(btrim(p.gstin)) ~ '^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$', false)
+  from public.properties p
+  where p.id = p_property;
+$$;
+
+revoke execute on function public.listing_setup_flags(uuid) from public, anon, authenticated;
+
+-- Internal: queues one platform-to-owner listing message (spec decision
+-- 16). The recipient is the applicant's sign-in email (or phone for a
+-- non-email template); the resort's guest-notification toggles do not
+-- apply. Silently does nothing without a platform template of that name.
+create function public.enqueue_listing_message(p_property uuid, p_template text)
+returns void
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_tpl       public.outbox_templates;
+  v_app       public.listing_applications;
+  v_property  public.properties;
+  v_profile   public.profiles;
+  v_email     text;
+  v_trial     date;
+  v_recipient text;
+  v_ctx       jsonb;
+  v_subject   text;
+  v_body      text;
+  v_key       text;
+begin
+  select * into v_tpl from public.outbox_templates
+   where name = p_template and property_id is null;
+  if not found then
+    return;
+  end if;
+
+  select * into v_app from public.listing_applications where property_id = p_property;
+  if not found then
+    return;
+  end if;
+
+  select * into v_property from public.properties where id = p_property;
+  select * into v_profile from public.profiles where id = v_app.applicant_id;
+  select email into v_email from auth.users where id = v_app.applicant_id;
+  select trial_ends_on into v_trial from public.resort_subscriptions where property_id = p_property;
+
+  v_recipient := case v_tpl.channel
+    when 'email' then nullif(btrim(coalesce(v_email, '')), '')
+    else nullif(btrim(coalesce(v_profile.phone, '')), '')
+  end;
+
+  if v_recipient is null then
+    insert into public.outbox (property_id, channel, recipient, template, status, last_error)
+    values (p_property, v_tpl.channel,
+            case v_tpl.channel when 'email' then 'no email on file' else 'no phone on file' end,
+            p_template, 'skipped',
+            format('cannot deliver via %s: applicant %s has no %s on file',
+                   v_tpl.channel, v_app.applicant_id,
+                   case v_tpl.channel when 'email' then 'email address' else 'phone number' end));
+    return;
+  end if;
+
+  -- Every value is coalesced: replace() returns NULL if any argument is
+  -- NULL, which would blank the whole message (see 0017).
+  v_ctx := jsonb_build_object(
+    'owner_name',    coalesce(nullif(btrim(v_profile.full_name), ''), 'there'),
+    'property_name', coalesce(v_property.name, 'your resort'),
+    'trial_ends_on', coalesce(to_char(v_trial, 'DD Mon YYYY'), ''),
+    'reason',        coalesce(v_app.rejection_reason, ''));
+
+  v_subject := v_tpl.subject_template;
+  v_body    := v_tpl.body_template;
+  for v_key in select jsonb_object_keys(v_ctx) loop
+    if v_subject is not null then
+      v_subject := replace(v_subject, '{{' || v_key || '}}', v_ctx ->> v_key);
+    end if;
+    v_body := replace(v_body, '{{' || v_key || '}}', v_ctx ->> v_key);
+  end loop;
+
+  insert into public.outbox (property_id, channel, recipient, template, subject, body, status)
+  values (p_property, v_tpl.channel, v_recipient, p_template, v_subject, v_body, 'pending');
+end;
+$$;
+
+revoke execute on function public.enqueue_listing_message(uuid, text) from public, anon, authenticated;
+
+-- Platform default templates (property_id null) for the three listing
+-- events. Email only; P7's dispatcher delivers them.
+insert into public.outbox_templates (name, event, channel, subject_template, body_template, property_id)
+values
+  ('listing_submitted', 'listing_submitted', 'email',
+   'We are reviewing {{property_name}}',
+   'Hi {{owner_name}}, thank you for listing {{property_name}} on ResortHub. '
+   'Our team is reviewing it and will email you when it is decided. You can '
+   'keep editing your setup in the meantime.',
+   null),
+  ('listing_approved', 'listing_approved', 'email',
+   '{{property_name}} is live on ResortHub',
+   'Hi {{owner_name}}, {{property_name}} has been approved. Guests can now '
+   'find and book it. Your free trial runs until {{trial_ends_on}}.',
+   null),
+  ('listing_rejected', 'listing_rejected', 'email',
+   'About your ResortHub listing for {{property_name}}',
+   'Hi {{owner_name}}, we could not approve {{property_name}} for listing. '
+   'Reason: {{reason}}. You can apply again from the ResortHub app.',
+   null)
+on conflict (name) do nothing;
+
+-- The checklist of one resort, for its owners and admins (a read, so it
+-- also answers at a suspended resort).
+create or replace function public.listing_setup_status(p_property uuid)
+returns table(
+  property_status         text,
+  submitted_at            timestamptz,
+  has_photos              boolean,
+  has_unit                boolean,
+  has_rates               boolean,
+  has_payment_settings    boolean,
+  has_cancellation_policy boolean,
+  has_tax_details         boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.assert_resort_role(p_property, false, 'owner','admin');
+
+  return query
+    select p.status, a.submitted_at, f.has_photos, f.has_unit, f.has_rates,
+           f.has_payment_settings, f.has_cancellation_policy, f.has_tax_details
+      from public.properties p
+      left join public.listing_applications a on a.property_id = p.id
+      cross join lateral public.listing_setup_flags(p.id) f
+     where p.id = p_property;
+end;
+$$;
+
+-- The owner submits a complete checklist (spec decision 11). Submitting
+-- again is a no-op; anything but an undecided application of a pending
+-- resort is P0040.
+create or replace function public.submit_listing_for_review(p_property uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_app    public.listing_applications;
+  v_status text;
+  v_flags  record;
+begin
+  perform public.assert_resort_role(p_property, true, 'owner');
+
+  select * into v_app from public.listing_applications
+   where property_id = p_property
+   for update;
+  select status into v_status from public.properties where id = p_property;
+  if v_app.property_id is null or v_app.decision is not null or v_status <> 'pending' then
+    raise exception 'This resort is not waiting for review.' using errcode = 'P0040';
+  end if;
+
+  if v_app.submitted_at is not null then
+    return;
+  end if;
+
+  select * into v_flags from public.listing_setup_flags(p_property);
+  if not (v_flags.has_photos and v_flags.has_unit and v_flags.has_rates
+          and v_flags.has_payment_settings and v_flags.has_cancellation_policy
+          and v_flags.has_tax_details) then
+    raise exception 'Finish the setup checklist before submitting.' using errcode = 'P0040';
+  end if;
+
+  update public.listing_applications
+     set submitted_at = now()
+   where property_id = p_property;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values (auth.uid(), 'listing', p_property, 'listing:submit', null,
+          jsonb_build_object('submitted_at', now()), p_property);
+
+  perform public.enqueue_listing_message(p_property, 'listing_submitted');
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+-- 0056's claim_outbox_batch, able to claim a listing message. Such a row
+-- has no reservation (its subject and body are rendered when queued), so
+-- it gets no reservation variables instead of raising from
+-- outbox_template_context -- which would abort the whole batch and stall
+-- every email. It is also exempt from the resort's guest-notification
+-- toggles (spec decision 16). Only those two statements changed.
+create or replace function public.claim_outbox_batch(p_limit int default 25)
+returns table (id uuid, property_id uuid, reservation_id uuid,
+               channel public.outbox_channel, recipient text, template text,
+               subject text, body text, attempts int, vars jsonb)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  v_limit   int := least(greatest(coalesce(p_limit, 25), 1), 200);
+  v_row     public.outbox;
+  v_enabled boolean;
+begin
+  for v_row in
+    select o.*
+      from public.outbox o
+     where o.status = 'pending'
+       and o.channel in ('email', 'sms')
+       and o.next_attempt_at <= now()
+     order by o.next_attempt_at, o.created_at, o.id
+     limit v_limit
+     for update skip locked
+  loop
+    -- A listing message (no reservation) goes to the resort's owner from
+    -- the platform: the resort's guest-notification toggles do not apply.
+    v_enabled := v_row.reservation_id is null or coalesce(
+      (select case v_row.channel
+                when 'email' then ns.email_enabled
+                when 'sms'   then ns.sms_enabled
+              end
+         from public.notification_settings ns
+        where ns.property_id = v_row.property_id),
+      true);
+
+    if not v_enabled then
+      update public.outbox o
+         set status = 'skipped',
+             last_error = format('%s notifications are disabled in this property''s settings',
+                                 v_row.channel)
+       where o.id = v_row.id;
+      continue;
+    end if;
+
+    if v_row.attempts >= 5 then
+      update public.outbox o
+         set status = 'failed',
+             last_error = coalesce(v_row.last_error, 'gave up after 5 attempts')
+       where o.id = v_row.id;
+      continue;
+    end if;
+
+    update public.outbox o
+       set attempts        = o.attempts + 1,
+           last_attempt_at = now(),
+           next_attempt_at = now() + interval '5 minutes'
+     where o.id = v_row.id;
+
+    id             := v_row.id;
+    property_id    := v_row.property_id;
+    reservation_id := v_row.reservation_id;
+    channel        := v_row.channel;
+    recipient      := v_row.recipient;
+    template       := v_row.template;
+    subject        := v_row.subject;
+    body           := v_row.body;
+    attempts       := v_row.attempts + 1;
+    vars           := case
+                        when v_row.reservation_id is null then '{}'::jsonb
+                        else public.outbox_template_context(v_row.reservation_id)
+                               - 'customer_email' - 'customer_phone'
+                      end;
+    return next;
+  end loop;
+end;
+$$;
+
 revoke execute on function public.apply_for_listing(text, text, text, text, text, public.subscription_tier) from public, anon;
 revoke execute on function public.my_listing_applications() from public, anon;
 revoke execute on function public.listing_setup_status(uuid) from public, anon;
