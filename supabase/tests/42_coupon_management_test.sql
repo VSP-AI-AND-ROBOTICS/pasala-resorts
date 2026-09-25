@@ -12,7 +12,7 @@
 -- straight into the table: OLD5 (3 of 5 uses taken) and KIRANVIP
 -- (restricted to Kiran).
 begin;
-select plan(17);
+select plan(62);
 
 insert into auth.users (id, email) values
   ('c0000000-0000-0000-0000-000000000001','cp-r-owner@example.com'),
@@ -155,6 +155,173 @@ select throws_ok($$insert into public.coupons (property_id, code, kind, value)
 select throws_ok($$insert into public.coupons (property_id, code, kind, value)
   values ('c1000000-0000-4000-8000-000000000001',' PAD1','fixed',100)$$,
   '23514', null, 'a code with surrounding spaces is refused by the table itself');
+
+-- === Task 2: create, update, activate ======================================
+
+select is((select array_agg(p.proname::text order by p.proname)
+             from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in ('coupon_check_input', 'is_resort_guest')
+              and not p.prosecdef
+              and not has_function_privilege('authenticated', p.oid, 'execute')
+              and not has_function_privilege('anon', p.oid, 'execute')),
+  array['coupon_check_input', 'is_resort_guest'],
+  'the input check and the guest rule are internal helpers nobody calls directly');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+
+select ok(public.create_coupon('c1000000-0000-4000-8000-000000000001', '  save10 ', 'percent', 10) is not null,
+  'an admin creates a coupon and gets its id back');
+select is((select code from public.coupons
+            where property_id = 'c1000000-0000-4000-8000-000000000001'
+              and kind = 'percent' and value = 10),
+  'SAVE10', 'the code is trimmed and upper-cased');
+select lives_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'SUMMER', 'fixed', 500,
+    5000, '2026-10-01', '2026-10-31', 10, 'c0000000-0000-0000-0000-000000000006')$$,
+  'an admin creates a coupon with every field, for a guest who booked here');
+select is((select min_booking_value || '|' || max_redemptions || '|' || customer_id || '|' ||
+                  (valid_from at time zone 'Asia/Kolkata') || '|' ||
+                  (valid_to at time zone 'Asia/Kolkata')
+             from public.coupons
+            where property_id = 'c1000000-0000-4000-8000-000000000001' and code = 'SUMMER'),
+  '5000.00|10|c0000000-0000-0000-0000-000000000006|2026-10-01 00:00:00|2026-10-31 23:59:59.999999',
+  'valid from/until cover whole days in the resort''s time zone');
+
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'AB', 'percent', 10)$$,
+  'P0033', 'code_invalid', 'a two-character code is refused');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'SAVE 20', 'percent', 10)$$,
+  'P0033', 'code_invalid', 'a code with a space inside is refused');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'ZERO', 'fixed', 0)$$,
+  'P0033', 'value_invalid', 'a zero discount is refused');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'MOST', 'percent', 101)$$,
+  'P0033', 'value_invalid', 'a percentage above 100 is refused');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'NOKIND', null, 10)$$,
+  'P0033', 'kind_required', 'a coupon needs a kind');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'NEGMIN', 'fixed', 100, -1)$$,
+  'P0033', 'min_amount_invalid', 'a negative minimum is refused');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'BACKWARD', 'fixed', 100,
+    null, '2026-10-10', '2026-10-01')$$,
+  'P0033', 'dates_invalid', 'an end date before the start date is refused');
+select lives_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'ONEDAY', 'fixed', 100,
+    null, '2026-10-10', '2026-10-10')$$,
+  'a coupon valid for one day is fine');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'NOUSE', 'fixed', 100,
+    null, null, null, 0)$$,
+  'P0033', 'usage_limit_invalid', 'a usage limit of 0 is refused');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'FOROLU', 'fixed', 100,
+    null, null, null, null, 'c0000000-0000-0000-0000-000000000007')$$,
+  'P0033', 'guest_not_eligible', 'a guest who booked only at another resort cannot be chosen');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'FORHANA', 'fixed', 100,
+    null, null, null, null, 'c0000000-0000-0000-0000-000000000008')$$,
+  'P0033', 'guest_not_eligible', 'a guest with only a hold cannot be chosen');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'FORKIRAN', 'fixed', 100,
+    null, null, null, null, 'c0000000-0000-0000-0000-000000000009')$$,
+  'P0033', 'guest_not_eligible', 'a guest whose only booking was cancelled cannot be chosen');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'save10', 'fixed', 100)$$,
+  'P0033', 'code_taken', 'a code already used at this resort is refused, whatever its case');
+
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'STAFF1', 'fixed', 100)$$,
+  'P0020', null, 'staff cannot create coupons');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'ACCT1', 'fixed', 100)$$,
+  'P0020', null, 'an accountant cannot create coupons');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'GUEST1', 'fixed', 100)$$,
+  'P0020', null, 'a guest cannot create coupons');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'PLAT1', 'fixed', 100)$$,
+  'P0020', null, 'the platform admin cannot create coupons at a resort');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select lives_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'OWNER1', 'fixed', 250)$$,
+  'the owner creates coupons');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select lives_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000002', 'SAVE10', 'percent', 5)$$,
+  'another resort can use the same code');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'SNEAKY', 'fixed', 100)$$,
+  'P0020', null, 'another resort''s owner cannot create coupons here');
+
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select lives_ok($$select public.update_coupon(
+    (select id from public.coupons
+      where property_id = 'c1000000-0000-4000-8000-000000000001' and code = 'SAVE10'),
+    'save15', 'percent', 15)$$,
+  'an admin edits a coupon');
+select is((select code || '|' || value || '|' || coalesce(max_redemptions::text, 'none')
+             from public.coupons
+            where property_id = 'c1000000-0000-4000-8000-000000000001'
+              and kind = 'percent' and value = 15),
+  'SAVE15|15.00|none', 'the edit replaced the code and the value');
+select throws_ok($$select public.update_coupon('c1000000-0000-4000-8000-000000000031', 'OLD5', 'fixed', 500,
+    null, null, null, 2)$$,
+  'P0033', 'usage_limit_below_used', 'the usage limit cannot drop below the 3 uses already taken');
+select lives_ok($$select public.update_coupon('c1000000-0000-4000-8000-000000000031', 'OLD5', 'fixed', 500,
+    null, null, null, 3)$$,
+  'the usage limit can equal the uses already taken');
+select lives_ok($$select public.update_coupon('c1000000-0000-4000-8000-000000000032', 'KIRANVIP', 'percent', 25,
+    null, null, null, null, 'c0000000-0000-0000-0000-000000000009')$$,
+  'a coupon keeps the guest it already had, even one who could not be chosen today');
+select throws_ok($$select public.update_coupon('c1000000-0000-4000-8000-000000000032', 'KIRANVIP', 'percent', 25,
+    null, null, null, null, 'c0000000-0000-0000-0000-000000000008')$$,
+  'P0033', 'guest_not_eligible', 'switching to a guest who never booked here is refused');
+select throws_ok($$select public.update_coupon('c1000000-0000-4000-8000-0000000000ff', 'NOPE', 'fixed', 1)$$,
+  'P0002', null, 'editing an unknown coupon is P0002');
+select throws_ok($$select public.update_coupon('c1000000-0000-4000-8000-000000000031', 'OWNER1', 'fixed', 500,
+    null, null, null, 3)$$,
+  'P0033', 'code_taken', 'renaming onto another coupon''s code is refused');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.update_coupon('c1000000-0000-4000-8000-000000000031', 'OLD5', 'fixed', 1)$$,
+  'P0020', null, 'staff cannot edit coupons');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok($$select public.update_coupon('c1000000-0000-4000-8000-000000000031', 'OLD5', 'fixed', 1)$$,
+  'P0020', null, 'another resort''s owner cannot edit this resort''s coupons');
+
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select lives_ok($$select public.set_coupon_active(
+    (select id from public.coupons
+      where property_id = 'c1000000-0000-4000-8000-000000000001' and code = 'SAVE15'), false)$$,
+  'an admin deactivates a coupon');
+select is((select is_active from public.coupons
+            where property_id = 'c1000000-0000-4000-8000-000000000001' and code = 'SAVE15'),
+  false, 'the coupon is now inactive');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select throws_ok($$select public.get_quote('c1000000-0000-4000-8000-000000000011',
+    tstzrange(now() + interval '40 days', now() + interval '41 days', '[)'), 2, null, 'SAVE15')$$,
+  'P0010', null, 'a guest cannot apply a deactivated coupon');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select lives_ok($$select public.set_coupon_active(
+    (select id from public.coupons
+      where property_id = 'c1000000-0000-4000-8000-000000000001' and code = 'SAVE15'), true)$$,
+  'an admin reactivates it');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select is((public.get_quote('c1000000-0000-4000-8000-000000000011',
+             tstzrange(now() + interval '40 days', now() + interval '41 days', '[)'), 2, null, 'SAVE15')
+           -> 'coupon' ->> 'discount')::numeric,
+  1500::numeric, 'a coupon made here applies through the unchanged get_quote: 15% of 10,000');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.set_coupon_active('c1000000-0000-4000-8000-000000000031', false)$$,
+  'P0020', null, 'staff cannot deactivate coupons');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$select public.set_coupon_active('c1000000-0000-4000-8000-0000000000ff', false)$$,
+  'P0002', null, 'deactivating an unknown coupon is P0002');
+select throws_ok($$select public.set_coupon_active('c1000000-0000-4000-8000-000000000031', null)$$,
+  'P0005', null, 'set_coupon_active needs true or false');
+
+reset role;
+set local request.jwt.claims to '';
+select is((select array_agg(a.action order by a.id)
+             from public.audit_log a
+             join public.coupons c on c.id = a.entity_id
+            where a.entity = 'coupon'
+              and c.property_id = 'c1000000-0000-4000-8000-000000000001'
+              and c.code = 'SAVE15'),
+  array['create','update','deactivate','activate'], 'every change to a coupon is audited');
+select is((select count(*)::int from public.audit_log
+            where entity = 'coupon'
+              and property_id = 'c1000000-0000-4000-8000-000000000001'
+              and actor_id is null),
+  0, 'every coupon audit row names who made the change');
 
 select * from finish();
 rollback;
