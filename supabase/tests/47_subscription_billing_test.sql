@@ -13,7 +13,7 @@
 --   R4 Bill Lapsed     pro, active, paid until 3 days ago
 --   R5 Bill None       no subscription row
 begin;
-select plan(20);
+select plan(50);
 
 -- "Today" as the subscription functions see it.
 create function pg_temp.today() returns date
@@ -162,6 +162,127 @@ set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000001","
 select is((select count(*)::int from public.billing_subscriptions)
           + (select count(*)::int from public.subscription_invoices), 0,
   'the platform admin has no direct row access');
+reset role;
+set local request.jwt.claims to '';
+delete from public.billing_subscriptions;
+
+-- === Task 2: plan ids and the reads ========================================
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$select public.set_plan_razorpay_id('pro', 'plan_ProMonthly0001')$$,
+  'P0008', null, 'only the platform admin sets a plan id');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select throws_ok($$select public.set_plan_razorpay_id('pro', 'pro-monthly')$$,
+  'P0005', null, 'a malformed plan id is refused with a message for the admin');
+select lives_ok($$select public.set_plan_razorpay_id('pro', ' plan_ProMonthly0001 ')$$,
+  'the platform admin sets Pro''s plan id (trimmed)');
+select lives_ok($$select public.set_plan_razorpay_id('pro', 'plan_ProMonthly0001')$$,
+  'setting the same id again is a no-op');
+select throws_ok($$select public.set_plan_razorpay_id('starter', 'plan_ProMonthly0001')$$,
+  'P0005', null, 'one Razorpay plan cannot back two tiers');
+select lives_ok($$select public.set_plan_razorpay_id('starter', 'plan_StarterMon001')$$,
+  'Starter gets its own plan id');
+select lives_ok($$select public.set_plan_razorpay_id('enterprise', '')$$,
+  'a blank id leaves Enterprise billed by hand');
+reset role;
+set local request.jwt.claims to '';
+select is((select array_agg(tier::text || ':' || coalesce(razorpay_plan_id, '-') order by sort_order)
+             from public.subscription_plans),
+  array['starter:plan_StarterMon001','pro:plan_ProMonthly0001','enterprise:-'],
+  'the plan ids are stored');
+select is((select count(*)::int from public.audit_log
+            where entity = 'subscription_plan' and action like 'razorpay_plan:%'),
+  2, 'each real change is audited once; the no-ops are not');
+
+-- billing_subscribe_state, as the owner.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$select public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'enterprise')$$,
+  'P0038', null, 'a tier without a Razorpay plan cannot be paid online');
+select is(public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro') ->> 'plan_id',
+  'plan_ProMonthly0001', 'the state carries the tier''s plan id');
+select is((public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro') ->> 'start_at')::bigint,
+  pg_temp.ist(pg_temp.today() + 11),
+  'a trial resort''s auto-pay starts the day after the trial ends (midnight IST)');
+select is(public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro')
+            - array['property_id','property_name','caller_id','notify_email','tier','plan_id','start_at'],
+  '{"current": null, "stale": []}'::jsonb, 'no current subscription and nothing stale yet');
+select is((select jsonb_build_object('email', s -> 'notify_email', 'caller', s -> 'caller_id',
+                                     'name', s -> 'property_name')
+             from public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro') s),
+  '{"email": "bill-owner@example.com", "caller": "b8000000-0000-0000-0000-000000000002", "name": "Bill Trial"}'::jsonb,
+  'the state names the owner to notify and the resort');
+select is(public.billing_subscribe_state('b8100000-0000-4000-8000-000000000003', 'starter') -> 'start_at',
+  'null'::jsonb,
+  'a suspended resort''s owner can still set up auto-pay; no end date means it starts now');
+select is(public.billing_subscribe_state('b8100000-0000-4000-8000-000000000004', 'pro') -> 'start_at',
+  'null'::jsonb, 'a lapsed plan starts auto-pay straight away');
+select is(public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001') -> 'plan_id',
+  'null'::jsonb, 'without a tier (a cancel) no plan id is needed');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro')$$,
+  'P0020', null, 'an admin cannot start auto-pay (owner only)');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro')$$,
+  'P0020', null, 'staff cannot start auto-pay');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select throws_ok($$select public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro')$$,
+  'P0020', null, 'a guest cannot start auto-pay');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select throws_ok($$select public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro')$$,
+  'P0020', null, 'the platform admin cannot start a resort''s auto-pay');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok($$select public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro')$$,
+  'P0020', null, 'another resort''s owner cannot start it');
+select is((public.billing_subscribe_state('b8100000-0000-4000-8000-000000000002', 'pro') ->> 'start_at')::bigint,
+  pg_temp.ist(pg_temp.today() + 6),
+  'a paid resort''s auto-pay starts the day after its paid period');
+
+-- The reads, over a current subscription, a replaced one still live, and
+-- two payments.
+reset role;
+set local request.jwt.claims to '';
+insert into public.billing_subscriptions
+  (id, property_id, tier, razorpay_plan_id, razorpay_subscription_id, status, superseded_at)
+values ('b8200000-0000-4000-8000-000000000011', 'b8100000-0000-4000-8000-000000000001',
+        'starter', 'plan_StarterMon001', 'sub_ReadOld000001', 'active', now());
+insert into public.billing_subscriptions
+  (id, property_id, tier, razorpay_plan_id, razorpay_subscription_id, status, short_url, current_end)
+values ('b8200000-0000-4000-8000-000000000012', 'b8100000-0000-4000-8000-000000000001',
+        'pro', 'plan_ProMonthly0001', 'sub_ReadCheck00001', 'active', 'https://rzp.io/i/read',
+        now() + interval '20 days');
+insert into public.subscription_invoices
+  (billing_subscription_id, tier, razorpay_payment_id, amount_inr, paid_at)
+values
+  ('b8200000-0000-4000-8000-000000000011', 'starter', 'pay_ReadOld000001', 2999, now() - interval '40 days'),
+  ('b8200000-0000-4000-8000-000000000012', 'pro', 'pay_ReadNew000001', 7999, now() - interval '10 days');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select is((select jsonb_build_object('current', s -> 'current' -> 'razorpay_subscription_id',
+                                     'stale', s -> 'stale')
+             from public.billing_subscribe_state('b8100000-0000-4000-8000-000000000001', 'pro') s),
+  '{"current": "sub_ReadCheck00001", "stale": ["sub_ReadOld000001"]}'::jsonb,
+  'the state names the current subscription and the replaced one still live');
+select is((select billing_status || '|' || billing_tier::text || '|' || cancel_at_cycle_end::text
+                  || '|' || last_payment_inr::text
+             from public.my_resort_billing('b8100000-0000-4000-8000-000000000001')),
+  'active|pro|false|7999.00', 'the owner reads auto-pay state and the latest payment');
+select is((select count(*)::int from public.my_resort_billing('b8100000-0000-4000-8000-000000000005')),
+  0, 'a resort that never had auto-pay has no billing row');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select * from public.my_resort_billing('b8100000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'an admin cannot read billing (owner only)');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$select * from public.platform_billing()$$,
+  'P0008', null, 'only the platform admin reads the console''s billing');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select is((select array_agg(property_id::text) from public.platform_billing()),
+  array['b8100000-0000-4000-8000-000000000001'],
+  'the console lists only resorts with auto-pay or payments');
+select is((select billing_status || '|' || last_payment_inr::text from public.platform_billing()),
+  'active|7999.00', 'the console sees the latest payment');
 reset role;
 set local request.jwt.claims to '';
 delete from public.billing_subscriptions;

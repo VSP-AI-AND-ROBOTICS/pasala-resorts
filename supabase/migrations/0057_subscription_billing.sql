@@ -103,6 +103,9 @@ create policy subscription_invoices_read on public.subscription_invoices
 -- Functions. The signatures are the contract the app and the Edge
 -- Functions are built against; Tasks 2-4 of the plan replace the bodies.
 
+-- The platform admin sets or clears (blank) the Razorpay plan behind a
+-- tier (spec decision 3). A platform event: the audit row has no
+-- property_id.
 create function public.set_plan_razorpay_id(
   p_tier    public.subscription_tier,
   p_plan_id text
@@ -111,11 +114,56 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_old public.subscription_plans;
+  v_id  text := nullif(btrim(p_plan_id), '');
 begin
-  raise exception 'set_plan_razorpay_id is not implemented yet' using errcode = '0A000';
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  if p_tier is null then
+    raise exception 'Choose a plan.' using errcode = 'P0005';
+  end if;
+
+  if v_id is not null and v_id !~ '^plan_[A-Za-z0-9]{6,40}$' then
+    raise exception 'A Razorpay plan id looks like plan_ followed by letters and digits.'
+      using errcode = 'P0005';
+  end if;
+
+  select * into v_old from public.subscription_plans where tier = p_tier for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+
+  if v_old.razorpay_plan_id is not distinct from v_id then
+    return;
+  end if;
+
+  if v_id is not null and exists (
+       select 1 from public.subscription_plans
+        where razorpay_plan_id = v_id and tier <> p_tier) then
+    raise exception 'That Razorpay plan id is already used by another plan.'
+      using errcode = 'P0005';
+  end if;
+
+  update public.subscription_plans
+     set razorpay_plan_id = v_id,
+         updated_at = now()
+   where tier = p_tier;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values (auth.uid(), 'subscription_plan', v_old.id,
+          'razorpay_plan:' || coalesce(v_old.razorpay_plan_id, 'none') || '->' || coalesce(v_id, 'none'),
+          jsonb_build_object('razorpay_plan_id', v_old.razorpay_plan_id),
+          jsonb_build_object('razorpay_plan_id', v_id),
+          null);
 end;
 $$;
 
+-- The resort's current auto-pay and its latest payment, for its owner
+-- only (spec decision 4). A read, so it works at a suspended resort.
+-- Zero rows when the resort never had auto-pay or a payment.
 create function public.my_resort_billing(p_property uuid)
 returns table(
   billing_status      text,
@@ -132,10 +180,28 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  raise exception 'my_resort_billing is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property, false, 'owner');
+
+  return query
+    select b.status, b.tier, b.short_url, coalesce(b.cancel_at_cycle_end, false),
+           b.current_end, i.paid_at, i.amount_inr
+      from (select 1) as one
+      left join public.billing_subscriptions b
+        on b.property_id = p_property and b.superseded_at is null
+      left join lateral (
+        select si.paid_at, si.amount_inr
+          from public.subscription_invoices si
+         where si.property_id = p_property
+         order by si.paid_at desc
+         limit 1
+      ) i on true
+     where b.id is not null or i.paid_at is not null;
 end;
 $$;
 
+-- The console's billing column (spec decision 16): per resort, the
+-- current auto-pay state and the latest payment. Only resorts that ever
+-- had auto-pay or a payment.
 create function public.platform_billing()
 returns table(
   property_id      uuid,
@@ -150,10 +216,32 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  raise exception 'platform_billing is not implemented yet' using errcode = '0A000';
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  return query
+    select p.id, b.status, b.tier, i.paid_at, i.amount_inr
+      from public.properties p
+      left join public.billing_subscriptions b
+        on b.property_id = p.id and b.superseded_at is null
+      left join lateral (
+        select si.paid_at, si.amount_inr
+          from public.subscription_invoices si
+         where si.property_id = p.id
+         order by si.paid_at desc
+         limit 1
+      ) i on true
+     where b.id is not null or i.paid_at is not null
+     order by p.created_at, p.name;
 end;
 $$;
 
+-- Everything billing-subscribe needs to decide, read as the owner (spec
+-- decisions 4, 6, 8 and 14). Read mode, so a suspended resort's owner can
+-- still pay. With a tier that has no Razorpay plan: P0038. start_at is
+-- midnight Asia/Kolkata after the trial or paid period, when that period
+-- has not ended yet; otherwise null (start now).
 create function public.billing_subscribe_state(
   p_property uuid,
   p_tier     public.subscription_tier default null
@@ -163,8 +251,61 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_name    text;
+  v_plan_id text;
+  v_sub     public.resort_subscriptions;
+  v_cur     public.billing_subscriptions;
+  v_today   date := (now() at time zone 'Asia/Kolkata')::date;
+  v_end     date;
+  v_start   timestamptz;
 begin
-  raise exception 'billing_subscribe_state is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property, false, 'owner');
+
+  select name into v_name from public.properties where id = p_property;
+
+  if p_tier is not null then
+    select razorpay_plan_id into v_plan_id
+      from public.subscription_plans where tier = p_tier;
+    if v_plan_id is null then
+      raise exception using errcode = 'P0038', message = 'billing_unavailable';
+    end if;
+  end if;
+
+  select * into v_sub from public.resort_subscriptions where property_id = p_property;
+  v_end := case v_sub.status
+             when 'trial' then v_sub.trial_ends_on
+             when 'active' then v_sub.paid_through
+           end;
+  if v_end is not null and v_end >= v_today then
+    v_start := (v_end + 1)::timestamp at time zone 'Asia/Kolkata';
+  end if;
+
+  select * into v_cur from public.billing_subscriptions
+   where property_id = p_property and superseded_at is null;
+
+  return jsonb_build_object(
+    'property_id', p_property,
+    'property_name', v_name,
+    'caller_id', auth.uid(),
+    'notify_email', (select u.email::text from auth.users u where u.id = auth.uid()),
+    'tier', p_tier,
+    'plan_id', v_plan_id,
+    'start_at', case when v_start is null then null
+                     else extract(epoch from v_start)::bigint end,
+    'current', case when v_cur.id is null then null else jsonb_build_object(
+        'razorpay_subscription_id', v_cur.razorpay_subscription_id,
+        'tier', v_cur.tier,
+        'status', v_cur.status,
+        'short_url', v_cur.short_url,
+        'cancel_at_cycle_end', v_cur.cancel_at_cycle_end) end,
+    'stale', coalesce((
+        select jsonb_agg(b.razorpay_subscription_id order by b.created_at)
+          from public.billing_subscriptions b
+         where b.property_id = p_property
+           and b.superseded_at is not null
+           and b.status in ('created','authenticated','active','pending','paused')),
+      '[]'::jsonb));
 end;
 $$;
 
