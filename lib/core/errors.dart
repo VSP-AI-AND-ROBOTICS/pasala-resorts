@@ -55,14 +55,6 @@ class NoAccountFound extends BookingFailure {
       : super('No account with that email — ask them to sign up first.');
 }
 
-/// A 400/422 from Supabase auth: a mistyped password on sign-in, or a
-/// duplicate email on sign-up. Kept distinct from [NotPermitted] (I7) --
-/// without this, every one of those looked identical to "you don't have
-/// access", including on the app's very first screen, before the customer
-/// has anything to have access to. [message] comes straight from
-/// [AuthException.message], which -- unlike [PostgrestException.message] --
-/// is already written for an end user (e.g. "Invalid login credentials",
-/// "User already registered"), so it is safe to show verbatim.
 /// P0030 -- `set_room_status` refused Maintenance without a reason. The
 /// room sheet asks for one first, so this is a backstop.
 class ReasonRequired extends BookingFailure {
@@ -77,6 +69,14 @@ class AlreadyDispatched extends BookingFailure {
       : super('Housekeeping is already on its way to this room.');
 }
 
+/// A 400/422 from Supabase auth: a mistyped password on sign-in, or a
+/// duplicate email on sign-up. Kept distinct from [NotPermitted] (I7) --
+/// without this, every one of those looked identical to "you don't have
+/// access", including on the app's very first screen, before the customer
+/// has anything to have access to. [message] comes straight from
+/// [AuthException.message], which -- unlike [PostgrestException.message] --
+/// is already written for an end user (e.g. "Invalid login credentials",
+/// "User already registered"), so it is safe to show verbatim.
 class InvalidCredentials extends BookingFailure {
   const InvalidCredentials(super.message);
 }
