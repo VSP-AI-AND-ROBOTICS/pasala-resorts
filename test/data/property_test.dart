@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pasala/core/location/geo_point.dart';
 import 'package:pasala/data/models/property.dart';
 
 void main() {
@@ -63,6 +64,53 @@ void main() {
 
       expect(property.fnbTaxPct, 0);
       expect(property.spaTaxPct, 0);
+    });
+  });
+
+  group('Property coordinates', () {
+    test('reads lat/lng into latitude, longitude and location', () {
+      final property = Property.fromJson(const {
+        'id': 'p1',
+        'name': 'Pasala Riverside',
+        'slug': 'riverside',
+        'lat': 17.385044,
+        'lng': 78.486671,
+      });
+
+      expect(property.latitude, 17.385044);
+      expect(property.longitude, 78.486671);
+      expect(property.location, const GeoPoint(17.385044, 78.486671));
+    });
+
+    test('location is null when the resort has no coordinates', () {
+      final property = Property.fromJson(const {
+        'id': 'p1',
+        'name': 'Pasala Riverside',
+        'slug': 'riverside',
+      });
+
+      expect(property.latitude, isNull);
+      expect(property.location, isNull);
+    });
+
+    test('toInsert never writes the coordinates (Map location owns them)', () {
+      const property = Property(
+        id: 'p1',
+        name: 'Pasala Riverside',
+        slug: 'riverside',
+        description: null,
+        address: null,
+        images: [],
+        amenities: [],
+        checkInTime: '14:00',
+        checkOutTime: '11:00',
+        isActive: true,
+        latitude: 17.3,
+        longitude: 78.4,
+      );
+
+      expect(property.toInsert().containsKey('lat'), isFalse);
+      expect(property.toInsert().containsKey('lng'), isFalse);
     });
   });
 }

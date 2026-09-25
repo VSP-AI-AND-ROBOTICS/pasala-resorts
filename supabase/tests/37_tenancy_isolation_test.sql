@@ -487,7 +487,11 @@ select is(
         -- check of its own, but it only ever fires on a row the reviews_insert
         -- policy already restricted to customer_id = auth.uid(), so it just
         -- re-reads the inserting guest's own profile.
-        'properties_guard_status','reviews_set_author_name'])),
+        'properties_guard_status','reviews_set_author_name',
+        -- 0060: guest search. It takes no resort id and returns only
+        -- active resorts' catalog fields and rating aggregates, so anon
+        -- may call it and it needs no role assertion.
+        'search_resorts'])),
   null, 'every security definer function is on the reviewed allow-list');
 
 select * from finish();

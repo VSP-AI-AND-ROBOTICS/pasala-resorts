@@ -84,6 +84,14 @@ class AlreadyDispatched extends BookingFailure {
       : super('Housekeeping is already on its way to this room.');
 }
 
+/// P0041 -- `search_resorts` refused its input: an unknown sort, half a
+/// position, an out-of-range coordinate, or a query over 100 characters.
+/// The browse screen never sends any of these, so this is a backstop.
+class InvalidSearch extends BookingFailure {
+  const InvalidSearch()
+      : super('That search could not be run. Clear the filters and try again.');
+}
+
 /// P0040 -- a listing-state refusal (0059_resort_self_listing.sql): a
 /// second open application, submitting an unfinished checklist, deciding
 /// an application twice, approving one that was never submitted. The
@@ -256,6 +264,9 @@ BookingFailure mapPostgrestError(Object error) {
     // (`reason_required`, `already_dispatched`), so the copy lives here.
     'P0030' => const ReasonRequired(),
     'P0031' => const AlreadyDispatched(),
+    // P0041: guest search (0060). The server sends the bare code word
+    // `invalid_search`, so the copy lives here.
+    'P0041' => const InvalidSearch(),
     // P0040: resort self-listing (0059). Messages are written for the
     // reader.
     'P0040' => ListingBlocked(message),

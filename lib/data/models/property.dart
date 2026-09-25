@@ -1,3 +1,5 @@
+import '../../core/location/geo_point.dart';
+
 class Property {
   const Property({
     required this.id,
@@ -19,6 +21,8 @@ class Property {
     this.gatewayDisplayName,
     this.fnbTaxPct = 0,
     this.spaTaxPct = 0,
+    this.latitude,
+    this.longitude,
   });
 
   final String id;
@@ -55,6 +59,17 @@ class Property {
   final num fnbTaxPct;
   final num spaTaxPct;
 
+  /// `properties.lat`/`lng`: the resort's map position. The owner sets it
+  /// on the Map location screen through `CatalogRepository.updateSettings`,
+  /// and it is not part of [toInsert]. The table requires both or neither
+  /// (0060_guest_search.sql).
+  final double? latitude;
+  final double? longitude;
+
+  GeoPoint? get location => latitude != null && longitude != null
+      ? GeoPoint(latitude!, longitude!)
+      : null;
+
   /// Postgres `time` columns round-trip as `HH:mm:ss` (e.g. `14:00:00`), but
   /// every writer in this app -- `showTimePicker` via [PropertyFormScreen],
   /// and the `HH:mm` defaults below -- only ever produces `HH:mm`. Normalising
@@ -89,6 +104,8 @@ class Property {
         gatewayDisplayName: json['gateway_display_name'] as String?,
         fnbTaxPct: (json['fnb_tax_pct'] as num?) ?? 0,
         spaTaxPct: (json['spa_tax_pct'] as num?) ?? 0,
+        latitude: (json['lat'] as num?)?.toDouble(),
+        longitude: (json['lng'] as num?)?.toDouble(),
       );
 
   Map<String, dynamic> toInsert() => {

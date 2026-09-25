@@ -63,6 +63,13 @@ void main() {
     expect(failure.message, 'Housekeeping is already on its way to this room.');
   });
 
+  test('P0041 maps to InvalidSearch with readable copy', () {
+    final failure = map('P0041', 'invalid_search');
+    expect(failure, isA<InvalidSearch>());
+    expect(failure.message,
+        'That search could not be run. Clear the filters and try again.');
+  });
+
   test('P0040 maps to ListingBlocked and keeps the server message', () {
     final failure = map('P0040', 'Finish the setup checklist before submitting.');
     expect(failure, isA<ListingBlocked>());
