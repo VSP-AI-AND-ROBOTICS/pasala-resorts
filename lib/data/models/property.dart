@@ -17,6 +17,8 @@ class Property {
     this.maxNights,
     this.paymentDisplayMethods = const [],
     this.gatewayDisplayName,
+    this.fnbTaxPct = 0,
+    this.spaTaxPct = 0,
   });
 
   final String id;
@@ -44,6 +46,14 @@ class Property {
   final int? maxNights;
   final List<String> paymentDisplayMethods;
   final String? gatewayDisplayName;
+
+  /// Food & drink and spa & activities GST rates (`0053_food_spa_tax.sql`),
+  /// 0 to 28. Unlike [taxPct], which is added on top of the room price,
+  /// these are already inside menu and activity prices; each order and sale
+  /// stores the rate it was made at. Written by the Taxes screen through
+  /// `CatalogRepository.updateSettings`.
+  final num fnbTaxPct;
+  final num spaTaxPct;
 
   /// Postgres `time` columns round-trip as `HH:mm:ss` (e.g. `14:00:00`), but
   /// every writer in this app -- `showTimePicker` via [PropertyFormScreen],
@@ -77,6 +87,8 @@ class Property {
             (json['payment_display_methods'] as List<dynamic>? ?? [])
                 .cast<String>(),
         gatewayDisplayName: json['gateway_display_name'] as String?,
+        fnbTaxPct: (json['fnb_tax_pct'] as num?) ?? 0,
+        spaTaxPct: (json['spa_tax_pct'] as num?) ?? 0,
       );
 
   Map<String, dynamic> toInsert() => {

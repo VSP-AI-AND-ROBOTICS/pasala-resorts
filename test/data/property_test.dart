@@ -33,4 +33,36 @@ void main() {
       expect(Property.normalizeTime(readBack), written);
     });
   });
+
+  group('Property.fromJson tax rates', () {
+    test('reads the food and spa rates', () {
+      final property = Property.fromJson(const {
+        'id': 'p1',
+        'name': 'Pasala',
+        'slug': 'pasala',
+        'images': [],
+        'amenities': [],
+        'tax_pct': 12,
+        'fnb_tax_pct': 5,
+        'spa_tax_pct': 18.5,
+      });
+
+      expect(property.taxPct, 12);
+      expect(property.fnbTaxPct, 5);
+      expect(property.spaTaxPct, 18.5);
+    });
+
+    test('a row without the food and spa keys reads them as 0', () {
+      final property = Property.fromJson(const {
+        'id': 'p1',
+        'name': 'Pasala',
+        'slug': 'pasala',
+        'images': [],
+        'amenities': [],
+      });
+
+      expect(property.fnbTaxPct, 0);
+      expect(property.spaTaxPct, 0);
+    });
+  });
 }

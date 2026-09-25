@@ -84,6 +84,14 @@ class AlreadyDispatched extends BookingFailure {
       : super('Housekeeping is already on its way to this room.');
 }
 
+/// P0035 -- `properties_check_service_tax` refused a food or spa rate
+/// outside 0..28. The Taxes screen checks the range first, so this is a
+/// backstop.
+class TaxRateOutOfRange extends BookingFailure {
+  const TaxRateOutOfRange()
+      : super('Food and spa tax rates must be between 0% and 28%.');
+}
+
 /// Why `verify_stay_pass` refused a check-in pass (P0034).
 enum PassRejection { invalid, expired, otherResort }
 
@@ -223,6 +231,8 @@ BookingFailure mapPostgrestError(Object error) {
     // (`reason_required`, `already_dispatched`), so the copy lives here.
     'P0030' => const ReasonRequired(),
     'P0031' => const AlreadyDispatched(),
+    // P0035: food and spa tax rates (0053). Bare code word from the server.
+    'P0035' => const TaxRateOutOfRange(),
     // P0034: check-in passes (0052). Bare code words; see StayPassRejected.
     'P0034' => StayPassRejected.fromServer(message),
     '23514' => InvalidState(message),

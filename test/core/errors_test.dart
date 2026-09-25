@@ -63,6 +63,12 @@ void main() {
     expect(failure.message, 'Housekeeping is already on its way to this room.');
   });
 
+  test('P0035 maps to TaxRateOutOfRange with readable copy', () {
+    final failure = map('P0035', 'tax_rate_out_of_range');
+    expect(failure, isA<TaxRateOutOfRange>());
+    expect(failure.message, 'Food and spa tax rates must be between 0% and 28%.');
+  });
+
   group('P0034 maps to StayPassRejected by code word', () {
     test('pass_invalid', () {
       final failure = map('P0034', 'pass_invalid');

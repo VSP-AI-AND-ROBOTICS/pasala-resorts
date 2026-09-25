@@ -198,4 +198,46 @@ void main() {
     expect(s.deskByMethod.values, everyElement(0));
     expect(s.inHouseCount, 0);
   });
+
+  test("reads the food and spa rates and today's food and spa tax", () {
+    final s = FinanceSummary.fromJson(const {
+      'resort': {
+        'name': 'Resort T',
+        'slug': 'tax-t',
+        'gstin': null,
+        'tax_pct': 12,
+        'fnb_tax_pct': 12,
+        'spa_tax_pct': 18,
+        'timezone': 'Asia/Kolkata',
+        'today': '2026-09-25',
+      },
+      'room_tax': 240,
+      'food_tax': 72.25,
+      'spa_tax': 468,
+    });
+
+    expect(s.resort.fnbTaxPct, 12);
+    expect(s.resort.spaTaxPct, 18);
+    expect(s.roomTax, 240);
+    expect(s.foodTax, 72.25);
+    expect(s.spaTax, 468);
+  });
+
+  test('a summary without the food and spa keys reads them as 0', () {
+    final s = FinanceSummary.fromJson(const {
+      'resort': {
+        'name': 'Resort S',
+        'slug': 'fin-s',
+        'gstin': null,
+        'tax_pct': 0,
+        'timezone': 'Asia/Kolkata',
+        'today': '2026-09-25',
+      },
+    });
+
+    expect(s.resort.fnbTaxPct, 0);
+    expect(s.resort.spaTaxPct, 0);
+    expect(s.foodTax, 0);
+    expect(s.spaTax, 0);
+  });
 }

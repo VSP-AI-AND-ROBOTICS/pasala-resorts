@@ -41,4 +41,20 @@ void main() {
     expect(sale.paymentMethod, PaymentMethod.cash);
     expect(sale.toInsert()['payment_method'], 'cash');
   });
+
+  test('reads the tax the server stored on the sale', () {
+    final sale = FoodSale.fromJson({..._row('cash'), 'tax_pct': 12, 'tax_amount': 22.5});
+
+    expect(sale.taxPct, 12);
+    expect(sale.taxAmount, 22.5);
+  });
+
+  test('a row without the tax keys reads them as 0, and tax is never sent', () {
+    final sale = FoodSale.fromJson(_row('cash'));
+
+    expect(sale.taxPct, 0);
+    expect(sale.taxAmount, 0);
+    expect(sale.toInsert().keys, isNot(contains('tax_pct')));
+    expect(sale.toInsert().keys, isNot(contains('tax_amount')));
+  });
 }
