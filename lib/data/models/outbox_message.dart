@@ -53,7 +53,10 @@ class OutboxMessage {
   });
 
   final String id;
-  final String reservationId;
+
+  /// The reservation a guest message is about; null for a platform message
+  /// to a resort owner (the listing emails of 0059_resort_self_listing.sql).
+  final String? reservationId;
   final OutboxChannel channel;
 
   /// The address/number the sender delivers to, OR -- when [status] is
@@ -81,7 +84,7 @@ class OutboxMessage {
 
   factory OutboxMessage.fromJson(Map<String, dynamic> json) => OutboxMessage(
         id: json['id'] as String,
-        reservationId: json['reservation_id'] as String,
+        reservationId: json['reservation_id'] as String?,
         channel: _channelFromDb(json['channel'] as String),
         recipient: json['recipient'] as String,
         template: json['template'] as String,

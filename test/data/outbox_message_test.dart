@@ -111,4 +111,24 @@ void main() {
   test('the attempt limit mirrors the database', () {
     expect(outboxMaxAttempts, 5);
   });
+
+  test('parses a listing message with no reservation', () {
+    final message = OutboxMessage.fromJson(const {
+      'id': 'm9',
+      'reservation_id': null,
+      'channel': 'email',
+      'recipient': 'owner@example.com',
+      'template': 'listing_approved',
+      'subject': 'Green Acres is live on ResortHub',
+      'body': 'Hi Asha, ...',
+      'status': 'pending',
+      'attempts': 0,
+      'last_error': null,
+      'created_at': '2026-09-25T10:00:00Z',
+      'sent_at': null,
+    });
+
+    expect(message.reservationId, isNull);
+    expect(message.template, 'listing_approved');
+  });
 }

@@ -442,6 +442,14 @@ select is(
         -- 0048: finance reports. Each asserts owner/admin/accountant at the
         -- resort it is given. (checkout_booking is already listed above.)
         'report_collections','report_ledger','report_settlements','finance_summary',
+        -- 0059: resort self-listing. apply_for_listing and
+        -- my_listing_applications act only for auth.uid();
+        -- listing_setup_status / submit_listing_for_review assert the role
+        -- at the resort they are given; the other three check
+        -- is_platform_admin().
+        'apply_for_listing','my_listing_applications','listing_setup_status',
+        'submit_listing_for_review','platform_listing_applications',
+        'approve_listing','reject_listing',
         -- 0057: subscription billing. set_plan_razorpay_id and
         -- platform_billing check is_platform_admin(); my_resort_billing and
         -- billing_subscribe_state assert the owner at the resort they are

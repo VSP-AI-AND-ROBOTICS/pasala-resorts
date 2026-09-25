@@ -63,6 +63,12 @@ void main() {
     expect(failure.message, 'Housekeeping is already on its way to this room.');
   });
 
+  test('P0040 maps to ListingBlocked and keeps the server message', () {
+    final failure = map('P0040', 'Finish the setup checklist before submitting.');
+    expect(failure, isA<ListingBlocked>());
+    expect(failure.message, 'Finish the setup checklist before submitting.');
+  });
+
   test('P0038 maps to BillingUnavailable with readable copy', () {
     final failure = map('P0038', 'billing_unavailable');
     expect(failure, isA<BillingUnavailable>());

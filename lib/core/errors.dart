@@ -84,6 +84,15 @@ class AlreadyDispatched extends BookingFailure {
       : super('Housekeeping is already on its way to this room.');
 }
 
+/// P0040 -- a listing-state refusal (0059_resort_self_listing.sql): a
+/// second open application, submitting an unfinished checklist, deciding
+/// an application twice, approving one that was never submitted. The
+/// server writes each message for the person reading it, so it is shown
+/// verbatim.
+class ListingBlocked extends BookingFailure {
+  const ListingBlocked(super.message);
+}
+
 /// P0038 -- `billing_subscribe_state`: the chosen tier has no Razorpay
 /// plan id yet, so it cannot be paid online (P8). The server sends the
 /// bare code word `billing_unavailable`, so the copy lives here.
@@ -247,6 +256,9 @@ BookingFailure mapPostgrestError(Object error) {
     // (`reason_required`, `already_dispatched`), so the copy lives here.
     'P0030' => const ReasonRequired(),
     'P0031' => const AlreadyDispatched(),
+    // P0040: resort self-listing (0059). Messages are written for the
+    // reader.
+    'P0040' => ListingBlocked(message),
     // P0038: subscription billing (0057). Bare code word, copy lives here.
     'P0038' => const BillingUnavailable(),
     // P0037: outbox delivery (0056). Only retry_outbox_message reaches the
