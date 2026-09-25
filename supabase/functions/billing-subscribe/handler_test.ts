@@ -194,6 +194,35 @@ Deno.test("Razorpay refusing the create is 502 gateway, and nothing is recorded"
   assertEquals(db.callsTo("opened"), []);
 });
 
+Deno.test("recording the new subscription failing cancels it on Razorpay, then answers the failure", async () => {
+  const { handler, db, rp } = setup();
+  db.failOn.opened = new DbError("P0021", "resort_mismatch");
+  const res = await handler(post({ property_id: PROPERTY, action: "subscribe", tier: "pro" }));
+  assertEquals(res.status, 409);
+  assertEquals(await res.json(), { error: "db", code: "P0021", message: "resort_mismatch" });
+  assertEquals(db.callsTo("opened").length, 1);
+  assertEquals(rp.cancelled, [{ id: "sub_NewSub0000001", atCycleEnd: false }]);
+});
+
+Deno.test("an unexpected recording failure also cancels the new subscription, and is 500", async () => {
+  const { handler, db, rp } = setup();
+  db.failOn.opened = new Error("network blip");
+  const res = await handler(post({ property_id: PROPERTY, action: "subscribe", tier: "pro" }));
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error, "internal");
+  assertEquals(rp.cancelled, [{ id: "sub_NewSub0000001", atCycleEnd: false }]);
+});
+
+Deno.test("when the compensating cancel fails too, the recording failure is still what is answered", async () => {
+  const { handler, db, rp } = setup();
+  db.failOn.opened = new DbError("P0005", "not_allowed");
+  rp.failCancel = new RazorpayError(502, "Bad Gateway");
+  const res = await handler(post({ property_id: PROPERTY, action: "subscribe", tier: "pro" }));
+  assertEquals(res.status, 409);
+  assertEquals(await res.json(), { error: "db", code: "P0005", message: "not_allowed" });
+  assertEquals(rp.cancelled, [{ id: "sub_NewSub0000001", atCycleEnd: false }]);
+});
+
 Deno.test("cancel: authorised auto-pay ends with its cycle", async () => {
   const { handler, db, rp } = setup();
   db.state = subscribeState({ tier: null, plan_id: null, current: current() });

@@ -103,16 +103,29 @@ async function subscribe(
     notifyEmail: state.notify_email,
     notes: { property_id: propertyId, tier },
   });
-  const opened = await db.opened({
-    property_id: propertyId,
-    tier,
-    razorpay_plan_id: state.plan_id,
-    razorpay_subscription_id: created.id,
-    status: created.status,
-    short_url: created.short_url,
-    start_at: state.start_at,
-    created_by: state.caller_id,
-  });
+  let opened;
+  try {
+    opened = await db.opened({
+      property_id: propertyId,
+      tier,
+      razorpay_plan_id: state.plan_id,
+      razorpay_subscription_id: created.id,
+      status: created.status,
+      short_url: created.short_url,
+      start_at: state.start_at,
+      created_by: state.caller_id,
+    });
+  } catch (e) {
+    // Unrecorded, the new subscription could be authorised from Razorpay's
+    // email and charge every month with nothing here able to see or cancel
+    // it, so cancel it now (best effort) before answering the failure.
+    try {
+      await razorpay.cancel(created.id, false);
+    } catch (cancelError) {
+      console.error("billing-subscribe: could not cancel unrecorded", created.id, cancelError);
+    }
+    throw e;
+  }
   cleanedUp = (await cancelStale(db, razorpay, opened.stale, state.caller_id)) && cleanedUp;
   return {
     configured: true,

@@ -44,18 +44,24 @@ export function rzpSubscription(overrides: Partial<RazorpaySubscription> = {}): 
   };
 }
 
-/** Records every call in `calls`; `error`, when set, is thrown by every call. */
+/**
+ * Records every call in `calls`; `error`, when set, is thrown by every call,
+ * and `failOn[method]`, when set, is thrown by that method only.
+ */
 export class FakeBillingDb implements BillingDb {
   plans: BillablePlan[] = [];
   state: SubscribeState = subscribeState();
   openedResult: OpenedResult = { id: "row-1", stale: [] };
   applyResult: ApplyResult = { outcome: "updated", property_id: null, cancel_subscription_id: null };
   error: Error | null = null;
+  failOn: Partial<Record<keyof BillingDb, Error>> = {};
   calls: { method: string; args: unknown[] }[] = [];
 
   private record(method: string, args: unknown[]): void {
     this.calls.push({ method, args });
     if (this.error) throw this.error;
+    const failure = this.failOn[method as keyof BillingDb];
+    if (failure) throw failure;
   }
 
   callsTo(method: string): unknown[][] {
