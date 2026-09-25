@@ -32,6 +32,14 @@ void main() {
     expect(map('P0020', 'not_a_member'), isA<NotAMember>());
   });
 
+  test('P0021 maps to ResortMismatch with readable copy, never the raw code',
+      () {
+    final failure = map('P0021', 'resort_mismatch');
+    expect(failure, isA<ResortMismatch>());
+    expect(failure.message, 'That belongs to a different resort.');
+    expect(failure.message, isNot(contains('resort_mismatch')));
+  });
+
   test('P0022 maps to ResortSuspended', () {
     expect(map('P0022'), isA<ResortSuspended>());
   });
