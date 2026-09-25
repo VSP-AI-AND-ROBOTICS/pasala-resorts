@@ -2,10 +2,10 @@
 // and cancelling. Uses world.ts's shared fixtures (guests.fresh for the live
 // booking flow -- it starts and ends every test here with no bookings --
 // plus guests.arriving/guests.inHouse read-only for My Stay) and its own
-// isolated resort from guest-data.ts for anything that opens a property
-// page: every world.ts resort a guest can browse (Resort A, Resort B) has
-// more than one unit, and PropertyScreen crashes for those (see the last
-// test in this file, which documents that bug).
+// isolated single-unit resort from guest-data.ts for the booking flows, so
+// they never contend with other specs for world.ts's shared units. Resort A
+// and Resort B each have more than one unit; the last test in this file
+// covers PropertyScreen's unit picker for those.
 
 import { expect, test, type Page } from '@playwright/test';
 import { resortA, resortS, guests } from '../fixtures/world.ts';
@@ -265,26 +265,20 @@ test('My Stay shows the checked-in guest their pass', async ({ page }) => {
 });
 
 // -----------------------------------------------------------------------
-// App bug: PropertyScreen assumes exactly one bookable unit per resort
-// (lib/features/browse/property_screen.dart, `list.single` in the units
-// AsyncView's `data:` callback -- the comment there even says so: "Exactly
-// one bookable unit is assumed here -- .single throws if a second unit is
-// ever added, deliberately"). That assumption predates ResortHub's
-// multi-resort direction (see MEMORY.md: "goal is multi-resort ResortHub").
-// Resort A has three units (Garden Cottage, Lake Villa, Tree House) and
-// Resort B has two (Beach Hut, Sea View Suite) -- every world.ts resort a
-// guest can actually browse into except this file's own single-unit
-// guestResort. `.single()` throws a StateError ("Bad state: Too many
-// elements") while PropertyScreen's `data:` builder is running, which
-// Flutter's error zone catches per-widget rather than crashing the whole
-// tab, but the practical effect is the same for a guest: the entire unit
-// picker/booking flow section (guests, price, pay) never renders. Given the
-// current fixture world, a guest cannot book Resort A or Resort B at all.
-test.fail(
-  'opening a resort with more than one unit crashes its booking section (BUG: property_screen.dart assumes one unit)',
+// Regression: PropertyScreen used to assume exactly one bookable unit per
+// resort (`list.single` in lib/features/browse/property_screen.dart's units
+// builder), so any resort with a second unit threw StateError ("Too many
+// elements") and its whole booking section (guests, price, pay) never
+// rendered -- a guest could not book Resort A (three units) or Resort B
+// (two) at all. A multi-unit resort now shows a "Choose your stay" unit
+// picker above the same inline booking flow, booking the chosen unit;
+// single-unit resorts are unchanged (no picker).
+test(
+  'a resort with more than one unit shows a unit picker and its booking section',
   async ({ page }) => {
     await login(page, bookingGuest);
     await goTo(page, `/property/${resortA.id}`);
+    await expect(page.getByText('Choose your stay', { exact: true })).toBeVisible();
     await expect(page.getByText(/Sleeps/)).toBeVisible({ timeout: 5_000 });
   },
 );

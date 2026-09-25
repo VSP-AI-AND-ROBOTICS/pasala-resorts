@@ -257,56 +257,108 @@ class PropertyScreen extends ConsumerWidget {
                   title: 'No units yet',
                   message: 'Ask an admin to add one.',
                 ),
-                // Exactly one bookable unit is assumed here -- `.single`
-                // throws if a second unit is ever added, deliberately (see
-                // spec section 7): this screen shows the booking flow
-                // inline for one unit, and does not attempt to fall back
-                // to a unit-picker if that assumption stops holding.
-                data: (list) {
-                  final unit = list.single;
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.people_alt_outlined,
-                              size: 18, color: scheme.onSurfaceVariant),
-                          const SizedBox(width: Spacing.xs),
-                          Text.rich(
-                            TextSpan(
-                              style: textTheme.bodyMedium,
-                              children: [
-                                const TextSpan(text: 'Sleeps '),
-                                TextSpan(
-                                  text:
-                                      '${unit.capacityBase}–${unit.capacityMax}',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600),
-                                ),
-                                const TextSpan(text: ' Guests'),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: Spacing.lg),
-                      BookingScreen(unitId: unit.id),
-                      const SizedBox(height: Spacing.xl),
-                      const _ExperiencesSection(),
-                      const SizedBox(height: Spacing.xl),
-                      _AboutSection(property: p),
-                      const SizedBox(height: Spacing.lg),
-                      _LocationSection(property: p),
-                      const SizedBox(height: Spacing.lg),
-                      _ReviewsSection(propertyId: p.id),
-                    ],
-                  );
-                },
+                // One unit books inline exactly as before; two or more get
+                // a picker above the same inline booking flow (see
+                // [_UnitBooking]) -- a multi-unit resort must not throw.
+                data: (list) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _UnitBooking(units: list),
+                    const SizedBox(height: Spacing.xl),
+                    const _ExperiencesSection(),
+                    const SizedBox(height: Spacing.xl),
+                    _AboutSection(property: p),
+                    const SizedBox(height: Spacing.lg),
+                    _LocationSection(property: p),
+                    const SizedBox(height: Spacing.lg),
+                    _ReviewsSection(propertyId: p.id),
+                  ],
+                ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The bookable part of the property page: which unit, how many it sleeps,
+/// and the inline [BookingScreen] for it. A single-unit resort shows no
+/// picker at all -- just that unit's booking flow, as it always has. With
+/// two or more units, a row of choice chips (one per unit, first selected
+/// by default) picks which unit the flow below books; the [BookingScreen]
+/// is keyed by unit id so switching units starts a fresh selection rather
+/// than carrying one unit's dates/quote/hold over to another.
+class _UnitBooking extends StatefulWidget {
+  const _UnitBooking({required this.units});
+
+  /// Never empty -- [AsyncView]'s `empty:` handles that case.
+  final List<Unit> units;
+
+  @override
+  State<_UnitBooking> createState() => _UnitBookingState();
+}
+
+class _UnitBookingState extends State<_UnitBooking> {
+  String? _selectedId;
+
+  Unit get _selected => widget.units.firstWhere(
+        (u) => u.id == _selectedId,
+        orElse: () => widget.units.first,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final unit = _selected;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (widget.units.length > 1) ...[
+          Text('Choose your stay', style: textTheme.titleMedium),
+          const SizedBox(height: Spacing.sm),
+          Wrap(
+            key: const Key('unit-picker'),
+            spacing: Spacing.sm,
+            runSpacing: Spacing.sm,
+            children: [
+              for (final u in widget.units)
+                ChoiceChip(
+                  key: Key('unit-choice-${u.id}'),
+                  label: Text(u.name),
+                  selected: u.id == unit.id,
+                  onSelected: (_) => setState(() => _selectedId = u.id),
+                ),
+            ],
+          ),
+          const SizedBox(height: Spacing.md),
+        ],
+        Row(
+          children: [
+            Icon(Icons.people_alt_outlined,
+                size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: Spacing.xs),
+            Text.rich(
+              TextSpan(
+                style: textTheme.bodyMedium,
+                children: [
+                  const TextSpan(text: 'Sleeps '),
+                  TextSpan(
+                    text: '${unit.capacityBase}–${unit.capacityMax}',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const TextSpan(text: ' Guests'),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Spacing.lg),
+        BookingScreen(key: ValueKey(unit.id), unitId: unit.id),
+      ],
     );
   }
 }

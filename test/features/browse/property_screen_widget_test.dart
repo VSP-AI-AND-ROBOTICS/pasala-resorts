@@ -10,6 +10,7 @@ import 'package:pasala/data/models/review.dart';
 import 'package:pasala/data/models/unit.dart';
 import 'package:pasala/data/repositories/booking_repository.dart';
 import 'package:pasala/data/repositories/review_repository.dart';
+import 'package:pasala/features/booking/booking_screen.dart' show BookingScreen;
 import 'package:pasala/features/booking/providers.dart' show unitByIdProvider;
 import 'package:pasala/features/browse/property_screen.dart';
 import 'package:pasala/features/browse/providers.dart';
@@ -295,4 +296,83 @@ void main() {
       expect(find.text('REVIEWS OF p1'), findsOneWidget);
     },
   );
+  // E2E bug (guest.spec.ts "opening a resort with more than one unit"):
+  // the units builder used `list.single`, which throws StateError ("Too many
+  // elements") for any resort with a second unit, so its whole booking
+  // section never rendered and a guest could not book it at all.
+  group('a resort with more than one unit', () {
+    const lakeVilla = Unit(
+      id: 'u2',
+      propertyId: 'p1',
+      name: 'Lake Villa',
+      capacityBase: 4,
+      capacityMax: 8,
+      bookingMode: BookingMode.nightly,
+      isActive: true,
+    );
+
+    Widget multiUnitApp() => ProviderScope(
+          overrides: [
+            propertyProvider('p1')
+                .overrideWith((ref) => Future.value(_property)),
+            unitsProvider('p1')
+                .overrideWith((ref) => Future.value([_unit, lakeVilla])),
+            unitByIdProvider('u1').overrideWith((ref) => Future.value(_unit)),
+            unitByIdProvider('u2')
+                .overrideWith((ref) => Future.value(lakeVilla)),
+            unitCalendarSourceProvider
+                .overrideWithValue(_NoOccupancyCalendarSource()),
+            propertyReviewsProvider
+                .overrideWith((ref, propertyId) async => []),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: PropertyScreen(propertyId: 'p1')),
+          ),
+        );
+
+    testWidgets(
+        'renders a unit picker and the booking flow for the first unit, '
+        'without throwing', (tester) async {
+      await tester.pumpWidget(multiUnitApp());
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('unit-picker')), findsOneWidget);
+      expect(find.byKey(const Key('unit-choice-u1')), findsOneWidget);
+      expect(find.byKey(const Key('unit-choice-u2')), findsOneWidget);
+      expect(find.text('Dallas'), findsWidgets);
+      expect(find.text('Lake Villa'), findsWidgets);
+      // Exactly one "Sleeps" line: the selected unit's.
+      expect(find.textContaining('Sleeps'), findsOneWidget);
+      expect(find.textContaining('2–4'), findsOneWidget);
+      final booking = tester.widget<BookingScreen>(find.byType(BookingScreen));
+      expect(booking.unitId, 'u1');
+      expect(find.text('Dates'), findsOneWidget);
+    });
+
+    testWidgets('choosing another unit books that unit instead',
+        (tester) async {
+      await tester.pumpWidget(multiUnitApp());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('unit-choice-u2')));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('4–8'), findsOneWidget);
+      expect(find.textContaining('2–4'), findsNothing);
+      final booking = tester.widget<BookingScreen>(find.byType(BookingScreen));
+      expect(booking.unitId, 'u2');
+    });
+  });
+
+  testWidgets('a single-unit resort shows no unit picker', (tester) async {
+    await tester.pumpWidget(_appFor());
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('unit-picker')), findsNothing);
+    expect(find.textContaining('Sleeps'), findsOneWidget);
+    expect(tester.widget<BookingScreen>(find.byType(BookingScreen)).unitId,
+        'u1');
+  });
 }
