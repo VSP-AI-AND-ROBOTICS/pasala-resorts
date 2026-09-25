@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resortA } from '../fixtures/world.ts';
-import { expectAt, landingPath, login, logout, openApp } from '../support/index.ts';
+import { expectAt, landingPath, login, logout, openApp, reveal } from '../support/index.ts';
 
 test('welcome page shows ResortHub and Sign In', async ({ page }) => {
   await openApp(page, '/');
@@ -17,8 +17,9 @@ test('the owner of Resort A signs in to the owner console', async ({ page }) => 
   await expect(page.getByRole('heading', { name: 'Owner' })).toBeVisible();
   const firstName = owner.fullName.split(' ')[0];
   await expect(page.getByText(new RegExp(`Good (Morning|Afternoon|Evening), ${firstName}`))).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Business dashboard/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Team/ })).toBeVisible();
+  // reveal(): on a phone the owner hub's tiles sit below the fold.
+  await reveal(page, page.getByRole('button', { name: /^Business dashboard/ }));
+  await reveal(page, page.getByRole('button', { name: /^Team/ }));
 
   await logout(page);
   await expect(

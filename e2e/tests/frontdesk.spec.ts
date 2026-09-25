@@ -20,7 +20,7 @@
 
 import { expect, test } from '@playwright/test';
 import { bookings, resortA, resortB } from '../fixtures/world.ts';
-import { expectAt, fillField, goTo, landingPath, login } from '../support/index.ts';
+import { expectAt, fillField, goTo, landingPath, login, reveal } from '../support/index.ts';
 import {
   frontdeskBookingId,
   frontdeskGuest,
@@ -41,10 +41,9 @@ test('admin sees the Resort A dashboard', async ({ page }) => {
   await expect(
     page.getByText(new RegExp(`Good (Morning|Afternoon|Evening), ${firstName}`)),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'New Booking', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Check-in', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Check-out', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Rooms', exact: true })).toBeVisible();
+  for (const action of ['New Booking', 'Check-in', 'Check-out', 'Rooms']) {
+    await reveal(page, page.getByRole('button', { name: action, exact: true }));
+  }
 });
 
 test('admin bookings list shows the Resort A reservations', async ({ page }) => {
@@ -133,7 +132,7 @@ test('units and rates screens open for Resort A', async ({ page }) => {
   await goTo(page, `/admin/units/${resortA.id}`);
   await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible();
   for (const unit of resortA.units) {
-    await expect(page.getByRole('group', { name: new RegExp(`^${unit.name}`) })).toBeVisible();
+    await reveal(page, page.getByRole('group', { name: new RegExp(`^${unit.name}`) }));
   }
 
   await goTo(page, `/admin/rates/${frontdeskUnit.id}`);
