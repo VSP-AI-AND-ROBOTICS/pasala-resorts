@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/food_sale.dart';
@@ -279,6 +280,83 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
 
+    expect(repo.deletedIds, ['s1']);
+    expect(find.text('Breakfast platter'), findsNothing);
+  });
+
+  // E2E-shaped bug: /owner/food-sales lives inside the router's ShellRoute,
+  // so the screen's own context resolves to the shell navigator while
+  // showDialog puts the confirm dialog on the root one. The dialog's
+  // buttons must pop the dialog, not the page (mirrors
+  // lib/features/admin/tasks_screen.dart's ShellRoute regression test).
+  testWidgets(
+      'confirming delete inside a ShellRoute closes the dialog, not the page',
+      (tester) async {
+    final repo = FakeFoodSaleRepository()
+      ..store.add(FoodSale(
+        id: 's1',
+        propertyId: 'p1',
+        saleDate: DateTime.now(),
+        category: SaleCategory.food,
+        itemName: 'Breakfast platter',
+        quantity: 2,
+        unitPrice: 300,
+        amount: 600,
+      ));
+    final router = GoRouter(
+      initialLocation: '/owner/food-sales',
+      routes: [
+        ShellRoute(
+          builder: (_, _, child) => Scaffold(body: child),
+          routes: [
+            GoRoute(path: '/owner', builder: (_, _) => const Text('Owner home')),
+            GoRoute(
+                path: '/owner/food-sales', builder: (_, _) => const FoodSalesScreen()),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        foodSaleRepositoryProvider.overrideWithValue(repo),
+        currentResortProvider.overrideWith(() => _FixedResort(_admin.memberships.first)),
+        financeSourceProvider.overrideWithValue(FakeFinanceSource()),
+      ],
+      child: MaterialApp.router(
+        routerConfig: router,
+        builder: (context, child) => Stack(children: [
+          child!,
+          Consumer(builder: (_, ref, _) {
+            ref.watch(financeSummaryProvider('p1'));
+            return const SizedBox.shrink();
+          }),
+        ]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // Cancel first: the dialog closes and the page stays.
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(FoodSalesScreen), findsOneWidget);
+    expect(repo.deletedIds, isEmpty);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(FoodSalesScreen), findsOneWidget);
     expect(repo.deletedIds, ['s1']);
     expect(find.text('Breakfast platter'), findsNothing);
   });

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/core/errors.dart';
 import 'package:pasala/data/models/app_user.dart';
@@ -235,6 +236,59 @@ void main() {
 
     expect(source.setRoleCalls, [('resort-a', 'u1', ResortRole.admin)]);
     expect(await settledUserBuilds(tester), before);
+  });
+
+  // E2E-shaped bug: /owner/team lives inside the router's ShellRoute, so the
+  // screen's own context resolves to the shell navigator while showDialog
+  // puts the confirm dialog on the root one. The dialog's buttons must pop
+  // the dialog, not the page (lib/features/admin/tasks_screen.dart's
+  // ShellRoute regression test is the model for this one).
+  testWidgets(
+      'confirming remove inside a ShellRoute closes the dialog, not the page',
+      (tester) async {
+    final source = FakeResortMemberSource()..rows = [_member(userId: 'u1')];
+    final router = GoRouter(
+      initialLocation: '/owner/team',
+      routes: [
+        ShellRoute(
+          builder: (_, _, child) => Scaffold(body: child),
+          routes: [
+            GoRoute(path: '/owner', builder: (_, _) => const Text('Owner home')),
+            GoRoute(path: '/owner/team', builder: (_, _) => const TeamScreen()),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        resortMemberSourceProvider.overrideWithValue(source),
+        currentUserProvider.overrideWith((ref) => Stream.value(_owner)),
+        currentResortProvider.overrideWith(() => _FixedResort(_resortA)),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    // Cancel first: the dialog closes and the page stays.
+    await tester.tap(find.byKey(const Key('remove-member-u1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(TeamScreen), findsOneWidget);
+    expect(source.removeCalls, isEmpty);
+
+    await tester.tap(find.byKey(const Key('remove-member-u1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(TeamScreen), findsOneWidget);
+    expect(source.removeCalls, [('resort-a', 'u1')]);
   });
 }
 

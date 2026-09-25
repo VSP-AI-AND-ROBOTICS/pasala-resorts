@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pasala/data/models/subscription.dart';
 import 'package:pasala/data/repositories/platform_repository.dart';
 import 'package:pasala/features/platform/resort_card.dart';
@@ -117,5 +118,63 @@ void main() {
 
     expect(source.subscriptionCalls, isEmpty);
     expect(changed, 0);
+  });
+
+  // E2E-shaped bug: a screen embedding [ResortCard] inside the router's
+  // ShellRoute would have its context resolve to the shell navigator while
+  // showDialog puts the confirm dialog on the root one. The dialog's
+  // buttons must pop the dialog, not the page (mirrors
+  // lib/features/admin/tasks_screen.dart's ShellRoute regression test).
+  testWidgets(
+      'confirming Suspend inside a ShellRoute closes the dialog, not the page',
+      (tester) async {
+    final source = FakePlatformSource();
+    var changed = 0;
+    final resort = resortSummary(plan: resortPlan());
+    final router = GoRouter(
+      initialLocation: '/platform',
+      routes: [
+        ShellRoute(
+          builder: (_, _, child) => Scaffold(body: child),
+          routes: [
+            GoRoute(path: '/', builder: (_, _) => const Text('Home')),
+            GoRoute(
+              path: '/platform',
+              builder: (_, _) => Scaffold(
+                body: SingleChildScrollView(
+                  child: ResortCard(resort: resort, onChanged: () => changed++),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [platformSourceProvider.overrideWithValue(source)],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    // Cancel first: the dialog closes and the page stays.
+    await tester.tap(find.byKey(const Key('resort-status-btn-p1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(ResortCard), findsOneWidget);
+    expect(source.statusCalls, isEmpty);
+
+    await tester.tap(find.byKey(const Key('resort-status-btn-p1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Suspend'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(ResortCard), findsOneWidget);
+    expect(source.statusCalls, [('p1', 'suspended')]);
+    expect(changed, 1);
   });
 }

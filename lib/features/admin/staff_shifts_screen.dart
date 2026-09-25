@@ -176,18 +176,22 @@ class _StaffShiftsScreenState extends ConsumerState<StaffShiftsScreen> {
     StaffShiftFilter filter,
     StaffShift shift,
   ) async {
+    // Pop with the dialog's own context: showDialog puts the dialog on the
+    // root navigator, but inside the router's ShellRoute the screen's
+    // `context` resolves to the shell navigator, so popping that would
+    // remove the Staff shifts page and leave the dialog up.
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text('Delete this shift for ${shift.staffName ?? shift.staffId}?'),
         content: const Text('This cannot be undone.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('Delete'),
           ),
         ],

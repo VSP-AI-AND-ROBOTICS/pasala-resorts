@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/resort_membership.dart';
@@ -100,5 +101,65 @@ void main() {
 
     // No dialog opened -- nothing to show for a shift-free day.
     expect(find.byType(AlertDialog), findsNothing);
+  });
+
+  // E2E-shaped bug: /staff/schedules lives inside the router's ShellRoute,
+  // so the screen's own context resolves to the shell navigator while
+  // showDialog puts the dialog on the root one. The dialog's Close button
+  // must pop the dialog, not the page (mirrors
+  // lib/features/admin/tasks_screen.dart's ShellRoute regression test).
+  testWidgets(
+      'closing the shift-details dialog inside a ShellRoute closes the '
+      'dialog, not the page', (tester) async {
+    final today = DateTime.now();
+    final shiftDay = DateTime(today.year, today.month, 15);
+    final router = GoRouter(
+      initialLocation: '/staff/schedules',
+      routes: [
+        ShellRoute(
+          builder: (_, _, child) => Scaffold(body: child),
+          routes: [
+            GoRoute(path: '/staff', builder: (_, _) => const Text('Staff home')),
+            GoRoute(
+              path: '/staff/schedules',
+              builder: (_, _) => const WorkSchedulesScreen(),
+            ),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
+        currentResortProvider.overrideWith(_FixedResort.new),
+        staffShiftsProvider.overrideWith((ref, filter) async {
+          listedPropertyIds.add(filter.propertyId);
+          return [
+            StaffShift(
+              id: 's1',
+              staffId: 'staff-1',
+              shiftDate: shiftDay,
+              startTime: const TimeOfDay(hour: 9, minute: 0),
+              endTime: const TimeOfDay(hour: 17, minute: 0),
+              notes: 'Front desk',
+            ),
+          ];
+        }),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(Key('shift-day-${shiftDay.day}')));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Close'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(WorkSchedulesScreen), findsOneWidget);
   });
 }

@@ -38,9 +38,13 @@ class _WorkSchedulesScreenState extends ConsumerState<WorkSchedulesScreen> {
         .where((s) => DateUtils.isSameDay(s.shiftDate, day))
         .toList();
     if (dayShifts.isEmpty) return;
+    // Pop with the dialog's own context: showDialog puts the dialog on the
+    // root navigator, but inside the router's ShellRoute the screen's
+    // `context` resolves to the shell navigator, so popping that would
+    // remove the Schedules page and leave the dialog up.
     showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text(_dateFormat.format(day)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -59,7 +63,7 @@ class _WorkSchedulesScreenState extends ConsumerState<WorkSchedulesScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Close'),
           ),
         ],

@@ -141,9 +141,14 @@ class ResortCard extends ConsumerWidget {
     final newStatus = suspending ? 'suspended' : 'active';
     final actionLabel = suspending ? 'Suspend' : 'Reactivate';
 
+    // Pop with the dialog's own context: showDialog puts the dialog on the
+    // root navigator, but if this card is ever embedded inside the
+    // router's ShellRoute, the screen's `context` would resolve to the
+    // shell navigator, so popping that would remove the page and leave the
+    // dialog up.
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text('$actionLabel ${resort.name}?'),
         content: Text(
           suspending
@@ -153,11 +158,11 @@ class ResortCard extends ConsumerWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
             child: Text(actionLabel),
           ),
         ],
