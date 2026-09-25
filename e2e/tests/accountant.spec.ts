@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { resortA } from '../fixtures/world.ts';
-import { goTo, landingPath, login, useBottomNav } from '../support/index.ts';
+import { goTo, landingPath, login, revealAndClick, useBottomNav } from '../support/index.ts';
 import {
+  DESK_RESERVATION_ID,
   deskGuest,
   setupAccountantFixtures,
   teardownAccountantFixtures,
@@ -41,10 +42,26 @@ const accountant = resortA.team.accountant;
  */
 async function bodyLines(page: Page): Promise<string[]> {
   const text = await page.locator('flt-semantics-host').innerText();
-  return text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
+  // A card that also holds a button (the Settlements row's "Invoice PDF")
+  // is a group whose merged text is its aria-label, not its inner text.
+  const groups = await page
+    .locator('flt-semantics-host [role="group"][aria-label]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label') ?? ''));
+  return [
+    ...text.split('\n').map((l) => l.trim()),
+    ...groups.map((l) => l.replace(/\s+/g, ' ').trim()),
+  ].filter(Boolean);
+}
+
+/** Clicks [button], returns the download's file name and first five bytes. */
+async function downloadVia(page: Page, button: Locator): Promise<{ name: string; head: string }> {
+  const [download] = await Promise.all([page.waitForEvent('download'), revealAndClick(page, button)]);
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  return {
+    name: download.suggestedFilename(),
+    head: readFileSync(path!).subarray(0, 5).toString('latin1'),
+  };
 }
 
 /**
@@ -188,6 +205,52 @@ test.describe('Accountant (Resort A)', () => {
 
     const lines = await bodyLines(page);
     expect(lines.some((l) => l.includes('CSV exported.'))).toBe(true);
+  });
+
+  test('Collections exports a PDF next to the CSV', async ({ page }) => {
+    await login(page, accountant);
+    await useBottomNav(page);
+    await switchFinanceTab(
+      page,
+      'Collections',
+      (ls) => ls.includes('No collections in this period') || ls.some((l) => l.startsWith('Total Online')),
+    );
+
+    const file = await downloadVia(page, page.getByRole('button', { name: 'Export PDF', exact: true }));
+
+    expect(file.name).toMatch(/^e2e-a-collections-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}\.pdf$/);
+    expect(file.head).toBe('%PDF-');
+    await expect
+      .poll(async () => (await bodyLines(page)).some((l) => l.includes('PDF exported.')))
+      .toBe(true);
+  });
+
+  test("a settlement row downloads that booking's invoice", async ({ page }) => {
+    await login(page, accountant);
+    await useBottomNav(page);
+    await switchFinanceTab(
+      page,
+      'Settlements',
+      (ls) => ls.includes('No checkouts in this period') || ls.some((l) => l.includes(deskGuest.fullName)),
+    );
+
+    const file = await downloadVia(page, page.getByRole('button', { name: 'Invoice PDF', exact: true }).first());
+
+    expect(file.name).toBe('invoice-E2E-A-E2EACC00.pdf');
+    expect(file.head).toBe('%PDF-');
+  });
+
+  test('the guest downloads the same invoice from their booking', async ({ page }) => {
+    await login(page, deskGuest);
+    await goTo(page, `/booking-detail/${DESK_RESERVATION_ID}`);
+
+    const file = await downloadVia(
+      page,
+      page.getByRole('button', { name: 'Download invoice (PDF)', exact: true }),
+    );
+
+    expect(file.name).toBe('invoice-E2E-A-E2EACC00.pdf');
+    expect(file.head).toBe('%PDF-');
   });
 
   test('the room status grid is read-only for an accountant', async ({ page }) => {

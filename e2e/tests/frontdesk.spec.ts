@@ -83,7 +83,7 @@ test('reception checks the guest in, and the room grid marks the unit occupied',
   await expect(tile).toContainText('Guest: Frank');
 });
 
-test('reception checks the guest out with a desk Cash payment and reference; the room needs cleaning afterwards', async ({
+test('reception checks the guest out with a desk Cash payment and reference, lands back on the list with the invoice, and the room needs cleaning', async ({
   page,
 }) => {
   await login(page, admin);
@@ -116,9 +116,29 @@ test('reception checks the guest out with a desk Cash payment and reference; the
 
   await page.getByRole('button', { name: /^Record .* and check out$/ }).click();
 
-  // checkout_booking succeeds and lands on the final invoice.
-  await expectAt(page, `/my-stay/invoice/${frontdeskBookingId}`);
-  await expect(page.getByRole('heading', { name: 'Final Invoice' })).toBeVisible();
+  // checkout_booking succeeds and reception is back on its own check-out
+  // list -- not the guest's /my-stay/invoice -- with a success banner (in
+  // the URL, so a reload keeps it) and the booking's invoice PDF.
+  await expectAt(page, '/admin/check-out');
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash))
+    .toBe(`#/admin/check-out?checkedOut=${frontdeskBookingId}`);
+  await expect(page.getByRole('heading', { name: 'Check-Out' })).toBeVisible();
+  // Scoped to the semantics host: the banner is a live region, so Flutter
+  // also copies its text into the hidden aria-live announcer. With its
+  // Download invoice button the banner is a group, and its text is that
+  // group's aria-label rather than inner text.
+  const host = page.locator('flt-semantics-host');
+  await expect(
+    host.getByText(/Guest checked out/).or(host.locator('[aria-label*="Guest checked out"]')).first(),
+  ).toBeVisible();
+  await expect(outRow).toBeHidden();
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download invoice', exact: true }).click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/\.pdf$/);
 
   // checkout_booking marks the room dirty -- the grid now shows Cleaning.
   await goTo(page, '/staff/rooms');

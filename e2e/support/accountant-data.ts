@@ -30,7 +30,8 @@ export const deskGuest: FixtureUser = {
 };
 
 /** Resort A, Tree House: yesterday -> today, already checked out. */
-const RESERVATION_ID = 'e2eacc00-0000-4000-8000-000000000002';
+export const DESK_RESERVATION_ID = 'e2eacc00-0000-4000-8000-000000000002';
+const RESERVATION_ID = DESK_RESERVATION_ID;
 const UNIT_ID = resortA.units[2].id;
 
 const lit = (value: string): string => `'${value.replace(/'/g, "''")}'`;

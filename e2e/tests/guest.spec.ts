@@ -142,6 +142,26 @@ test('amenity filter chips filter the resort list', async ({ page }) => {
   await reveal(page, resortCard(page, guestResort.name));
 });
 
+test('the search box narrows the resort list and Clear filters restores it', async ({ page }) => {
+  await login(page, bookingGuest);
+  await expectAt(page, '/');
+
+  // Every word must match: "Guest" and "Booking" only appear in
+  // guestResort's name, so Resort A drops out.
+  await fillField(page.getByLabel('Search resorts'), guestResort.name);
+  await reveal(page, resortCard(page, guestResort.name));
+  await expect(resortCard(page, resortA.name)).toHaveCount(0);
+
+  await fillField(page.getByLabel('Search resorts'), 'zzzz-no-such-resort');
+  await reveal(page, page.getByText('No resorts match your search'));
+
+  // Two "Clear filters" exist here (filter bar and empty state); either one
+  // resets everything.
+  await revealAndClick(page, page.getByRole('button', { name: 'Clear filters', exact: true }).first());
+  await reveal(page, resortCard(page, resortA.name));
+  await reveal(page, resortCard(page, guestResort.name));
+});
+
 test('a resort page shows the photo counter, an address link, and reviews', async ({ page }) => {
   await login(page, bookingGuest);
   await goTo(page, `/property/${guestResort.id}`);
