@@ -195,6 +195,8 @@ void main() {
   });
 
   testWidgets('a change refetches the billing column too', (tester) async {
+    // The Pending review card and filter chip (P10) push the list down.
+    _tall(tester);
     final repo = FakePlatformSource()..store = [_resortA, _resortB];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
