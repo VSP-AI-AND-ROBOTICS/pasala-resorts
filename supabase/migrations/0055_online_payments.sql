@@ -383,7 +383,14 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  raise exception using errcode = '0A000', message = 'not implemented';
+  -- A failed attempt is not final: the guest can retry in the same
+  -- payment window, and a later capture still settles the order.
+  update public.payment_orders
+     set status         = 'failed',
+         failure_reason = left(coalesce(nullif(btrim(p_reason), ''), 'payment failed'), 500),
+         updated_at     = now()
+   where razorpay_order_id = p_razorpay_order_id
+     and status in ('created', 'failed');
 end;
 $$;
 revoke execute on function public.payment_order_failed(text, text) from public, anon, authenticated;
@@ -400,8 +407,34 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_order public.payment_orders;
+  v_total numeric(12,2);
 begin
-  raise exception using errcode = '0A000', message = 'not implemented';
+  if p_refund_id is null or btrim(p_refund_id) = '' or p_amount is null or p_amount <= 0 then
+    raise exception 'a refund id and a positive amount are required' using errcode = 'P0009';
+  end if;
+
+  select * into v_order from public.payment_orders
+   where razorpay_payment_id = p_razorpay_payment_id
+   for update;
+  -- Unknown payments (another app on the same Razorpay account) and
+  -- refunds already recorded are ignored.
+  if not found or btrim(p_refund_id) = any (v_order.refund_ids) then
+    return;
+  end if;
+
+  v_total := least(v_order.amount, v_order.refunded_amount + p_amount);
+
+  -- Recorded here only: payments rows and the finance ledger stay as they
+  -- are (spec decision 11).
+  update public.payment_orders
+     set refund_ids      = refund_ids || btrim(p_refund_id),
+         refunded_amount = v_total,
+         status          = case when v_total >= amount then 'refunded'::public.payment_order_status
+                                else status end,
+         updated_at      = now()
+   where id = v_order.id;
 end;
 $$;
 revoke execute on function public.payment_order_refunded(text, text, numeric) from public, anon, authenticated;
@@ -417,8 +450,23 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_processed timestamptz;
 begin
-  raise exception using errcode = '0A000', message = 'not implemented';
+  if p_event_id is null or btrim(p_event_id) = '' then
+    raise exception 'a webhook event id is required' using errcode = 'P0009';
+  end if;
+
+  insert into public.payment_webhook_events (event_id, event, payload)
+  values (btrim(p_event_id), coalesce(p_event, 'unknown'), coalesce(p_payload, '{}'::jsonb))
+  on conflict (event_id) do nothing;
+
+  select processed_at into v_processed
+    from public.payment_webhook_events
+   where event_id = btrim(p_event_id);
+
+  -- Unfinished (a crash mid-way) is processed again; settling is idempotent.
+  return v_processed is null;
 end;
 $$;
 revoke execute on function public.payment_webhook_begin(text, text, jsonb) from public, anon, authenticated;
@@ -433,7 +481,10 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  raise exception using errcode = '0A000', message = 'not implemented';
+  update public.payment_webhook_events
+     set processed_at = now(),
+         outcome      = left(p_outcome, 200)
+   where event_id = btrim(p_event_id);
 end;
 $$;
 revoke execute on function public.payment_webhook_done(text, text) from public, anon, authenticated;

@@ -15,7 +15,7 @@
 --   R7 ...37  A, hold, Gita, total 1000, expires in 10 minutes
 -- and one Razorpay order, order_fixture_r1 (R1, advance 5000).
 begin;
-select plan(86);
+select plan(115);
 
 insert into auth.users (id, email) values
   ('a6000000-0000-0000-0000-000000000001','p6-a-owner@example.com'),
@@ -389,6 +389,101 @@ select lives_ok($$select public.confirm_booking('a6100000-0000-4000-8000-0000000
 reset role;
 select is((select gateway from public.payments where reservation_id = 'a6100000-0000-4000-8000-000000000037'),
   'mock', 'and records a mock payment');
+set local request.jwt.claims to '';
+
+-- === Task 4: failures, refunds, the webhook ledger, isolation =================
+
+-- R8: a hold at B whose first payment attempt fails.
+insert into public.reservations
+  (id, unit_id, period, kind, status, customer_id, guests, quote, hold_expires_at) values
+  ('a6100000-0000-4000-8000-000000000038','a6100000-0000-4000-8000-000000000021',
+   public.build_period('a6100000-0000-4000-8000-000000000021', current_date + 40, current_date + 41),
+   'booking','hold','a6000000-0000-0000-0000-000000000005',2,'{"total":2000}',
+   now() + interval '10 minutes');
+
+set local role service_role;
+set local request.jwt.claims to '{"role":"service_role"}';
+select lives_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000038',
+  'a6000000-0000-0000-0000-000000000005', 'advance', 2000, 'order_F1')$$, 'an order for R8');
+select lives_ok($$select public.payment_order_failed('order_F1', 'Card declined by bank')$$,
+  'a failed attempt is recorded');
+select lives_ok($$select public.payment_order_failed('order_fixture_r1', 'late failure')$$,
+  'a failure event for a paid order is accepted');
+select lives_ok($$select public.payment_order_failed('order_unknown', 'x')$$,
+  'a failure for an unknown order is ignored');
+reset role;
+select is((select status || ':' || failure_reason from public.payment_orders where razorpay_order_id = 'order_F1'),
+  'failed:Card declined by bank', 'the order is failed, with Razorpay''s reason');
+select is((select status::text from public.payment_orders where razorpay_order_id = 'order_fixture_r1'),
+  'paid', 'a failure never downgrades a paid order');
+set local role service_role;
+set local request.jwt.claims to '{"role":"service_role"}';
+select is(public.payment_order_settle('order_F1', 'pay_F1') ->> 'status', 'paid',
+  'a retry that succeeds on the same order settles');
+reset role;
+select is((select status::text from public.reservations where id = 'a6100000-0000-4000-8000-000000000038'),
+  'confirmed', 'and confirms the hold');
+
+set local role service_role;
+set local request.jwt.claims to '{"role":"service_role"}';
+select lives_ok($$select public.payment_order_refunded('pay_A2', 'rfnd_1', 5000)$$,
+  'the service role records a refund');
+select lives_ok($$select public.payment_order_refunded('pay_A2', 'rfnd_1', 5000)$$,
+  'recording the same refund again is harmless');
+select is(public.payment_order_settle('order_A1', 'pay_A2') ->> 'refund_needed', 'false',
+  'a refunded order needs no refund');
+select lives_ok($$select public.payment_order_refunded('pay_A1', 'rfnd_2', 1000)$$,
+  'a partial refund of a paid order');
+select lives_ok($$select public.payment_order_refunded('pay_unknown', 'rfnd_3', 100)$$,
+  'a refund for an unknown payment is ignored');
+select throws_ok($$select public.payment_order_refunded('pay_A1', '', 100)$$,
+  'P0009', null, 'a refund needs its id');
+reset role;
+select is((select status || ':' || refunded_amount || ':' || cardinality(refund_ids)
+             from public.payment_orders where razorpay_order_id = 'order_A1'),
+  'refunded:5000.00:1', 'a full refund, counted once');
+select is((select status || ':' || refunded_amount
+             from public.payment_orders where razorpay_order_id = 'order_fixture_r1'),
+  'paid:1000.00', 'a partial refund keeps the order paid');
+select is((select status::text from public.payments where gateway_ref = 'pay_A1'),
+  'succeeded', 'refunds never change the payments ledger');
+
+set local role service_role;
+set local request.jwt.claims to '{"role":"service_role"}';
+select is(public.payment_webhook_begin('evt_p6_1', 'payment.captured', '{"n":1}'), true,
+  'a new webhook event is to be processed');
+select is(public.payment_webhook_begin('evt_p6_1', 'payment.captured', '{"n":1}'), true,
+  'an event that was never finished is processed again');
+select lives_ok($$select public.payment_webhook_done('evt_p6_1', 'settled:paid')$$,
+  'the event is finished');
+select is(public.payment_webhook_begin('evt_p6_1', 'payment.captured', '{"n":1}'), false,
+  'a finished event is not processed twice');
+select throws_ok($$select public.payment_webhook_begin('', 'x', '{}')$$,
+  'P0009', null, 'an event needs its id');
+reset role;
+select is((select outcome from public.payment_webhook_events where event_id = 'evt_p6_1'),
+  'settled:paid', 'the outcome is kept');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select public.payment_webhook_begin('evt_x', 'x', '{}')$$,
+  '42501', null, 'a guest cannot write the webhook ledger');
+select throws_ok($$select public.payment_order_refunded('pay_A1', 'rfnd_x', 1)$$,
+  '42501', null, 'a guest cannot record refunds');
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select is((select count(*)::int from public.payment_orders
+            where property_id = 'a6100000-0000-4000-8000-000000000002'),
+  0, 'A''s owner reads none of B''s payment orders');
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is((select count(*)::int from public.payment_orders), 3,
+  'B''s owner reads B''s three payment orders');
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select is((select count(*)::int from public.payment_orders), 3,
+  'Om reads his own three payment orders');
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$select public.payment_order_settle('order_F1', 'pay_F1')$$,
+  '42501', null, 'resort staff cannot settle payments either');
+reset role;
 set local request.jwt.claims to '';
 
 select * from finish();
