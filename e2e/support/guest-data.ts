@@ -1,9 +1,10 @@
 // Extra fixture data for guest.spec.ts, on top of fixtures/world.ts.
 //
-// world.ts's shared resorts (A/B/S) can't be used for a resort-page/booking
-// test: every one of them has more than one unit, and PropertyScreen assumes
-// exactly one (see guest.spec.ts's own "opening a multi-unit resort" test,
-// which documents the resulting bug). This file adds one resort with a
+// world.ts's shared resorts (A/B/S) are shared with other specs, so the
+// live booking tests use their own resort instead (PropertyScreen handles
+// multi-unit resorts too now -- see guest.spec.ts's unit-picker test --
+// but a single unit keeps the flow free of a picker step and of contention
+// with other specs' bookings). This file adds one resort with a
 // single unit -- with a 35% advance policy, so the split-payment option in
 // QuoteSheet actually renders -- plus one already-checked-out stay with a
 // review, so the property page's "reviews" section has something to show.

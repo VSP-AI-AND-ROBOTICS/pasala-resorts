@@ -2,10 +2,10 @@
 // and cancelling. Uses world.ts's shared fixtures (guests.fresh for the live
 // booking flow -- it starts and ends every test here with no bookings --
 // plus guests.arriving/guests.inHouse read-only for My Stay) and its own
-// isolated resort from guest-data.ts for anything that opens a property
-// page: every world.ts resort a guest can browse (Resort A, Resort B) has
-// more than one unit, and PropertyScreen crashes for those (see the last
-// test in this file, which documents that bug).
+// isolated single-unit resort from guest-data.ts for the booking flows, so
+// they never contend with other specs for world.ts's shared units. Resort A
+// and Resort B each have more than one unit; the last test in this file
+// covers PropertyScreen's unit picker for those.
 
 import { expect, test, type Page } from '@playwright/test';
 import { resortA, resortS, guests } from '../fixtures/world.ts';
@@ -207,33 +207,16 @@ test('a guest can book, see the 35% advance option, confirm with the mock gatewa
 });
 
 // -----------------------------------------------------------------------
-// App bug: cancelling a confirmed booking succeeds server-side but crashes
-// the client before the screen can update. `cancel_booking` returns 200 (a
-// direct DB check after this test's own run confirmed the row really does
-// flip to status = 'cancelled', refund_pct 0, the correct reason text, all
-// recorded correctly) -- but the app then throws an uncaught error and the
-// Cancel booking button, price breakdown and QR all keep showing the old
-// confirmed state, as if nothing happened. A customer who cancels this way
-// has no way to tell their cancellation actually went through; a refresh of
-// My Bookings would show it as cancelled, but this screen itself never does.
-//
-// `lib/features/account/booking_detail_screen.dart`'s `_cancelBooking`,
-// immediately after the `cancel_booking` call succeeds:
-//   ref.invalidate(myBookingsProvider);
-//   ref.invalidate(allBookingsProvider);   // <- staff/admin-only provider
-//   ref.invalidate(currentStayProvider);
-//   context.pop();
-// is the prime suspect: `allBookingsProvider` (imported from
-// `../staff/providers.dart`) backs the staff/admin bookings list, and this
-// screen is shared by staff/admin/customer alike, but a plain customer
-// session has no current-resort/staff context for it to rebuild against.
-// The browser console's minified stack trace (Riverpod container frames
-// inside the tap handler, not a GoRouter frame) points at one of these three
-// `ref.invalidate` calls rather than the `context.pop()` after them, but
-// pinning down which one -- and confirming `allBookingsProvider` specifically
-// -- needs a non-minified debug build's real stack trace.
-test.fail(
-  'cancelling a confirmed booking leaves the screen stuck on the old state (BUG: booking_detail_screen.dart _cancelBooking)',
+// Regression: cancelling a confirmed booking used to succeed server-side and
+// then throw client-side. This test reaches the detail screen by a hash
+// change (a `go`, nothing beneath it to pop), and `_cancelBooking` in
+// lib/features/account/booking_detail_screen.dart called `context.pop()`
+// unconditionally -- GoRouter threw "There is nothing to pop" -- and never
+// invalidated `reservationProvider`, so the screen kept showing the
+// confirmed booking, QR and Cancel booking button. It now pops only when it
+// can, and refreshes the reservation so the cancelled state renders.
+test(
+  'cancelling a confirmed booking shows the cancelled state',
   async ({ page }) => {
     const reservationId = await bookGuestResort(page, 10);
 
@@ -250,9 +233,13 @@ test.fail(
     // booking) -- scoping to the dialog picks the right one unambiguously.
     await dialog.getByRole('button', { name: 'Cancel booking', exact: true }).click();
 
-    // This is what a customer actually sees: the same confirmed-booking
-    // screen, Cancel booking button and all, even though the reservation
-    // really has been cancelled (server-side) by now.
+    // Wait for the cancel to actually land (the confirmation snackbar) --
+    // while it is in flight the trigger button shows a spinner with no
+    // label, which would satisfy the count-0 check below too early. Then
+    // the cancelled booking no longer offers Cancel booking -- on this
+    // screen, and on a fresh visit to it.
+    await expect(page.getByText('Booking cancelled', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cancel booking', exact: true })).toHaveCount(0);
     await goTo(page, `/booking-detail/${reservationId}`);
     await expect(page.getByRole('button', { name: 'Cancel booking', exact: true })).toHaveCount(0);
   },
@@ -278,26 +265,20 @@ test('My Stay shows the checked-in guest their pass', async ({ page }) => {
 });
 
 // -----------------------------------------------------------------------
-// App bug: PropertyScreen assumes exactly one bookable unit per resort
-// (lib/features/browse/property_screen.dart, `list.single` in the units
-// AsyncView's `data:` callback -- the comment there even says so: "Exactly
-// one bookable unit is assumed here -- .single throws if a second unit is
-// ever added, deliberately"). That assumption predates ResortHub's
-// multi-resort direction (see MEMORY.md: "goal is multi-resort ResortHub").
-// Resort A has three units (Garden Cottage, Lake Villa, Tree House) and
-// Resort B has two (Beach Hut, Sea View Suite) -- every world.ts resort a
-// guest can actually browse into except this file's own single-unit
-// guestResort. `.single()` throws a StateError ("Bad state: Too many
-// elements") while PropertyScreen's `data:` builder is running, which
-// Flutter's error zone catches per-widget rather than crashing the whole
-// tab, but the practical effect is the same for a guest: the entire unit
-// picker/booking flow section (guests, price, pay) never renders. Given the
-// current fixture world, a guest cannot book Resort A or Resort B at all.
-test.fail(
-  'opening a resort with more than one unit crashes its booking section (BUG: property_screen.dart assumes one unit)',
+// Regression: PropertyScreen used to assume exactly one bookable unit per
+// resort (`list.single` in lib/features/browse/property_screen.dart's units
+// builder), so any resort with a second unit threw StateError ("Too many
+// elements") and its whole booking section (guests, price, pay) never
+// rendered -- a guest could not book Resort A (three units) or Resort B
+// (two) at all. A multi-unit resort now shows a "Choose your stay" unit
+// picker above the same inline booking flow, booking the chosen unit;
+// single-unit resorts are unchanged (no picker).
+test(
+  'a resort with more than one unit shows a unit picker and its booking section',
   async ({ page }) => {
     await login(page, bookingGuest);
     await goTo(page, `/property/${resortA.id}`);
+    await expect(page.getByText('Choose your stay', { exact: true })).toBeVisible();
     await expect(page.getByText(/Sleeps/)).toBeVisible({ timeout: 5_000 });
   },
 );

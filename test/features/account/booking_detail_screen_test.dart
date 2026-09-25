@@ -36,8 +36,12 @@ class _FakeRefundSource implements RefundSource {
 /// recording every call it received so a test can assert exactly what was
 /// sent to the server.
 class _FakeCancelActions implements BookingActions {
-  _FakeCancelActions({this.failure});
+  _FakeCancelActions({this.failure, this.onCancel});
   final BookingFailure? failure;
+
+  /// Runs after a successful cancel -- lets a test flip its fake "server"
+  /// row to cancelled, the way the real `cancel_booking` RPC does.
+  final void Function(String reservationId)? onCancel;
   final List<({String reservationId, String reason})> cancelCalls = [];
 
   @override
@@ -47,6 +51,7 @@ class _FakeCancelActions implements BookingActions {
   }) async {
     cancelCalls.add((reservationId: reservationId, reason: reason));
     if (failure != null) throw failure!;
+    onCancel?.call(reservationId);
     return Reservation(
       id: reservationId,
       unitId: 'unit-1',
@@ -601,6 +606,114 @@ void main() {
       expect(actions.cancelCalls,
           [(reservationId: block.id, reason: 'no longer needed')]);
       expect(find.text('bookings-list'), findsOneWidget);
+    });
+  });
+  // E2E bug (guest.spec.ts "cancelling a confirmed booking leaves the
+  // screen stuck on the old state"): a guest who reaches this screen by a
+  // direct link (a `go`, e.g. a URL/hash change -- nothing beneath it to pop
+  // back to) cancels successfully server-side, but `_cancelBooking` then
+  // threw (`context.pop()` with nothing to pop) and never refreshed
+  // `reservationProvider`, so the screen kept showing the confirmed
+  // booking, QR and Cancel button.
+  group('cancel refreshes the reservation itself', () {
+    late Reservation serverRow;
+
+    Widget deepLinkedApp(BookingActions actions, {String? initialLocation}) {
+      router = GoRouter(
+        initialLocation: initialLocation ?? '/booking-detail/r1',
+        routes: [
+          GoRoute(
+            path: '/bookings',
+            builder: (_, _) => const Scaffold(body: Text('bookings-list')),
+          ),
+          GoRoute(
+            path: '/booking-detail/:id',
+            builder: (_, state) =>
+                BookingDetailScreen(reservationId: state.pathParameters['id']!),
+          ),
+        ],
+      );
+      return ProviderScope(
+        overrides: [
+          // Reads the fake server row each time it is (re)built, so only an
+          // actual invalidation of reservationProvider picks up a cancel.
+          reservationProvider('r1').overrideWith((ref) async => serverRow),
+          bookingActionsProvider.overrideWithValue(actions),
+          refundSourceProvider.overrideWithValue(_FakeRefundSource()),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      );
+    }
+
+    _FakeCancelActions flippingActions() => _FakeCancelActions(
+          onCancel: (id) => serverRow = _reservation(
+              status: ReservationStatus.cancelled, id: id),
+        );
+
+    Future<void> cancelViaDialog(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('cancel-booking-button')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('cancel-reason-field')), 'change of plans');
+      await tester.tap(find.byKey(const Key('confirm-cancel-button')));
+      await tester.pumpAndSettle();
+    }
+
+    setUp(() {
+      serverRow = _reservation(status: ReservationStatus.confirmed);
+    });
+
+    testWidgets(
+        'opened by a direct link (nothing to pop), a successful cancel does '
+        'not throw and the screen shows the cancelled state', (tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final actions = flippingActions();
+      await tester.pumpWidget(deepLinkedApp(actions));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('cancel-booking-button')), findsOneWidget);
+
+      await cancelViaDialog(tester);
+
+      expect(tester.takeException(), isNull,
+          reason: 'the cancel succeeded server-side; the client must not '
+              'throw afterwards');
+      expect(actions.cancelCalls, hasLength(1));
+      expect(find.byKey(const Key('cancel-booking-button')), findsNothing,
+          reason: 'the screen must re-read the reservation, not keep the '
+              'stale confirmed copy');
+      expect(find.text('Check-in QR'), findsNothing);
+      expect(find.byKey(const Key('booking-cancelled-chip')), findsOneWidget);
+      expect(find.text('Booking cancelled'), findsOneWidget,
+          reason: 'the guest is told the cancel went through');
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets(
+        'opened from the list, a cancel pops back and re-opening shows the '
+        'cancelled state, not the cached confirmed one', (tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+          deepLinkedApp(flippingActions(), initialLocation: '/bookings'));
+      await tester.pumpAndSettle();
+      router.push('/booking-detail/r1');
+      await tester.pumpAndSettle();
+
+      await cancelViaDialog(tester);
+      expect(tester.takeException(), isNull);
+      expect(find.text('bookings-list'), findsOneWidget);
+
+      router.push('/booking-detail/r1');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('cancel-booking-button')), findsNothing);
+      expect(find.byKey(const Key('booking-cancelled-chip')), findsOneWidget);
     });
   });
 }
