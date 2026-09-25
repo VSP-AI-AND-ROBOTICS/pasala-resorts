@@ -163,6 +163,20 @@ void main() {
       expect(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'), findsOneWidget);
     });
 
+    testWidgets('the reference field is its own semantics node, not merged into the card',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      await _pump(tester, extra: _desk, stay: _FakeStayRepository());
+
+      // A merged card made the field's accessible name "Payment method
+      // Reference (optional)" and its tap target the whole card, which on
+      // a phone lies over the method chips.
+      final node = tester.getSemantics(find.byKey(const Key('desk-reference')));
+      expect(node.label, isNot(contains('Payment method')));
+      expect(find.bySemanticsLabel('Payment method'), findsOneWidget);
+      handle.dispose();
+    });
+
     testWidgets('records the chosen method and the trimmed reference, and never calls the gateway',
         (tester) async {
       final stay = _FakeStayRepository();

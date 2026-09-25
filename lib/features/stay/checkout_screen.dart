@@ -133,7 +133,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         : 'Pay ${formatInr(balance)} and check out';
   }
 
+  // semanticContainer: false -- a merged Card made the reference field's
+  // accessible name include the card title, and its tap target the whole
+  // card (on a phone, over the method chips).
   Widget _deskPayment(BuildContext context) => Card(
+        semanticContainer: false,
         child: Padding(
           padding: const EdgeInsets.all(Spacing.md),
           child: Column(
