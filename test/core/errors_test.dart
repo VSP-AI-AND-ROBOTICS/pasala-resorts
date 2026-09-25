@@ -114,6 +114,19 @@ void main() {
     });
   });
 
+  test('P0039 invalid_feed_url maps to FeedUrlRejected with readable copy',
+      () {
+    final failure = map('P0039', 'invalid_feed_url');
+    expect(failure, isA<FeedUrlRejected>());
+    expect(failure.message, FeedUrlRejected.invalid);
+  });
+
+  test('P0039 duplicate_feed says the calendar is already added', () {
+    final failure = map('P0039', 'duplicate_feed');
+    expect(failure, isA<FeedUrlRejected>());
+    expect(failure.message, 'This calendar is already added to this unit.');
+  });
+
   test('NotPermitted never leaks the server message', () {
     expect(map('42501', 'permission denied for table reservations').message,
         isNot(contains('reservations')));
