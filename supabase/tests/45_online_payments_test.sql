@@ -15,7 +15,7 @@
 --   R7 ...37  A, hold, Gita, total 1000, expires in 10 minutes
 -- and one Razorpay order, order_fixture_r1 (R1, advance 5000).
 begin;
-select plan(49);
+select plan(86);
 
 insert into auth.users (id, email) values
   ('a6000000-0000-0000-0000-000000000001','p6-a-owner@example.com'),
@@ -254,6 +254,142 @@ select is((select property_id from public.payment_orders where razorpay_order_id
   'a6100000-0000-4000-8000-000000000001'::uuid, 'the order takes the reservation''s resort');
 select is((select hold_expires_at from public.reservations where id = 'a6100000-0000-4000-8000-000000000031'),
   now() + interval '10 minutes', 'opening an order does not extend the hold');
+
+-- === Task 3: the live switch and settling ======================================
+
+-- More fixtures: R9 is checked in at A with 2000 due, and its balance
+-- changes before the payment lands; R10 is a hold at B, which is
+-- suspended before the payment lands.
+insert into public.reservations
+  (id, unit_id, period, kind, status, customer_id, guests, quote, hold_expires_at, checked_in_at) values
+  ('a6100000-0000-4000-8000-000000000039','a6100000-0000-4000-8000-000000000011',
+   tstzrange(now() - interval '1 day', now() + interval '1 day', '[)'),
+   'booking','checked_in','a6000000-0000-0000-0000-000000000004',2,'{"total":2000}',
+   null, now() - interval '1 day'),
+  ('a6100000-0000-4000-8000-000000000040','a6100000-0000-4000-8000-000000000021',
+   public.build_period('a6100000-0000-4000-8000-000000000021', current_date + 50, current_date + 51),
+   'booking','hold','a6000000-0000-0000-0000-000000000005',2,'{"total":2000}',
+   now() + interval '10 minutes', null);
+
+set local role service_role;
+set local request.jwt.claims to '{"role":"service_role"}';
+select lives_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000039',
+  'a6000000-0000-0000-0000-000000000004', 'balance', 2000, 'order_G1')$$, 'a balance order for R9');
+select lives_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000040',
+  'a6000000-0000-0000-0000-000000000005', 'advance', 2000, 'order_H1')$$, 'an advance order for R10');
+select lives_ok($$select public.payments_set_live(true, 'rzp_test_p6')$$,
+  'the service role switches online payments on');
+reset role;
+select is(public.online_payments_live(), true, 'online payments are live');
+select is((select key_id from public.payment_gateway_config), 'rzp_test_p6', 'the live key id is recorded');
+
+-- While live, the guest's own mock payments are refused.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select public.confirm_booking('a6100000-0000-4000-8000-000000000037', 'mock_r7', 1000)$$,
+  'P0036', null, 'while live, a guest cannot confirm with a mock payment');
+select throws_ok($$select public.checkout_booking('a6100000-0000-4000-8000-000000000032', 'mock_r2', 3000)$$,
+  'P0036', null, 'while live, a guest cannot pay a balance with a mock payment');
+set local app.payment_gateway = 'razorpay';
+select throws_ok($$select public.confirm_booking('a6100000-0000-4000-8000-000000000037', 'mock_r7', 1000)$$,
+  'P0036', null, 'a guest who sets app.payment_gateway still gets P0036');
+set local app.payment_gateway = '';
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select lives_ok($$select public.checkout_booking('a6100000-0000-4000-8000-000000000036', 'RCPT-1', 1000, 'cash')$$,
+  'desk payments are unaffected while live');
+
+-- Settling, as payments-verify and payments-webhook do.
+set local role service_role;
+set local request.jwt.claims to '{"role":"service_role"}';
+select is(public.payment_order_settle('order_fixture_r1', 'pay_A1') ->> 'status', 'paid',
+  'a verified advance is paid');
+select is(auth.uid(), null, 'settling leaves no guest identity behind');
+select is(coalesce(nullif(current_setting('app.payment_gateway', true), ''), 'unset'), 'unset',
+  'settling leaves no gateway label behind');
+select is(public.payment_order_settle('order_fixture_r1', 'pay_A1') ->> 'refund_needed', 'false',
+  'settling again reports the same paid order');
+reset role;
+select is((select status::text from public.reservations where id = 'a6100000-0000-4000-8000-000000000031'),
+  'confirmed', 'the hold is confirmed');
+select is((select gateway || ':' || method || ':' || kind || ':' || amount || ':' || recorded_by
+             from public.payments where gateway_ref = 'pay_A1'),
+  'razorpay:gateway:advance:5000.00:a6000000-0000-0000-0000-000000000004',
+  'the payment is recorded as Razorpay, by the guest');
+select is((select count(*)::int from public.payments
+            where reservation_id = 'a6100000-0000-4000-8000-000000000031'),
+  1, 'one payment, however often it is settled');
+select is((select payment_id is not null from public.payment_orders where razorpay_order_id = 'order_fixture_r1'),
+  true, 'the order links its payment');
+
+set local role service_role;
+set local request.jwt.claims to '{"role":"service_role"}';
+select is(public.payment_order_settle('order_A1', 'pay_A2') ->> 'status', 'unapplied',
+  'a second payment for a confirmed booking is unapplied');
+select is(public.payment_order_settle('order_A1', 'pay_A2') ->> 'refund_needed', 'true',
+  'it stays refund-needed until a refund is recorded');
+select is(public.payment_order_settle('order_B1', 'pay_B1') ->> 'status', 'paid',
+  'a verified balance is paid');
+select is(public.payment_order_settle('order_C1', 'pay_C1') ->> 'status', 'paid',
+  'a payment for an expired but unswept hold still confirms');
+reset role;
+select is((select failure_reason from public.payment_orders where razorpay_order_id = 'order_A1'),
+  'reservation is confirmed', 'the unapplied reason is kept');
+select is((select status::text from public.reservations where id = 'a6100000-0000-4000-8000-000000000032'),
+  'checked_out', 'the balance checks the guest out');
+select is((select kind || ':' || gateway || ':' || amount from public.payments where gateway_ref = 'pay_B1'),
+  'balance:razorpay:3000.00', 'the balance is recorded as Razorpay');
+select is((select state::text from public.unit_room_status where unit_id = 'a6100000-0000-4000-8000-000000000012'),
+  'dirty', 'the room needs cleaning after an online checkout');
+select is((select status::text from public.reservations where id = 'a6100000-0000-4000-8000-000000000033'),
+  'confirmed', 'the late hold is confirmed');
+
+-- Before their payments land: R4's hold is swept, R9's balance changes
+-- (a desk payment of 500), and resort B is suspended.
+set local request.jwt.claims to '';
+update public.reservations
+   set status = 'cancelled', cancel_reason = 'hold expired', cancelled_at = now()
+ where id = 'a6100000-0000-4000-8000-000000000034';
+insert into public.payments (reservation_id, amount, kind, status, gateway, gateway_ref, method)
+values ('a6100000-0000-4000-8000-000000000039', 500, 'balance', 'succeeded', 'desk', 'desk-p6-r9', 'cash');
+update public.properties set status = 'suspended' where id = 'a6100000-0000-4000-8000-000000000002';
+set local role service_role;
+set local request.jwt.claims to '{"role":"service_role"}';
+select is(public.payment_order_settle('order_D1', 'pay_D1') ->> 'status', 'unapplied',
+  'a payment for a swept hold is unapplied');
+select is(public.payment_order_settle('order_G1', 'pay_G1') ->> 'status', 'unapplied',
+  'a balance that changed meanwhile is unapplied');
+select is(public.payment_order_settle('order_H1', 'pay_H1') ->> 'reason', 'resort_suspended',
+  'a resort suspended meanwhile leaves the payment unapplied');
+select throws_ok($$select public.payment_order_settle('order_nope', 'pay_x')$$,
+  'P0002', null, 'an unknown order is not found');
+select throws_ok($$select public.payment_order_settle('order_fixture_r1', '')$$,
+  'P0009', null, 'a payment id is required');
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'active' where id = 'a6100000-0000-4000-8000-000000000002';
+select is((select status::text from public.reservations where id = 'a6100000-0000-4000-8000-000000000039'),
+  'checked_in', 'the stay whose balance changed is not checked out');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select public.payment_order_settle('order_B1', 'pay_B1')$$,
+  '42501', null, 'a guest cannot settle a payment');
+select throws_ok($$select public.payments_set_live(false, null)$$,
+  '42501', null, 'a guest cannot flip the switch');
+
+-- Switched off again, the mock confirms exactly as before P6.
+set local role service_role;
+set local request.jwt.claims to '{"role":"service_role"}';
+select lives_ok($$select public.payments_set_live(false, null)$$,
+  'the switch goes off when the keys are removed');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select lives_ok($$select public.confirm_booking('a6100000-0000-4000-8000-000000000037', 'mock_r7', 1000)$$,
+  'with the switch off, the mock confirms as before');
+reset role;
+select is((select gateway from public.payments where reservation_id = 'a6100000-0000-4000-8000-000000000037'),
+  'mock', 'and records a mock payment');
+set local request.jwt.claims to '';
 
 select * from finish();
 rollback;

@@ -256,6 +256,27 @@ $$;
 revoke execute on function public.payment_order_open(uuid, uuid, public.payment_kind, numeric, text) from public, anon, authenticated;
 grant execute on function public.payment_order_open(uuid, uuid, public.payment_kind, numeric, text) to service_role;
 
+-- What settle returns; one place, so the idempotent and the first answer
+-- have the same shape. Internal (no client grants).
+create function public.payment_order_json(p_order public.payment_orders)
+returns jsonb
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select jsonb_build_object(
+    'order_id',            p_order.id,
+    'reservation_id',      p_order.reservation_id,
+    'kind',                p_order.kind,
+    'amount',              p_order.amount,
+    'status',              p_order.status,
+    'razorpay_payment_id', p_order.razorpay_payment_id,
+    'reason',              p_order.failure_reason,
+    'refund_needed',       p_order.status = 'unapplied' and cardinality(p_order.refund_ids) = 0
+  );
+$$;
+revoke execute on function public.payment_order_json(public.payment_orders) from public, anon, authenticated;
+
 -- Service role only: applies a verified payment (confirm or check out),
 -- or marks it unapplied. Idempotent per order.
 create function public.payment_order_settle(
@@ -266,8 +287,87 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_order       public.payment_orders;
+  v_res         public.reservations;
+  v_payment     uuid;
+  v_reason      text;
+  v_prev_claims text := current_setting('request.jwt.claims', true);
+  v_prev_sub    text := current_setting('request.jwt.claim.sub', true);
+  v_prev_gw     text := current_setting('app.payment_gateway', true);
 begin
-  raise exception using errcode = '0A000', message = 'not implemented';
+  if p_razorpay_payment_id is null or btrim(p_razorpay_payment_id) = '' then
+    raise exception 'a Razorpay payment id is required' using errcode = 'P0009';
+  end if;
+
+  select * into v_order from public.payment_orders
+   where razorpay_order_id = p_razorpay_order_id
+   for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'payment_order_not_found';
+  end if;
+
+  -- payments-verify and payments-webhook both land here for one payment:
+  -- an order that is already settled is reported, never applied twice.
+  if v_order.status in ('paid', 'unapplied', 'refunded') then
+    return public.payment_order_json(v_order);
+  end if;
+
+  select * into v_res from public.reservations
+   where id = v_order.reservation_id
+   for update;
+
+  -- Captured before release_expired_holds swept the hold: the dates are
+  -- still held for this guest, so the payment wins (spec decision 9).
+  if v_order.kind = 'advance' and v_res.status = 'hold' and v_res.hold_expires_at < now() then
+    update public.reservations
+       set hold_expires_at = now() + interval '1 minute'
+     where id = v_res.id;
+  end if;
+
+  if (v_order.kind = 'advance' and v_res.status <> 'hold')
+     or (v_order.kind = 'balance' and v_res.status <> 'checked_in') then
+    v_reason := format('reservation is %s', v_res.status);
+  else
+    begin
+      -- Act as the order's guest for the rest of this transaction, so the
+      -- existing functions run their guest path unchanged (spec decision 7).
+      perform set_config('request.jwt.claim.sub', v_order.customer_id::text, true);
+      perform set_config('request.jwt.claims',
+        json_build_object('sub', v_order.customer_id, 'role', 'authenticated')::text, true);
+      perform set_config('app.payment_gateway', 'razorpay', true);
+
+      if v_order.kind = 'advance' then
+        perform public.confirm_booking(v_order.reservation_id, btrim(p_razorpay_payment_id), v_order.amount);
+      else
+        perform public.checkout_booking(v_order.reservation_id, btrim(p_razorpay_payment_id), v_order.amount, 'gateway');
+      end if;
+
+      select id into v_payment from public.payments
+       where gateway = 'razorpay' and gateway_ref = btrim(p_razorpay_payment_id);
+    exception when others then
+      -- Money was taken but cannot be applied: unapplied, refunded by the
+      -- caller (spec decision 10). The block's own settings roll back.
+      v_reason  := sqlerrm;
+      v_payment := null;
+    end;
+  end if;
+
+  perform set_config('request.jwt.claim.sub', coalesce(v_prev_sub, ''), true);
+  perform set_config('request.jwt.claims', coalesce(v_prev_claims, ''), true);
+  perform set_config('app.payment_gateway', coalesce(v_prev_gw, ''), true);
+
+  update public.payment_orders
+     set status              = case when v_payment is null then 'unapplied' else 'paid' end
+                                 ::public.payment_order_status,
+         razorpay_payment_id = btrim(p_razorpay_payment_id),
+         payment_id          = v_payment,
+         failure_reason      = left(v_reason, 500),
+         updated_at          = now()
+   where id = v_order.id
+  returning * into v_order;
+
+  return public.payment_order_json(v_order);
 end;
 $$;
 revoke execute on function public.payment_order_settle(text, text) from public, anon, authenticated;
@@ -348,9 +448,233 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_live   boolean := coalesce(p_live, false);
+  v_key_id text    := case when coalesce(p_live, false) then nullif(btrim(p_key_id), '') end;
 begin
-  raise exception using errcode = '0A000', message = 'not implemented';
+  -- Called on every payments-create-order request: write only on change.
+  update public.payment_gateway_config
+     set live = v_live, key_id = v_key_id, updated_at = now()
+   where id
+     and (live is distinct from v_live or key_id is distinct from v_key_id);
 end;
 $$;
 revoke execute on function public.payments_set_live(boolean, text) from public, anon, authenticated;
 grant execute on function public.payments_set_live(boolean, text) to service_role;
+
+-- ---------------------------------------------------------------------
+-- The gateway label and the live switch. A payment is labelled
+-- `razorpay` only when payment_order_settle calls in (it sets
+-- app.payment_gateway) AND the session role is service_role, so a client
+-- that managed to set the setting still gets `mock`. While online
+-- payments are live, the guest's own mock payment raises P0036
+-- (spec decisions 5 and 7).
+--
+-- confirm_booking: copied from its latest definition,
+-- 0045_resort_functions.sql; the changes are marked 0055.
+create or replace function public.confirm_booking(
+  p_reservation_id uuid,
+  p_payment_ref    text,
+  p_amount         numeric
+) returns public.reservations
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid         uuid := auth.uid();
+  v_row         public.reservations;
+  v_total       numeric;
+  v_advance_pct numeric;
+  v_min         numeric;
+  v_gateway     text := case                                        -- 0055
+                          when current_setting('app.payment_gateway', true) = 'razorpay'
+                           and current_setting('role', true) = 'service_role'
+                          then 'razorpay' else 'mock' end;
+begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_row from public.reservations
+  where id = p_reservation_id for update;
+
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  if v_row.customer_id is distinct from v_uid then
+    perform public.assert_resort_role(v_row.property_id, true, 'owner','admin');
+  end if;
+
+  -- Before the resort-status check: a retried webhook for a booking that
+  -- was already paid must get the row back even if the resort has since
+  -- been suspended.
+  if v_row.status = 'confirmed' then
+    return v_row;   -- idempotent: a retried webhook must not double-charge
+  end if;
+
+  if not exists (select 1 from public.properties
+                  where id = v_row.property_id and status = 'active') then
+    raise exception using errcode = 'P0022', message = 'resort_suspended';
+  end if;
+
+  if v_row.status <> 'hold' then
+    raise exception 'reservation is %', v_row.status using errcode = 'P0009';
+  end if;
+
+  if v_row.hold_expires_at < now() then
+    raise exception 'hold expired' using errcode = 'P0006';
+  end if;
+
+  -- A NULL `p_amount` or NULL `quote` must hit this raise (see 0014).
+  if p_amount is null or v_row.quote is null then
+    raise exception 'payment amount % does not match quoted total %',
+      p_amount, (v_row.quote ->> 'total')
+      using errcode = 'P0009';
+  end if;
+
+  v_total := (v_row.quote ->> 'total')::numeric;
+
+  select coalesce(p.advance_pct, 100) into v_advance_pct
+  from public.properties p
+  where p.id = v_row.property_id;
+
+  v_min := round(v_total * coalesce(v_advance_pct, 100) / 100, 2);
+
+  if p_amount < v_min or p_amount > v_total then
+    raise exception
+      'payment amount % is outside the accepted range % to %',
+      p_amount, v_min, v_total
+      using errcode = 'P0009';
+  end if;
+
+  -- 0055: once online payments are live, the guest's own confirmation
+  -- comes only through payment_order_settle. An owner/admin confirming a
+  -- hold (an offline payment) is unaffected.
+  if v_gateway = 'mock' and v_row.customer_id = v_uid and public.online_payments_live() then
+    raise exception using errcode = 'P0036', message = 'online_payment_required';
+  end if;
+
+  insert into public.payments
+    (reservation_id, amount, kind, status, gateway, gateway_ref)
+  values (p_reservation_id, p_amount, 'advance', 'succeeded', v_gateway,   -- 0055
+          p_payment_ref);
+
+  update public.reservations
+     set status = 'confirmed', hold_expires_at = null
+   where id = p_reservation_id
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+-- checkout_booking: copied from its latest definition,
+-- 0048_finance_ledger.sql; the changes are marked 0055.
+create or replace function public.checkout_booking(
+  p_reservation_id uuid,
+  p_payment_ref    text,
+  p_amount         numeric,
+  p_method         public.payment_method default 'gateway'
+) returns public.reservations
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_row     public.reservations;
+  v_charges jsonb;
+  v_balance numeric(12,2);
+  v_method  public.payment_method := coalesce(p_method, 'gateway');   -- 0048
+  v_gateway text := case                                                -- 0055
+                      when current_setting('app.payment_gateway', true) = 'razorpay'
+                       and current_setting('role', true) = 'service_role'
+                      then 'razorpay' else 'mock' end;
+begin
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_row from public.reservations
+  where id = p_reservation_id for update;
+
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  if v_row.customer_id is distinct from v_uid then
+    perform public.assert_resort_role(v_row.property_id, true, 'owner','admin','staff','accountant');
+  end if;
+
+  -- 0048: only resort staff record a desk method, and only at the
+  -- booking's own resort. A guest's own checkout (the branch above
+  -- skipped) can only be gateway; a staff member checking out their own
+  -- stay passes this check. Before the early return, so a guest never
+  -- gets a desk method accepted, even as a no-op.
+  if v_method <> 'gateway'
+     and not public.has_resort_role(v_row.property_id, true,
+                                    'owner','admin','staff','accountant') then
+    raise exception 'desk payment methods are recorded by resort staff'
+      using errcode = 'P0009';
+  end if;
+
+  if v_row.status = 'checked_out' then
+    return v_row;   -- idempotent: a retried checkout must not double-charge
+  end if;
+
+  if v_row.status <> 'checked_in' then
+    raise exception 'reservation is %', v_row.status using errcode = 'P0009';
+  end if;
+
+  v_charges := public.current_charges(p_reservation_id);
+  v_balance := (v_charges ->> 'balance')::numeric;
+
+  if v_balance > 0 and (p_amount is null or p_amount is distinct from v_balance) then
+    raise exception 'payment amount % does not match balance due %',
+      p_amount, v_balance
+      using errcode = 'P0009';
+  end if;
+
+  if v_balance > 0 then
+    if v_method = 'gateway' then
+      -- 0055: see confirm_booking.
+      if v_gateway = 'mock' and v_row.customer_id = v_uid and public.online_payments_live() then
+        raise exception using errcode = 'P0036', message = 'online_payment_required';
+      end if;
+      insert into public.payments
+        (reservation_id, amount, kind, status, gateway, gateway_ref, method, recorded_by)
+      values (p_reservation_id, v_balance, 'balance', 'succeeded', v_gateway, p_payment_ref,   -- 0055
+              'gateway', v_uid);
+    else
+      -- 0048: one balance payment per booking, so 'desk-<id>' stays unique
+      -- under unique (gateway, gateway_ref) and doubles as a retry guard.
+      -- The receipt/UTR number goes in `reference`, which is not unique.
+      insert into public.payments
+        (reservation_id, amount, kind, status, gateway, gateway_ref, method, reference, recorded_by)
+      values (p_reservation_id, v_balance, 'balance', 'succeeded', 'desk',
+              'desk-' || p_reservation_id, v_method,
+              nullif(btrim(p_payment_ref), ''), v_uid);
+    end if;
+  end if;
+
+  update public.reservations
+     set status = 'checked_out', checked_out_at = clock_timestamp()
+   where id = p_reservation_id
+  returning * into v_row;
+
+  -- 0047: the room needs cleaning now.
+  insert into public.unit_room_status as s
+    (unit_id, property_id, state, reason, updated_by, updated_at)
+  values (v_row.unit_id, v_row.property_id, 'dirty', null, v_uid, now())
+  on conflict (unit_id) do update
+    set state      = 'dirty',
+        reason     = null,
+        updated_by = excluded.updated_by,
+        updated_at = excluded.updated_at
+    where s.state <> 'out_of_order';
+
+  return v_row;
+end;
+$$;
