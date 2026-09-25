@@ -185,13 +185,11 @@ test.describe('Staff / Incharge (Resort A)', () => {
     await logout(page);
   });
 
-  // BUG lib/features/admin/tasks_screen.dart _delete: the confirm dialog's
-  // buttons pop `Navigator.of(context)` with the *screen's* context. The
-  // dialog is on the root navigator, but /admin/tasks lives in the router's
-  // ShellRoute, so "Delete" pops the Tasks page off the shell navigator
-  // instead of closing the dialog: the screen goes blank and the task is
-  // never deleted. Remove test.fail once fixed.
-  test.fail('an admin can delete a task from /admin/tasks', async ({ page }) => {
+  // Regression: /admin/tasks lives in the router's ShellRoute, and the
+  // confirm dialog's buttons used to pop the screen's (shell) navigator
+  // instead of the dialog, blanking the page without deleting the task
+  // (lib/features/admin/tasks_screen.dart _delete).
+  test('an admin can delete a task from /admin/tasks', async ({ page }) => {
     const title = 'E2E delete me';
     await createTask(resortA.team.admin, resortA.id, staff, title);
     try {
@@ -231,5 +229,5 @@ test.describe('Staff / Incharge (Resort A)', () => {
 // deletes a unit/property outside of a signed-in admin request. This
 // spec works around it by deleting every task it creates as Resort A's
 // admin through the REST API (support/tasks-api.ts, a real authenticated
-// session), in the test and again in afterAll; the admin UI cannot be used
-// for that because of the task-delete bug above.
+// session), in the test and again in afterAll, so cleanup does not depend
+// on the admin UI.
