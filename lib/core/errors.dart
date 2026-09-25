@@ -122,6 +122,15 @@ class StayPassRejected extends BookingFailure {
   final PassRejection reason;
 }
 
+/// P0036 -- `confirm_booking`/`checkout_booking` refused a mock payment
+/// because online payments are live (0055). Reached only when the app
+/// could not reach the payment functions and fell back to the mock.
+class OnlinePaymentRequired extends BookingFailure {
+  const OnlinePaymentRequired()
+      : super('Online payment is not available right now. Please try again '
+            'in a few minutes.');
+}
+
 /// A 400/422 from Supabase auth: a mistyped password on sign-in, or a
 /// duplicate email on sign-up. Kept distinct from [NotPermitted] (I7) --
 /// without this, every one of those looked identical to "you don't have
@@ -231,6 +240,9 @@ BookingFailure mapPostgrestError(Object error) {
     // (`reason_required`, `already_dispatched`), so the copy lives here.
     'P0030' => const ReasonRequired(),
     'P0031' => const AlreadyDispatched(),
+    // P0036: online payments (0055). The server sends the bare code
+    // `online_payment_required`, so the copy lives here.
+    'P0036' => const OnlinePaymentRequired(),
     // P0035: food and spa tax rates (0053). Bare code word from the server.
     'P0035' => const TaxRateOutOfRange(),
     // P0034: check-in passes (0052). Bare code words; see StayPassRejected.
