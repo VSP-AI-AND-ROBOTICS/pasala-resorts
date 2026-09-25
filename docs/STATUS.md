@@ -79,17 +79,12 @@ business logic, only a mocked payment and unsent notifications (see below).
   given real keys) and then deliberately throws rather than pretending that
   order is a captured charge. Nothing in this repo's build configuration
   ever supplies the keys that would select it.
-- **The notification outbox is queued, never sent.** Booking confirmations,
-  payment receipts, and cancellations are rendered from templates and
-  written to an `outbox` table the moment they happen — the copy, the
-  recipient, the channel are all correct and inspectable at
-  `/admin/outbox`. But nothing has ever been sent: there is no email
-  provider, no SMS provider, and no WhatsApp integration configured. This
-  is not a UI-only claim — the database itself has no INSERT/UPDATE/DELETE
-  grant on `outbox` for any client role, so nothing a client does, correct
-  or malicious, can ever mark a row `sent`. The admin outbox screen carries
-  a permanent banner saying exactly this; it cannot be dismissed or
-  configured away.
+- **Email and SMS are sent by the `outbox-dispatch` Edge Function** once
+  a Resend key (email) and an MSG91 key and DLT templates (SMS) are set.
+  Until then every message is recorded as a dry run and nothing is sent.
+  The admin Outbox screen shows each channel's mode and when the sender
+  last ran. WhatsApp messages are queued only. Setup:
+  `docs/email-and-sms-delivery.md`.
 
 ## What is needed from the owner to go live
 
@@ -112,12 +107,12 @@ risk, as the current fact.
    blocks removing the development-only cleartext exemptions documented in
    the README — those exemptions must not ship to a real deployment.
 
-3. **An email and/or SMS provider account (e.g. an SMTP relay, SendGrid,
-   Twilio, or an Indian SMS gateway).** Consequence while missing: **no
-   guest ever receives a booking confirmation, payment receipt, or
-   cancellation notice from this app.** The outbox fills up correctly and
-   silently forever; a guest who books today gets nothing in their inbox or
-   messages unless someone manually tells them.
+3. **A Resend account with a verified sending domain (email) and an MSG91
+   account with DLT-registered templates (SMS).** Consequence while
+   missing: **the sender runs as a dry run, so no guest receives a
+   booking confirmation, payment receipt or cancellation notice.** The
+   Outbox screen says so for each channel. Setup takes minutes once the
+   accounts exist; see `docs/email-and-sms-delivery.md`.
 
 4. **Meta Business verification for WhatsApp**, on top of item 3. This has
    its own multi-week approval lead time, independent of any other item on

@@ -110,14 +110,18 @@ and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
   cancellation message, rendered from templates, per channel
   (email/sms/whatsapp), with per-customer skip-with-reason when no
   email/phone is on file.
-- `/admin/outbox` (staff-or-above) shows the queue honestly, including a
-  permanent, undismissable banner: **nothing has ever been sent — there is
-  no email/SMS/WhatsApp provider configured.**
-- This is enforced at the database privilege level, not just in the UI:
-  `outbox` has no INSERT/UPDATE/DELETE grant to `authenticated` or `anon` at
-  all. The only writer is a `SECURITY DEFINER` trigger function that never
-  once sets `status = 'sent'`. A direct attempt to write `sent` fails with
-  `42501` before RLS is even evaluated — proven in `13_outbox_test.sql`.
+- The `outbox-dispatch` Edge Function sends email (Resend) and SMS
+  (MSG91), called every minute by pg_cron, with retries (1, 2, 4, 8
+  minutes; failed after 5 attempts). Without provider keys it runs as a
+  **dry run**: messages are marked `dry_run` and nothing is sent. WhatsApp
+  is queued only. Setup: [docs/email-and-sms-delivery.md](docs/email-and-sms-delivery.md).
+- `/admin/outbox` (staff-or-above) shows each channel's delivery mode and
+  when the sender last ran, and lets owners/admins send a failed or
+  dry-run message again.
+- Clients still cannot write `outbox`: there is no INSERT/UPDATE/DELETE
+  grant to `authenticated` or `anon` (proven in `13_outbox_test.sql`).
+  Only `security definer` functions change rows, and only the service
+  role (the Edge Function) marks one sent (`46_email_sms_delivery_test.sql`).
 
 **OTA calendar sync — iCal (phase 2)**
 
@@ -166,9 +170,10 @@ See `docs/STATUS.md`.
 
 ## What is still out of scope
 
-- **SMS/WhatsApp/email actually being delivered.** The outbox renders and
-  queues; nothing sends. WhatsApp additionally needs Meta Business API
-  verification, which has a multi-week lead time.
+- **WhatsApp delivery.** Email and SMS are sent once their provider keys
+  are set (see [docs/email-and-sms-delivery.md](docs/email-and-sms-delivery.md));
+  WhatsApp needs Meta Business API verification, which has a multi-week
+  lead time, and is queued only.
 - **A real-time, guaranteed-zero-double-booking two-way API integration**
   with Agoda/MakeMyTrip/Goibibo — none of them publish one; iCal (above) is
   the closest thing available without a commercial channel-manager
@@ -434,10 +439,9 @@ task-by-task record.
   is the default in every build this repo produces; `RazorpayGateway` exists
   but is inert without a merchant account and a checkout SDK this app does
   not integrate.
-- **Nothing in the notification outbox has ever been sent.** There is no
-  email/SMS/WhatsApp provider configured; the queue and the honest
-  "not sent" banner are the whole deliverable here. See `docs/STATUS.md`
-  for what's needed to change that.
+- **Email and SMS go out only once provider keys are set.** Until then the
+  sender runs as a dry run and the Outbox screen says so per channel.
+  WhatsApp is never sent. See `docs/email-and-sms-delivery.md`.
 - **The iCal export URL shape has never been verified against a real
   Airbnb or Booking.com account** — there is no owner-provided listing to
   test against. The RFC 5545 shape and the local end-to-end poll/apply
