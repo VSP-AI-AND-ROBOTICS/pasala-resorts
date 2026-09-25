@@ -13,7 +13,7 @@
 --   R4 Bill Lapsed     pro, active, paid until 3 days ago
 --   R5 Bill None       no subscription row
 begin;
-select plan(67);
+select plan(95);
 
 -- "Today" as the subscription functions see it.
 create function pg_temp.today() returns date
@@ -367,6 +367,152 @@ select is((select jsonb_build_object('cancel', s -> 'current' -> 'cancel_at_cycl
 reset role;
 set local request.jwt.claims to '';
 delete from public.billing_subscriptions;
+
+-- === Task 4: webhook events ================================================
+
+-- Razorpay's subscription entity, and a captured payment of p_paise.
+create function pg_temp.sub(p_id text, p_status text, p_start bigint default null,
+                            p_end bigint default null)
+returns jsonb language sql immutable as $f$
+  select jsonb_build_object('id', p_id, 'entity', 'subscription', 'status', p_status,
+                            'current_start', p_start, 'current_end', p_end,
+                            'short_url', 'https://rzp.io/i/' || p_id)
+$f$;
+create function pg_temp.pay(p_id text, p_paise int)
+returns jsonb language sql immutable as $f$
+  select jsonb_build_object('id', p_id, 'entity', 'payment', 'amount', p_paise,
+                            'currency', 'INR', 'status', 'captured',
+                            'invoice_id', 'inv_' || substr(p_id, 5), 'created_at', 1790000000)
+$f$;
+
+insert into public.billing_subscriptions
+  (property_id, tier, razorpay_plan_id, razorpay_subscription_id, status, superseded_at)
+values
+  ('b8100000-0000-4000-8000-000000000001', 'pro', 'plan_ProMonthly0001', 'sub_WebhookOne0001', 'created', null),
+  ('b8100000-0000-4000-8000-000000000002', 'pro', 'plan_ProMonthly0001', 'sub_WebhookTwo0001', 'active', null),
+  ('b8100000-0000-4000-8000-000000000002', 'starter', 'plan_StarterMon001', 'sub_WebhookOld0001', 'active', now()),
+  ('b8100000-0000-4000-8000-000000000003', 'starter', 'plan_StarterMon001', 'sub_WebhookThree01', 'authenticated', null),
+  ('b8100000-0000-4000-8000-000000000004', 'pro', 'plan_ProMonthly0001', 'sub_WebhookFour001', 'active', null);
+
+-- A: authorise and charge R1's trial, twice, then a late charge.
+set local role service_role;
+select is(public.billing_webhook_apply('subscription.activated', now(),
+            pg_temp.sub('sub_Unknown000001', 'active'), null) ->> 'outcome',
+  'ignored', 'an event for a subscription this app did not create is ignored');
+select is(public.billing_webhook_apply('subscription.authenticated', now() - interval '1 hour',
+            pg_temp.sub('sub_WebhookOne0001', 'authenticated'), null) ->> 'outcome',
+  'updated', 'authorising only updates the stored state');
+select is(public.billing_webhook_apply('subscription.charged', now(),
+            pg_temp.sub('sub_WebhookOne0001', 'active',
+                        pg_temp.ist(pg_temp.today() + 11), pg_temp.ist(pg_temp.today() + 41)),
+            pg_temp.pay('pay_WebhookOne0001', 799900)) ->> 'outcome',
+  'charged', 'a successful charge is applied');
+select is(public.billing_webhook_apply('subscription.charged', now(),
+            pg_temp.sub('sub_WebhookOne0001', 'active',
+                        pg_temp.ist(pg_temp.today() + 11), pg_temp.ist(pg_temp.today() + 41)),
+            pg_temp.pay('pay_WebhookOne0001', 799900)) ->> 'outcome',
+  'duplicate', 'the same charge delivered twice is recorded once');
+select is(public.billing_webhook_apply('subscription.charged', now() - interval '1 day',
+            pg_temp.sub('sub_WebhookOne0001', 'active',
+                        pg_temp.ist(pg_temp.today() - 19), pg_temp.ist(pg_temp.today() + 10)),
+            pg_temp.pay('pay_WebhookLate001', 799900)) ->> 'outcome',
+  'charged', 'a late charge is still recorded');
+reset role;
+
+select is((select tier::text || '|' || amount_inr::text || '|' || period_start::text || '|'
+                  || period_end::text || '|' || property_id::text
+             from public.subscription_invoices where razorpay_payment_id = 'pay_WebhookOne0001'),
+  'pro|7999.00|' || (pg_temp.today() + 11)::text || '|' || (pg_temp.today() + 40)::text
+    || '|b8100000-0000-4000-8000-000000000001',
+  'the invoice holds the rupee amount, the paid period in IST, and the resort');
+select is((select count(*)::int from public.subscription_invoices
+            where razorpay_payment_id = 'pay_WebhookOne0001'),
+  1, 'a repeated charge adds no second invoice');
+select is((select tier::text || '|' || status::text || '|' || coalesce(trial_ends_on::text, '-')
+                  || '|' || paid_through::text
+             from public.resort_subscriptions where property_id = 'b8100000-0000-4000-8000-000000000001'),
+  'pro|active|-|' || (pg_temp.today() + 40)::text,
+  'the charge turned the Starter trial into Pro paid through the period; the late charge did not move it back');
+select is((select count(*)::int from public.audit_log
+            where entity = 'subscription' and action = 'billing:charged pay_WebhookOne0001'),
+  1, 'the charge is audited');
+select is((select status || '|' || (current_end = to_timestamp(pg_temp.ist(pg_temp.today() + 41)))::text
+             from public.billing_subscriptions where razorpay_subscription_id = 'sub_WebhookOne0001'),
+  'active|true', 'the stored state follows the newest event, not the late one');
+
+-- B: halted, stale, cancelled, and a replaced subscription that still charges.
+set local role service_role;
+select is(public.billing_webhook_apply('subscription.charged', now(),
+            pg_temp.sub('sub_WebhookFour001', 'active'),
+            pg_temp.pay('pay_WebhookFour001', 799900)) ->> 'outcome',
+  'charged', 'a charge without a period is applied');
+select is(public.billing_webhook_apply('subscription.halted', now() + interval '1 minute',
+            pg_temp.sub('sub_WebhookFour001', 'halted'), null) ->> 'outcome',
+  'lapsed', 'Razorpay giving up makes the plan lapse');
+select is(public.billing_webhook_apply('subscription.halted', now() - interval '2 days',
+            pg_temp.sub('sub_WebhookOne0001', 'halted'), null) ->> 'outcome',
+  'stale', 'a halted event older than the last one applied changes nothing');
+select is(public.billing_webhook_apply('subscription.cancelled', now(),
+            pg_temp.sub('sub_WebhookThree01', 'cancelled'), null) ->> 'outcome',
+  'updated', 'cancelling a subscription that never charged leaves the plan alone');
+select is(public.billing_webhook_apply('subscription.cancelled', now() + interval '1 minute',
+            pg_temp.sub('sub_WebhookOne0001', 'cancelled'), null) ->> 'outcome',
+  'cancelled', 'cancelling a paid subscription cancels the plan');
+select is(public.billing_webhook_apply('subscription.charged', now(),
+            pg_temp.sub('sub_WebhookOld0001', 'active'),
+            pg_temp.pay('pay_WebhookOld0001', 299900)) - 'property_id',
+  '{"outcome": "charged", "cancel_subscription_id": "sub_WebhookOld0001"}'::jsonb,
+  'a replaced subscription that still charges is recorded and handed back for cancelling');
+select throws_ok($$select public.billing_webhook_apply('subscription.charged', now(),
+    pg_temp.sub('sub_WebhookTwo0001', 'active'), null)$$,
+  'P0005', null, 'a charged event without its payment is refused');
+reset role;
+
+select is((select period_end from public.subscription_invoices
+            where razorpay_payment_id = 'pay_WebhookFour001'),
+  ((pg_temp.today() - 1) + interval '1 month')::date,
+  'without a period, a charge pays one month past yesterday for a lapsed plan');
+select is((select paid_through::text || '|'
+                  || public.subscription_lapsed(status, trial_ends_on, paid_through)::text
+             from public.resort_subscriptions where property_id = 'b8100000-0000-4000-8000-000000000004'),
+  (pg_temp.today() - 1)::text || '|true', 'halted forces the plan to lapse');
+select is((select tier::text || '|' || status::text || '|' || coalesce(trial_ends_on::text, '-')
+                  || '|' || paid_through::text
+             from public.resort_subscriptions where property_id = 'b8100000-0000-4000-8000-000000000001'),
+  'pro|cancelled|-|' || (pg_temp.today() + 40)::text,
+  'the stale halted did nothing; the cancel kept the paid-through date');
+select is((select status::text || '|' || coalesce(paid_through::text, '-')
+             from public.resort_subscriptions where property_id = 'b8100000-0000-4000-8000-000000000003'),
+  'active|-', 'an abandoned checkout never cancels the plan');
+select is((select tier::text || '|' || status::text || '|' || paid_through::text
+             from public.resort_subscriptions where property_id = 'b8100000-0000-4000-8000-000000000002'),
+  'pro|active|' || (pg_temp.today() + 5)::text,
+  'a charge on a replaced subscription does not change the plan');
+select is((select count(*)::int from public.subscription_invoices
+            where property_id = 'b8100000-0000-4000-8000-000000000002'),
+  1, 'but its invoice is recorded at the right resort');
+select is((select array[count(*) filter (where action = 'billing:halted sub_WebhookFour001'),
+                        count(*) filter (where action = 'billing:cancelled sub_WebhookOne0001')]::int[]
+             from public.audit_log where entity = 'subscription'),
+  array[1, 1], 'the lapse and the cancel are audited');
+
+-- Reads after the events.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select is((select count(*)::int from public.subscription_invoices), 3,
+  'the owner reads the invoices of their own resorts only');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select is((select count(*)::int from public.subscription_invoices), 1,
+  'the other owner reads their one invoice');
+set local request.jwt.claims to '{"sub":"b8000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select is((select billing_status || '|' || last_payment_inr::text from public.platform_billing()
+            where property_id = 'b8100000-0000-4000-8000-000000000001'),
+  'cancelled|7999.00', 'the console shows the cancelled auto-pay and its last payment');
+select throws_ok($$select public.billing_webhook_apply('subscription.charged', now(),
+    '{"id":"sub_WebhookTwo0001"}'::jsonb, '{"id":"pay_Forged000001","amount":1}'::jsonb)$$,
+  '42501', null, 'a signed-in user cannot post webhook events');
+reset role;
+set local request.jwt.claims to '';
 
 select * from finish();
 rollback;

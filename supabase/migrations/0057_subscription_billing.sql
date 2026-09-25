@@ -430,6 +430,11 @@ begin
 end;
 $$;
 
+-- billing-webhook hands every signed subscription.* event here (spec
+-- decisions 9-14). The stored Razorpay state follows the newest event;
+-- invoices and paid_through only move forward; only the current
+-- subscription changes the plan; a replaced one that is still live is
+-- handed back (cancel_subscription_id) for the caller to cancel.
 create function public.billing_webhook_apply(
   p_event        text,
   p_event_at     timestamptz,
@@ -440,8 +445,162 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_sub_id     text := p_subscription ->> 'id';
+  v_status     text := p_subscription ->> 'status';
+  v_cur_start  timestamptz := to_timestamp(nullif(p_subscription ->> 'current_start', '')::double precision);
+  v_cur_end    timestamptz := to_timestamp(nullif(p_subscription ->> 'current_end', '')::double precision);
+  v_today      date := (now() at time zone 'Asia/Kolkata')::date;
+  v_row        public.billing_subscriptions;
+  v_current    boolean;
+  v_fresh      boolean;
+  v_cancel     text;
+  v_old        public.resort_subscriptions;
+  v_new        public.resort_subscriptions;
+  v_inv        public.subscription_invoices;
+  v_period_end date;
+  v_outcome    text := 'updated';
 begin
-  raise exception 'billing_webhook_apply is not implemented yet' using errcode = '0A000';
+  if coalesce(p_event, '') = '' or coalesce(v_sub_id, '') = '' then
+    raise exception 'An event and a subscription id are required.' using errcode = 'P0005';
+  end if;
+
+  select * into v_row from public.billing_subscriptions
+   where razorpay_subscription_id = v_sub_id
+   for update;
+  if not found then
+    return jsonb_build_object('outcome', 'ignored', 'property_id', null,
+                              'cancel_subscription_id', null);
+  end if;
+
+  v_current := v_row.superseded_at is null;
+  v_fresh := p_event_at is null or v_row.last_event_at is null
+             or p_event_at >= v_row.last_event_at;
+
+  if v_fresh then
+    update public.billing_subscriptions b
+       set status = case
+                      when v_status in ('created','authenticated','active','pending','halted',
+                                        'cancelled','completed','expired','paused')
+                        then v_status
+                      else b.status
+                    end,
+           current_start = coalesce(v_cur_start, b.current_start),
+           current_end   = coalesce(v_cur_end, b.current_end),
+           short_url     = coalesce(p_subscription ->> 'short_url', b.short_url),
+           last_event_at = coalesce(p_event_at, b.last_event_at),
+           updated_at    = now()
+     where b.id = v_row.id
+    returning * into v_row;
+  end if;
+
+  if not v_current
+     and v_row.status in ('created','authenticated','active','pending','paused') then
+    v_cancel := v_row.razorpay_subscription_id;
+  end if;
+
+  if p_event = 'subscription.charged' then
+    if coalesce(p_payment ->> 'id', '') = '' then
+      raise exception 'A charged event carries its payment.' using errcode = 'P0005';
+    end if;
+
+    select * into v_old from public.resort_subscriptions
+     where property_id = v_row.property_id
+     for update;
+
+    -- Good through the day the cycle ends (IST); without a cycle, one
+    -- month past the later of the paid date and yesterday.
+    v_period_end := case
+      when v_cur_end is not null
+        then ((v_cur_end - interval '1 second') at time zone 'Asia/Kolkata')::date
+      else (greatest(coalesce(v_old.paid_through, v_today - 1), v_today - 1)
+            + interval '1 month')::date
+    end;
+
+    insert into public.subscription_invoices
+      (billing_subscription_id, tier, razorpay_payment_id, razorpay_invoice_id,
+       amount_inr, currency, period_start, period_end, paid_at)
+    values
+      (v_row.id, v_row.tier, p_payment ->> 'id', p_payment ->> 'invoice_id',
+       round(coalesce((p_payment ->> 'amount')::numeric, 0) / 100, 2),
+       upper(coalesce(p_payment ->> 'currency', 'INR')),
+       (v_cur_start at time zone 'Asia/Kolkata')::date,
+       v_period_end,
+       coalesce(to_timestamp(nullif(p_payment ->> 'created_at', '')::double precision),
+                p_event_at, now()))
+    on conflict (razorpay_payment_id) do nothing
+    returning * into v_inv;
+
+    if v_inv.id is null then
+      return jsonb_build_object('outcome', 'duplicate', 'property_id', v_row.property_id,
+                                'cancel_subscription_id', v_cancel);
+    end if;
+
+    if v_current then
+      insert into public.resort_subscriptions as s
+        (property_id, tier, status, trial_ends_on, paid_through, updated_at, updated_by)
+      values (v_row.property_id, v_row.tier, 'active', null, v_period_end, now(), null)
+      on conflict (property_id) do update
+        set tier          = case when v_fresh then excluded.tier else s.tier end,
+            status        = case when v_fresh then 'active'::public.subscription_status
+                                 else s.status end,
+            trial_ends_on = case when v_fresh then null else s.trial_ends_on end,
+            paid_through  = greatest(coalesce(s.paid_through, excluded.paid_through),
+                                     excluded.paid_through),
+            updated_at    = now(),
+            updated_by    = null
+      returning * into v_new;
+
+      insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+      values (null, 'subscription', v_row.property_id,
+              'billing:charged ' || v_inv.razorpay_payment_id,
+              case when v_old.property_id is null then null else to_jsonb(v_old) end,
+              to_jsonb(v_new), v_row.property_id);
+    end if;
+    v_outcome := 'charged';
+
+  elsif not v_fresh then
+    v_outcome := 'stale';
+
+  elsif p_event = 'subscription.halted' and v_current then
+    select * into v_old from public.resort_subscriptions
+     where property_id = v_row.property_id
+     for update;
+    update public.resort_subscriptions s
+       set paid_through = least(coalesce(s.paid_through, v_today - 1), v_today - 1),
+           updated_at = now(),
+           updated_by = null
+     where s.property_id = v_row.property_id and s.status = 'active'
+    returning * into v_new;
+    if found then
+      insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+      values (null, 'subscription', v_row.property_id, 'billing:halted ' || v_sub_id,
+              to_jsonb(v_old), to_jsonb(v_new), v_row.property_id);
+      v_outcome := 'lapsed';
+    end if;
+
+  elsif p_event = 'subscription.cancelled' and v_current
+        and exists (select 1 from public.subscription_invoices i
+                     where i.billing_subscription_id = v_row.id) then
+    select * into v_old from public.resort_subscriptions
+     where property_id = v_row.property_id
+     for update;
+    update public.resort_subscriptions s
+       set status = 'cancelled',
+           updated_at = now(),
+           updated_by = null
+     where s.property_id = v_row.property_id and s.status <> 'cancelled'
+    returning * into v_new;
+    if found then
+      insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+      values (null, 'subscription', v_row.property_id, 'billing:cancelled ' || v_sub_id,
+              to_jsonb(v_old), to_jsonb(v_new), v_row.property_id);
+      v_outcome := 'cancelled';
+    end if;
+  end if;
+
+  return jsonb_build_object('outcome', v_outcome, 'property_id', v_row.property_id,
+                            'cancel_subscription_id', v_cancel);
 end;
 $$;
 
