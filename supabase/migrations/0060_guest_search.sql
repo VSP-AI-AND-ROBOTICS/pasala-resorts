@@ -147,7 +147,12 @@ begin
            end                                        as distance_km,
            pr.min_price::numeric                      as min_price,
            round(rt.rating_sum / rt.review_count, 1)  as avg_rating,
-           coalesce(rt.review_count, 0)               as review_count
+           coalesce(rt.review_count, 0)               as review_count,
+           -- Recommended: the average shrunk toward 4 by three phantom
+           -- reviews, so one 5-star review does not outrank many 4.5s.
+           (coalesce(rt.rating_sum, 0) + 12)
+             / (coalesce(rt.review_count, 0) + 3)     as score,
+           cardinality(m.images) > 0                  as has_photo
       from matched m
       left join prices  pr on pr.property_id = m.id
       left join ratings rt on rt.property_id = m.id
@@ -157,7 +162,18 @@ begin
          c.lat, c.lng, c.distance_km, c.min_price, c.avg_rating,
          c.review_count
     from cards c
-   order by c.name, c.id;
+   order by
+     case when v_sort = 'distance' and p_lat is not null
+          then c.distance_km end asc nulls last,
+     case when v_sort = 'price'  then c.min_price  end asc nulls last,
+     case when v_sort = 'rating' then c.avg_rating end desc nulls last,
+     case when v_sort = 'rating' then c.review_count end desc,
+     -- Recommended, and distance requested without a position.
+     case when v_sort = 'recommended' or (v_sort = 'distance' and p_lat is null)
+          then c.score end desc,
+     case when v_sort = 'recommended' or (v_sort = 'distance' and p_lat is null)
+          then c.has_photo end desc,
+     c.name, c.id;
 end;
 $$;
 

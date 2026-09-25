@@ -23,7 +23,7 @@
 -- Users: Gita (guest), Lakeview's owner, Lakeview's staff member, and
 -- Closed Camp's owner.
 begin;
-select plan(43);
+select plan(57);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters
 -- it). Used by later sections.
@@ -277,6 +277,67 @@ select lives_ok(format('select * from public.search_resorts(%L)', repeat('a', 10
   'a 100-character query is fine');
 select lives_ok($$select * from public.search_resorts(null, null, null, null, null)$$,
   'a null sort means recommended');
+
+reset role;
+set local request.jwt.claims to '';
+
+-- === Task 3: sort orders, who can search, and who can set coordinates ====
+set local role anon;
+set local request.jwt.claims to '{"role":"anon"}';
+
+-- Recommended score (sum of ratings + 12) / (count + 3):
+-- Coastal 17/4 = 4.25, Lakeview 21/5 = 4.2, Hilltop 4.0 (photo),
+-- Day Only 4.0 (no photo).
+select is(pg_temp.found(),
+  array['Coastal Nest','Lakeview Retreat','Hilltop Farm','Day Only Park'],
+  'recommended: shrunk rating first, then resorts with a photo');
+select is(pg_temp.found(p_sort => 'recommended'),
+  array['Coastal Nest','Lakeview Retreat','Hilltop Farm','Day Only Park'],
+  'recommended is also the default');
+select is(pg_temp.found(p_sort => 'price'),
+  array['Hilltop Farm','Lakeview Retreat','Coastal Nest','Day Only Park'],
+  'price: cheapest nightly price first, no price last');
+select is(pg_temp.found(p_sort => 'rating'),
+  array['Coastal Nest','Lakeview Retreat','Day Only Park','Hilltop Farm'],
+  'rating: best average first, unrated last by name');
+select is(pg_temp.found(p_lat => 17.39, p_lng => 78.49, p_sort => 'distance'),
+  array['Lakeview Retreat','Day Only Park','Hilltop Farm','Coastal Nest'],
+  'distance: nearest first, no coordinates last');
+select is(pg_temp.found(p_sort => 'distance'),
+  array['Coastal Nest','Lakeview Retreat','Hilltop Farm','Day Only Park'],
+  'distance without a position falls back to recommended');
+select is(pg_temp.found(p_sort => 'price', p_amenities => array['Pool']),
+  array['Lakeview Retreat','Coastal Nest'],
+  'a filtered search keeps its sort');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"c1100000-0000-4000-8000-0000000000a1","role":"authenticated"}';
+select is(pg_temp.found(),
+  array['Coastal Nest','Lakeview Retreat','Hilltop Farm','Day Only Park'],
+  'a signed-in guest gets the same results as anon');
+
+set local request.jwt.claims to '{"sub":"c1100000-0000-4000-8000-0000000000a4","role":"authenticated"}';
+select is(pg_temp.found_set('closed'), '{}'::text[],
+  'the owner of a suspended resort does not find it either');
+select is(pg_temp.found(),
+  array['Coastal Nest','Lakeview Retreat','Hilltop Farm','Day Only Park'],
+  'a resort member sees exactly the guest list');
+
+set local request.jwt.claims to '{"sub":"c1100000-0000-4000-8000-0000000000a3","role":"authenticated"}';
+select is(pg_temp.rows_affected(
+    $$update public.properties set lat = 1, lng = 1 where slug = 'p11-lakeview'$$),
+  0, 'staff cannot move their resort');
+set local request.jwt.claims to '{"sub":"c1100000-0000-4000-8000-0000000000a1","role":"authenticated"}';
+select is(pg_temp.rows_affected(
+    $$update public.properties set lat = 1, lng = 1 where slug = 'p11-lakeview'$$),
+  0, 'a guest cannot move a resort');
+set local request.jwt.claims to '{"sub":"c1100000-0000-4000-8000-0000000000a2","role":"authenticated"}';
+select is(pg_temp.rows_affected(
+    $$update public.properties set lat = 17.4, lng = 78.5 where slug = 'p11-lakeview'$$),
+  1, 'the owner sets their resort''s coordinates');
+select is((select s.distance_km from public.search_resorts(null, 17.4, 78.5) s
+            where s.slug = 'p11-lakeview'),
+  0.0::numeric, 'search uses the coordinates the owner saved');
 
 reset role;
 set local request.jwt.claims to '';
