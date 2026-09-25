@@ -22,9 +22,13 @@ class CatalogRepository {
   Future<List<Property>> properties() => _guard(() async {
         // `.order()` defaults to descending in postgrest-dart --
         // `ascending: true` for A-Z, not Z-A.
+        // Browse lists bookable resorts only: a member also reads their
+        // own pending or suspended resort through properties_read, and it
+        // must not show up among the ones guests can book.
         final rows = await _db
             .from('properties')
             .select()
+            .eq('status', 'active')
             .order('name', ascending: true);
         return rows.map(Property.fromJson).toList();
       });

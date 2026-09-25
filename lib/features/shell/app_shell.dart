@@ -296,6 +296,20 @@ void showAccountSheet(BuildContext context, WidgetRef ref) {
                 ),
               ),
             ],
+            if (user != null && !user.isPlatformAdmin) ...[
+              const SizedBox(height: Spacing.md),
+              ListTile(
+                key: const Key('account-sheet-list-resort'),
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.add_business_outlined),
+                title: const Text('List your resort'),
+                subtitle: const Text('Apply to list a resort on ResortHub'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  context.go('/list-your-resort');
+                },
+              ),
+            ],
             const SizedBox(height: Spacing.lg),
             SizedBox(
               width: double.infinity,

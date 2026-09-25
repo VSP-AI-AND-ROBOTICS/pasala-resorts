@@ -12,7 +12,11 @@ import '../../core/widgets/hero_backdrop.dart';
 import '../../data/repositories/auth_repository.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
-  const SignupScreen({super.key});
+  const SignupScreen({super.key, this.next});
+
+  /// Where to go after signing up instead of the role's landing page. The
+  /// router passes only values on `postSignInPaths`.
+  final String? next;
 
   @override
   ConsumerState<SignupScreen> createState() => _SignupScreenState();
@@ -43,7 +47,12 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
             fullName: _name.text.trim(),
           );
       final resort = await loadCurrentResortFor(user);
-      if (mounted) context.go(landingPathFor(user, resort));
+      final next = widget.next;
+      if (mounted) {
+        context.go(next != null && !user.isPlatformAdmin
+            ? next
+            : landingPathFor(user, resort));
+      }
     } on BookingFailure catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -136,7 +145,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                             child: const Text('Create account'),
                           ),
                           TextButton(
-                            onPressed: () => context.go('/login'),
+                            onPressed: () => context.go(widget.next == null
+                                ? '/login'
+                                : '/login?next=${Uri.encodeQueryComponent(widget.next!)}'),
                             child:
                                 const Text('Already have an account? Sign in'),
                           ),

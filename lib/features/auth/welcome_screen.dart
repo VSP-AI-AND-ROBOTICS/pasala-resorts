@@ -53,6 +53,16 @@ class WelcomeScreen extends StatelessWidget {
                     ),
                     child: const Text('Sign Up'),
                   ),
+                  const SizedBox(height: Spacing.md),
+                  // Resort owners apply to be listed (P10); most are new,
+                  // so this starts at sign-up and comes back afterwards.
+                  TextButton(
+                    key: const Key('welcome-list-resort'),
+                    onPressed: () =>
+                        context.go('/signup?next=%2Flist-your-resort'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.white),
+                    child: const Text('List your resort'),
+                  ),
                 ],
               ),
             ),

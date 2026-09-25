@@ -12,7 +12,14 @@ void main() {
       routes: [
         GoRoute(path: '/welcome', builder: (_, _) => const WelcomeScreen()),
         GoRoute(path: '/login', builder: (_, _) => const Text('Login screen')),
-        GoRoute(path: '/signup', builder: (_, _) => const Text('Signup screen')),
+        GoRoute(
+          path: '/signup',
+          builder: (_, state) => Text(
+            state.uri.queryParameters['next'] == null
+                ? 'Signup screen'
+                : 'Signup screen next=${state.uri.queryParameters['next']}',
+          ),
+        ),
       ],
     );
     return MaterialApp.router(routerConfig: router);
@@ -34,6 +41,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Signup screen'), findsOneWidget);
+  });
+
+  testWidgets('List your resort opens sign-up and asks to come back', (
+    tester,
+  ) async {
+    await tester.pumpWidget(appFor());
+
+    await tester.tap(find.byKey(const Key('welcome-list-resort')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Signup screen next=/list-your-resort'), findsOneWidget);
   });
 
   testWidgets('shows the ResortHub name, not the old Pasala Resorts brand', (
