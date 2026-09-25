@@ -125,6 +125,22 @@ void main() {
   });
 
   testWidgets(
+      'a code typed in lower case is applied upper-case, the way codes are '
+      'stored', (tester) async {
+    final applied = <String>[];
+    await tester.pumpWidget(sheet(
+      quote: quote,
+      onApplyCoupon: (code) async => applied.add(code),
+    ));
+
+    await tester.enterText(find.byKey(const Key('coupon-field')), ' save10 ');
+    await tester.tap(find.byKey(const Key('apply-coupon-button')));
+    await tester.pump();
+
+    expect(applied, ['SAVE10']);
+  });
+
+  testWidgets(
       'on success the sheet re-renders with a discount line and the new '
       'total', (tester) async {
     await tester.pumpWidget(sheet(quote: couponedQuote));
