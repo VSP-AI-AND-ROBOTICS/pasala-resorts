@@ -193,6 +193,19 @@ class OnlinePaymentRequired extends BookingFailure {
             'in a few minutes.');
 }
 
+/// P0039 -- the `ical_feeds` URL rules (0058) refused an import feed: not
+/// an http(s) or webcal link (`invalid_feed_url`), or already added to this
+/// unit (`duplicate_feed`). The server sends bare code words, so the copy
+/// lives here.
+class FeedUrlRejected extends BookingFailure {
+  const FeedUrlRejected(super.message);
+
+  static const invalid =
+      'That is not a calendar link. Paste the link that starts with '
+      'https:// or webcal://.';
+  static const duplicate = 'This calendar is already added to this unit.';
+}
+
 /// A 400/422 from Supabase auth: a mistyped password on sign-in, or a
 /// duplicate email on sign-up. Kept distinct from [NotPermitted] (I7) --
 /// without this, every one of those looked identical to "you don't have
@@ -308,6 +321,10 @@ BookingFailure mapPostgrestError(Object error) {
     // P0040: resort self-listing (0059). Messages are written for the
     // reader.
     'P0040' => ListingBlocked(message),
+    // P0039: import feed URL rules (0058).
+    'P0039' => FeedUrlRejected(message == 'duplicate_feed'
+        ? FeedUrlRejected.duplicate
+        : FeedUrlRejected.invalid),
     // P0038: subscription billing (0057). Bare code word, copy lives here.
     'P0038' => const BillingUnavailable(),
     // P0037: outbox delivery (0056). Only retry_outbox_message reaches the

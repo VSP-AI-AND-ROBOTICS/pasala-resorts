@@ -56,12 +56,13 @@ business logic, only a mocked payment and unsent notifications (see below).
   Booking.com via a per-unit, revocable export URL (busy dates only, no
   guest identity). This app can also import an OTA's own feed and block
   those dates here, with conflicts surfaced rather than silently dropped.
-  Polling is real: a `pg_cron` job runs every 15 minutes, verified
-  end-to-end against a live local HTTP server. What has NOT been verified:
-  a real Airbnb or Booking.com account actually consuming this app's feed
-  or being consumed by it — there is no owner-provided listing to test
-  against, so the RFC 5545 shape has only been checked against the spec
-  and against this app's own import path, never a live OTA.
+  Polling is real: a `pg_cron` job runs every 15 minutes, and each feed shows
+  its last sync, its event count, or its error. The import is tested against
+  fixtures in the real Airbnb and Booking.com formats (all-day events at the
+  resort's check-in/check-out times, folded lines, CRLF/LF, time zones), and
+  the export link is served as `text/calendar` by the `ical-export` Edge
+  Function. What has NOT been verified: a real Airbnb or Booking.com listing
+  on either end — see item 5 below.
 - **A real UI**, not a prototype shell: a proper design system, WCAG AA
   contrast, deliberate empty/loading/error states everywhere, and no screen
   that renders a raw server error string.
@@ -121,15 +122,13 @@ risk, as the current fact.
    even after email/SMS providers are connected — WhatsApp is a separate
    channel with its own account requirement.
 
-5. **For iCal: pasting this app's export URL into Airbnb (and/or
-   Booking.com), and adding their export URL back into this app's OTA
-   screen.** This is the one item on this list that is a configuration
-   step, not a paid account — but it still has not happened, because there
-   is no live Airbnb/Booking.com listing to point at. Consequence while
-   missing: **the two-way calendar sync is built and tested against itself,
-   but has never synced with a real OTA.** A double-booking between this
-   app and an actual Airbnb calendar is possible until someone with a real
-   listing performs this step and it is verified working both directions.
+5. **For iCal: linking a real Airbnb and/or Booking.com listing.** The steps
+   are in the README, "Linking a real Airbnb or Booking.com listing". This is
+   a configuration step, not a paid account, but it needs a live listing,
+   which the project does not have yet. Everything short of that is tested
+   (see the iCal bullet above). Consequence while missing: **a double-booking
+   between this app and a real OTA calendar is possible until someone with a
+   listing performs the README steps and records the result here.**
 
 ## Known limitations (full list)
 
@@ -154,8 +153,9 @@ Phase 2:
 
 - Payment is still a mock gateway (see above).
 - Nothing in the notification outbox has ever been sent (see above).
-- **The iCal export URL shape has never been verified against a real
-  Airbnb or Booking.com account** (see item 5 above).
+- **The iCal link has not yet been tried with a real Airbnb or Booking.com
+  listing** (see item 5 above). Events removed from an OTA feed are not
+  removed here.
 - No coupon management UI — coupons are created directly in the `coupons`
   table via Supabase Studio or `psql`.
 - No refund-policy or advance-payment configuration UI — `refund_rules`

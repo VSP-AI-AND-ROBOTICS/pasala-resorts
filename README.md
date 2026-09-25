@@ -128,12 +128,12 @@ and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
 `/admin/ota/:unitId` (Admin → Properties → Units → a unit's overflow menu →
 "OTA sync") gives each unit two things, with no paid channel manager:
 
-- **An export URL** to paste into Airbnb (Listing → Availability → Sync
-  calendars → Add another calendar) or Booking.com's equivalent "Import
-  calendar" field. It lists only busy date ranges as RFC 5545 `VEVENT`s —
-  no guest name, email, or amount ever appears in it, by construction: the
-  builder reads `unit_calendar_events`, the identity-free occupancy mirror,
-  never `reservations` directly.
+- **An export URL** to paste into Airbnb or Booking.com's "import calendar"
+  setting: `<SUPABASE_URL>/functions/v1/ical-export/<token>.ics`, served as
+  `text/calendar` by the `ical-export` Edge Function. It lists only busy
+  date ranges as RFC 5545 `VEVENT`s — no guest name, email, or amount ever
+  appears in it, by construction: the builder reads `unit_calendar_events`,
+  the identity-free occupancy mirror, never `reservations` directly.
 - **Import feeds**: paste the OTA's own export URL back in, and this app
   imports its busy dates as `ota`-kind reservations that block those dates
   here too. A genuine overlap with an existing confirmed booking is caught
@@ -146,13 +146,16 @@ OTA screen invalidates the leaked URL immediately.
 
 **Automatic polling is wired and real**: `pg_net` is available in this local
 stack, so a `pg_cron` job (`ical-poll-feeds`, every 15 minutes) fetches every
-active import feed and applies it automatically — verified end-to-end
-against a real local HTTP server. The admin "Sync" button drives the same
-function on demand.
+active import feed and applies it automatically. The admin "Sync now" button
+drives the same function and waits for fresh data. Each feed shows
+"Last sync 5 min ago · 3 events", or its error in red with a hint. All-day
+OTA events are placed at the resort's own check-in and check-out times, and
+an OTA listing our own booking back to us is not reported as a conflict.
+The import is tested against fixtures in the real Airbnb and Booking.com
+export formats (`supabase/tests/48_ota_sync_test.sql`).
 
-**The export URL shape has never been verified against a real Airbnb or
-Booking.com account** — there is no owner-provided listing to test against.
-See `docs/STATUS.md`.
+**Linking a real listing is the one step left to verify by hand** — see
+[Linking a real Airbnb or Booking.com listing](#linking-a-real-airbnb-or-bookingcom-listing).
 
 **Payments (phase 2 seam, still stubbed)**
 
@@ -407,6 +410,97 @@ change on every deploy and must always be revalidated); the hashed,
 content-addressed assets under `build/web/` (e.g. `main.dart.js`,
 `canvaskit/`) can still be cached aggressively/immutably as usual.
 
+## Linking a real Airbnb or Booking.com listing
+
+This needs a live OTA listing, so it has to be done by someone who manages
+one. Plan on about 30 minutes, plus however long the OTA takes to refresh
+an imported calendar (often a few hours).
+
+### Before you start
+
+- The hosted project has every migration applied, and `pg_cron` and `pg_net`
+  enabled (Database → Extensions).
+- The export function is deployed: `supabase functions deploy ical-export`.
+  `supabase/config.toml` sets `verify_jwt = false` for it, because an OTA
+  cannot send a key. With an older CLI, add `--no-verify-jwt`.
+- The app you use is built with the hosted `SUPABASE_URL`, because the
+  export link is built from it.
+
+### 1. Give the OTA our calendar
+
+1. In the app, go to Admin → Properties → Units → the unit's menu → **OTA
+   sync**, and copy the **Export URL**. It looks like
+   `https://<project>.supabase.co/functions/v1/ical-export/<48 hex characters>.ics`.
+2. Check the link before pasting it anywhere:
+
+   ```bash
+   curl -i 'https://<project>.supabase.co/functions/v1/ical-export/<token>.ics'
+   ```
+
+   Expect `200`, `content-type: text/calendar; charset=utf-8`, and a body
+   starting with `BEGIN:VCALENDAR`. A `404 Calendar not found` means the
+   token was rotated or mistyped, or the resort is not active.
+3. Paste it into the OTA's import setting:
+   - Airbnb: Listing → Availability → Connect calendars → Import.
+   - Booking.com extranet: Rates & Availability → Sync calendars → Add
+     calendar connection.
+   - Menu names change; look for "import calendar". Name it "ResortHub".
+
+### 2. Give our app the OTA's calendar
+
+1. Copy the OTA's own export link. It is on the same page as the import,
+   under "Export".
+   - Airbnb: `https://www.airbnb.com/calendar/ical/<id>.ics?s=<secret>`.
+   - Booking.com: a link to `admin.booking.com/…ical…`.
+   - A `webcal://` link is fine: the app stores it as `https://`.
+2. On the OTA sync screen, go to **Add import feed**. Paste the link, label
+   it "Airbnb" or "Booking.com", and press **Add feed**.
+3. Press **Sync now**. Within about 15 seconds the feed shows
+   `Last sync just now · N events`. N should match the stays plus blocked
+   periods on that OTA calendar, counting from today.
+
+### 3. Prove both directions
+
+1. **Ours to the OTA.** Block one night here (Admin → Block dates). After the
+   OTA refreshes, that night shows as unavailable there. Check that it blocks
+   **exactly** that night. Our export uses exact check-in/check-out times, so
+   write down if an OTA also blocks the next night.
+2. **The OTA to ours.** Block one night on the OTA, then press **Sync now**
+   here. The count goes up by one, and the night is unavailable in this app's
+   booking calendar.
+3. Remove both test blocks. Removing the OTA block does **not** free the
+   night here (see "Known gaps" below). Ask a developer to cancel the
+   imported reservation.
+
+### What the feed status means
+
+| The feed shows | Meaning | What to do |
+|---|---|---|
+| `Last sync 5 min ago · 3 events` | Healthy. | Nothing. |
+| Amber `N event(s) conflicted with an existing booking and were skipped` | The OTA has a stay on dates already booked here. | A double booking: contact the guest, then close the dates on the OTA. |
+| Amber `N event(s) failed to import and were skipped (…)` | Some events could not be read. | Send the note and the OTA's link to a developer. |
+| Red `Sync failed …: HTTP 404` (or 401, 403, 410) | The OTA no longer serves this link (it was reset, or the listing was unlisted). | Copy the export link from the OTA again, remove this feed and add the new link. |
+| Red `Sync failed …: not a calendar: …` | The link opens a web page, not a calendar. | Use the calendar **export** link, not the listing page. |
+| Red `request timed out` or `HTTP 5xx` | The OTA is down for a while. | Nothing; the next run is within 15 minutes. |
+| Amber `Automatic sync has not run for over an hour` | The `pg_cron` job is not running. | In the SQL editor, run `select * from cron.job_run_details order by start_time desc limit 5;` and check that `ical-poll-feeds` is scheduled and succeeding. |
+
+An OTA listing our own bookings back to us ("Airbnb (Not available)",
+"CLOSED - Not available") is normal and is not counted as a conflict.
+
+### Record the result
+
+Update item 5 in `docs/STATUS.md` with the date, the OTA, and the listing.
+Record whether each direction passed, and whether the OTA blocked any extra
+night.
+
+### Known gaps
+
+- When an event disappears from an OTA feed (a cancellation there), the
+  dates stay blocked here. Reservations do not yet record which feed they
+  came from.
+- Our export lists timed events (check-in to check-out). Step 3.1 is where
+  you find out whether an OTA rounds them to one night too many.
+
 ## Known limitations
 
 Carried forward from phase 1, plus everything phase 2 found or deferred.
@@ -449,11 +543,11 @@ task-by-task record.
 - **Email and SMS go out only once provider keys are set.** Until then the
   sender runs as a dry run and the Outbox screen says so per channel.
   WhatsApp is never sent. See `docs/email-and-sms-delivery.md`.
-- **The iCal export URL shape has never been verified against a real
-  Airbnb or Booking.com account** — there is no owner-provided listing to
-  test against. The RFC 5545 shape and the local end-to-end poll/apply
-  cycle are verified; the specific way a real OTA parses this app's feed
-  is not.
+- **The iCal link has not yet been tried with a real Airbnb or Booking.com
+  listing** — see "Linking a real Airbnb or Booking.com listing" above. The
+  import is tested against fixtures in both OTAs' real formats and the export
+  is served as `text/calendar`; how a live OTA reads our export is what is
+  left to check. Events removed from an OTA feed are not removed here.
 - **No coupon management UI.** Coupons are created directly in the
   `coupons` table.
 - **No refund-policy or advance-payment configuration UI.** `refund_rules`

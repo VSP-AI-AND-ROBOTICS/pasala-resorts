@@ -157,18 +157,17 @@ class IcalRepository implements IcalSource {
         return token as String;
       });
 
-  // PostgREST's GET-for-RPC convention (any `stable`/`immutable` function
-  // -- `ical_export_public` is `stable` -- can be called with GET, not
-  // just POST) with the token and this app's own public anon key as query
-  // parameters. The anon key is not a secret (it already ships inside
-  // this app's build), and Supabase's gateway accepts `apikey` as a query
-  // parameter on GET the same as it does as a header -- required here
-  // because Airbnb/Booking.com fetch a plain URL with no custom headers
-  // at all, so there is nowhere else to put it.
   @override
-  String exportUrl(String token) =>
-      '${Env.supabaseUrl}/rest/v1/rpc/ical_export_public'
-      '?token=$token&apikey=${Env.supabaseAnonKey}';
+  String exportUrl(String token) => icalExportUrl(Env.supabaseUrl, token);
+}
+
+/// The link an OTA fetches for [token]: the `ical-export` Edge Function,
+/// which serves the unit's calendar as `text/calendar` (spec decision 15).
+/// No key in it -- the function runs with `verify_jwt = false` and the
+/// token is the only secret.
+String icalExportUrl(String supabaseUrl, String token) {
+  final base = supabaseUrl.replaceFirst(RegExp(r'/+$'), '');
+  return '$base/functions/v1/ical-export/$token.ics';
 }
 
 final icalRepositoryProvider = Provider<IcalRepository>(

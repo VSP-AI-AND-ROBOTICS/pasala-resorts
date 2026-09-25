@@ -437,3 +437,8 @@ verify_jwt = true
 
 [functions.billing-webhook]
 verify_jwt = false
+
+# P9: the iCal export link that Airbnb/Booking.com fetch. OTAs cannot send
+# a JWT; the per-unit token in the path is the only credential.
+[functions.ical-export]
+verify_jwt = false
