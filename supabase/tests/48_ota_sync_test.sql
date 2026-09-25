@@ -8,7 +8,7 @@
 -- column defaults) with an admin (Asha) and a staff member (Sunil); units
 -- Cottage A and Cottage B; an inactive contract feed on Cottage B.
 begin;
-select plan(49);
+select plan(91);
 
 insert into auth.users (id, email) values
   ('f9000000-0000-4000-8000-000000000001','ota-admin@example.com'),
@@ -367,6 +367,265 @@ select is((select at_ts from public.ical_parse_when(
 select is((select at_ts from public.ical_parse_when(
     '20271205T140000', ';TZID=/Asia/Kolkata', 'UTC')),
   '2027-12-05 08:30:00+00'::timestamptz, 'a TZID with a leading slash is read');
+
+-- === Task 3: polling -- status columns, resort times, echoes ===============
+--
+-- ical_poll_feed collects a fetched response from net._http_response
+-- (0018's two-call state machine), so a response is faked the way a real
+-- one lands: point the feed's pending_request_id at a row written there.
+-- Request ids are far above pg_net's own so they never collide. Polls run
+-- with no JWT, like the pg_cron job, unless a test says otherwise.
+
+set local request.jwt.claims to '';
+
+insert into ics values ('booking_echo', $ics$BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//admin.booking.com//EN
+BEGIN:VEVENT
+UID:9d3c5e0f2a7b4c18a0e1@booking.com
+DTSTART;VALUE=DATE:20271115
+DTEND;VALUE=DATE:20271118
+SUMMARY:CLOSED - Not available
+END:VEVENT
+BEGIN:VEVENT
+UID:5b7a1c3e9f0d2468b1c3@booking.com
+DTSTART;VALUE=DATE:20271201
+DTEND;VALUE=DATE:20271202
+SUMMARY:CLOSED - Not available
+END:VEVENT
+BEGIN:VEVENT
+UID:echo-of-our-block@booking.com
+DTSTART;VALUE=DATE:20271120
+DTEND;VALUE=DATE:20271123
+SUMMARY:CLOSED - Not available
+END:VEVENT
+BEGIN:VEVENT
+UID:overlaps-our-block@booking.com
+DTSTART;VALUE=DATE:20271122
+DTEND;VALUE=DATE:20271125
+SUMMARY:CLOSED - Not available
+END:VEVENT
+END:VCALENDAR
+$ics$);
+
+-- On Cottage A: our own block ending 25 Oct 11:00 (the Airbnb block starts
+-- that day), our own block 20-23 Nov (Booking.com echoes it back), and an
+-- Airbnb stay imported before P9, at midnight UTC.
+insert into public.reservations
+  (unit_id, period, kind, status, block_reason, external_uid, source) values
+  ('f9000000-0000-4000-8000-000000000011',
+   tstzrange('2027-10-22 08:30+00','2027-10-25 05:30+00','[)'),
+   'block','confirmed','Owner stay', null, 'app'),
+  ('f9000000-0000-4000-8000-000000000011',
+   tstzrange('2027-11-20 08:30+00','2027-11-23 05:30+00','[)'),
+   'block','confirmed','Owner stay', null, 'app'),
+  ('f9000000-0000-4000-8000-000000000011',
+   tstzrange('2027-10-09 00:00+00','2027-10-12 00:00+00','[)'),
+   'ota','confirmed', null,
+   '1418fb94e984-0a1b2c3d4e5f60718293a4b5c6d7e8f9@airbnb.com', 'ical');
+
+insert into public.ical_feeds (id, unit_id, url, label) values
+  ('f9000000-0000-4000-8000-000000000021','f9000000-0000-4000-8000-000000000011',
+   'https://example.invalid/airbnb.ics','Airbnb'),
+  ('f9000000-0000-4000-8000-000000000022','f9000000-0000-4000-8000-000000000011',
+   'https://example.invalid/booking.ics','Booking.com'),
+  ('f9000000-0000-4000-8000-000000000023','f9000000-0000-4000-8000-000000000012',
+   'https://example.invalid/broken.ics','Broken');
+
+-- Resort L, in London with its own check-in/check-out times.
+insert into public.properties (id, name, slug, timezone, check_in_time, check_out_time)
+values ('f9000000-0000-4000-8000-000000000050','Resort L','ota-l',
+        'Europe/London','15:00','10:00');
+insert into public.units (id, property_id, name, capacity_base, capacity_max) values
+  ('f9000000-0000-4000-8000-000000000051','f9000000-0000-4000-8000-000000000050','Loft',2,4);
+insert into public.ical_feeds (id, unit_id, url, label) values
+  ('f9000000-0000-4000-8000-000000000052','f9000000-0000-4000-8000-000000000051',
+   'https://example.invalid/london.ics','Airbnb');
+
+-- Point a feed at a faked response fetched p_age ago.
+create function pg_temp.deliver(p_feed uuid, p_req bigint, p_status int, p_body text,
+                                p_age interval default '0',
+                                p_timed_out boolean default false)
+returns void language plpgsql as $f$
+begin
+  update public.ical_feeds
+     set pending_request_id = p_req, pending_since = now() - p_age
+   where id = p_feed;
+  insert into net._http_response (id, status_code, content, timed_out, error_msg)
+  values (p_req, p_status, p_body, p_timed_out, null);
+end;
+$f$;
+
+-- Airbnb, fetched 10 minutes ago.
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000021', 948000001, 200,
+  (select body from ics where name = 'airbnb'), '10 minutes');
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000021')::text as r1 \gset
+
+select is(:'r1'::jsonb ->> 'status', 'ok', 'a collected Airbnb export syncs ok');
+select is((:'r1'::jsonb ->> 'events')::int, 2, 'events counts what the feed lists');
+select is((:'r1'::jsonb ->> 'created')::int, 1, 'the Not available block is created');
+select is((:'r1'::jsonb ->> 'updated')::int, 1,
+  'the stay imported before P9 at midnight UTC is moved, not duplicated');
+select is((:'r1'::jsonb ->> 'conflicts')::int, 0,
+  'back to back with our own block is not a conflict');
+select is((select period from public.reservations
+            where external_uid = '1418fb94e984-0a1b2c3d4e5f60718293a4b5c6d7e8f9@airbnb.com'),
+  tstzrange('2027-10-09 08:30+00','2027-10-12 05:30+00','[)'),
+  'an all-day stay runs from check-in 14:00 to check-out 11:00, Asia/Kolkata');
+select is((select period from public.reservations
+            where external_uid = '7f3e8a1c9d2b-11223344556677889900aabbccddeeff@airbnb.com'),
+  tstzrange('2027-10-25 08:30+00','2027-11-01 05:30+00','[)'),
+  'the Not available block starts at check-in on the day our block ends');
+select is((select array[last_status, last_event_count::text, coalesce(last_error, '-')]
+             from public.ical_feeds where id = 'f9000000-0000-4000-8000-000000000021'),
+  array['ok','2','-'], 'the feed records ok, 2 events and no note');
+select is((select last_synced_at from public.ical_feeds
+            where id = 'f9000000-0000-4000-8000-000000000021'),
+  now() - interval '10 minutes',
+  'last_synced_at is when the data was fetched, not when it was processed');
+select is((select last_ok_at from public.ical_feeds
+            where id = 'f9000000-0000-4000-8000-000000000021'),
+  now() - interval '10 minutes', 'last_ok_at moves with a successful sync');
+select isnt((select pending_request_id from public.ical_feeds
+              where id = 'f9000000-0000-4000-8000-000000000021'),
+  948000001::bigint, 'a fresh fetch was fired after collecting');
+
+-- The same export again.
+select pending_request_id as fa_next from public.ical_feeds
+ where id = 'f9000000-0000-4000-8000-000000000021' \gset
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000021', :fa_next, 200,
+  (select body from ics where name = 'airbnb'));
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000021')::text as r2 \gset
+select is((:'r2'::jsonb ->> 'unchanged')::int, 2, 'a re-import changes nothing');
+select is((:'r2'::jsonb ->> 'created')::int, 0, 'and creates nothing');
+
+-- Booking.com echoing our block back, plus one real overlap.
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000022', 948000002, 200,
+  (select body from ics where name = 'booking_echo'), '5 minutes');
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000022')::text as r3 \gset
+select is((:'r3'::jsonb ->> 'events')::int, 4, 'Booking.com: four events read');
+select is((:'r3'::jsonb ->> 'created')::int, 2, 'the two closed periods are created');
+select is((:'r3'::jsonb ->> 'echoes')::int, 1,
+  'Booking.com listing our own block back is an echo');
+select is((:'r3'::jsonb ->> 'conflicts')::int, 1,
+  'a closed period that overlaps our block for only some nights is a conflict');
+select is((select count(*)::int from public.reservations
+            where external_uid in ('echo-of-our-block@booking.com',
+                                   'overlaps-our-block@booking.com')),
+  0, 'neither is imported');
+select is((select array[last_status, last_error] from public.ical_feeds
+            where id = 'f9000000-0000-4000-8000-000000000022'),
+  array['ok','1 event(s) conflicted with an existing booking and were skipped'],
+  'a conflict is a note on an ok sync, and the echo adds nothing');
+
+-- A web page instead of a calendar.
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000023', 948000003, 200,
+  '<!DOCTYPE html><html><body>Log in</body></html>');
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000023')::text as r4 \gset
+select is(:'r4'::jsonb ->> 'status', 'error', 'a 200 that is not a calendar is an error');
+select is((select array[last_status, last_error] from public.ical_feeds
+            where id = 'f9000000-0000-4000-8000-000000000023'),
+  array['error','not a calendar: the link did not return iCal data'],
+  'and says so');
+select ok((select last_ok_at is null and last_event_count is null from public.ical_feeds
+            where id = 'f9000000-0000-4000-8000-000000000023'),
+  'a feed that never worked has no last good sync and no count');
+
+-- It works once (fetched 20 minutes ago), then the link dies.
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000023', 948000004, 200,
+  (select body from ics where name = 'booking'), '20 minutes');
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000023')::text as r5 \gset
+select is(:'r5'::jsonb ->> 'status', 'ok', 'the feed recovers');
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000023', 948000005, 404, 'Not Found');
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000023');
+select is((select array[last_status, last_error] from public.ical_feeds
+            where id = 'f9000000-0000-4000-8000-000000000023'),
+  array['error','HTTP 404'], 'an HTTP error is an error');
+select ok((select last_ok_at = now() - interval '20 minutes' and last_event_count = 2
+             from public.ical_feeds where id = 'f9000000-0000-4000-8000-000000000023'),
+  'a failure keeps the last good sync and its count');
+select is((select last_synced_at from public.ical_feeds
+            where id = 'f9000000-0000-4000-8000-000000000023'),
+  now(), 'last_synced_at records the failed attempt');
+
+-- A timeout, then a poll that finds nothing yet.
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000023', 948000006, null, null,
+  '0', true);
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000023')::text as r7 \gset
+select is(:'r7'::jsonb ->> 'error', 'request timed out', 'a timeout is an error');
+update public.ical_feeds set pending_request_id = 948999999, pending_since = now()
+ where id = 'f9000000-0000-4000-8000-000000000023';
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000023')::text as r8 \gset
+select is(:'r8'::jsonb ->> 'status', 'pending', 'a response not there yet is pending');
+select is((select last_error from public.ical_feeds
+            where id = 'f9000000-0000-4000-8000-000000000023'),
+  'request timed out', 'and a pending poll changes nothing');
+
+-- Another resort's zone and times.
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000052', 948000007, 200,
+  E'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:london-stay@airbnb.com\r\n'
+  'DTSTART;VALUE=DATE:20270705\r\nDTEND;VALUE=DATE:20270707\r\nSUMMARY:Reserved\r\n'
+  'END:VEVENT\r\nEND:VCALENDAR\r\n');
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000052');
+select is((select period from public.reservations where external_uid = 'london-stay@airbnb.com'),
+  tstzrange('2027-07-05 14:00+00','2027-07-07 09:00+00','[)'),
+  'another resort''s zone and times are used (Europe/London, 15:00/10:00, summer time)');
+
+-- A valid but empty calendar (an OTA glitch) cancels nothing.
+select pending_request_id as fa_next from public.ical_feeds
+ where id = 'f9000000-0000-4000-8000-000000000021' \gset
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000021', :fa_next, 200,
+  E'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Airbnb Inc//Hosting Calendar 1.0//EN\r\n'
+  'END:VCALENDAR\r\n');
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000021')::text as r9 \gset
+select is((:'r9'::jsonb ->> 'events')::int, 0, 'an empty calendar has 0 events');
+select is((select array[last_status, last_event_count::text] from public.ical_feeds
+            where id = 'f9000000-0000-4000-8000-000000000021'),
+  array['ok','0'], 'and is an ok sync');
+select is((select count(*)::int from public.reservations
+            where external_uid like '%@airbnb.com' and unit_id = 'f9000000-0000-4000-8000-000000000011'
+              and status = 'confirmed'),
+  2, 'nothing imported earlier is cancelled');
+
+-- Sync now: an admin of the resort may; a staff member may not.
+select pending_request_id as fa_next from public.ical_feeds
+ where id = 'f9000000-0000-4000-8000-000000000021' \gset
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000021', :fa_next, 200,
+  (select body from ics where name = 'airbnb'));
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f9000000-0000-4000-8000-000000000001","role":"authenticated"}';
+select is((select public.ical_poll_feed('f9000000-0000-4000-8000-000000000021') ->> 'status'),
+  'ok', 'an admin''s Sync now collects and imports');
+set local request.jwt.claims to '{"sub":"f9000000-0000-4000-8000-000000000002","role":"authenticated"}';
+select throws_ok($$select public.ical_poll_feed('f9000000-0000-4000-8000-000000000021')$$,
+  'P0020', null, 'a staff member cannot trigger a sync');
+reset role;
+set local request.jwt.claims to '';
+
+-- The wrapper and the helpers.
+select is((select count(*)::int from public.ical_parse_events(
+    (select body from ics where name = 'edge'))),
+  6, 'ical_parse_events returns only the readable events');
+select is((select dtstart from public.ical_parse_events(
+    (select body from ics where name = 'airbnb')) order by dtstart limit 1),
+  '2027-10-09 00:00:00+00'::timestamptz,
+  'ical_parse_events keeps its UTC-midnight reading of all-day events');
+select is(public.ical_event_period('f9000000-0000-4000-8000-000000000011',
+    null, null, '2027-10-09', '2027-10-12'),
+  tstzrange('2027-10-09 08:30+00','2027-10-12 05:30+00','[)'),
+  'ical_event_period places all-day dates at the resort''s times');
+select throws_ok($$select public.ical_event_period('f9000000-0000-4000-8000-000000000011',
+    '2028-01-01 10:00+00', '2028-01-01 10:00+00', null, null)$$,
+  'P0005', 'invalid event period', 'an empty timed period is refused');
+select ok(public.ical_event_is_echo('f9000000-0000-4000-8000-000000000011',
+    '2027-11-20', '2027-11-23'),
+  'every night taken by our own block: an echo');
+select ok(not public.ical_event_is_echo('f9000000-0000-4000-8000-000000000011',
+    '2027-11-22', '2027-11-25'),
+  'some nights free: not an echo');
+select ok(not public.ical_event_is_echo('f9000000-0000-4000-8000-000000000011',
+    '2027-11-23', '2027-11-23'),
+  'no nights at all: not an echo');
 
 select * from finish();
 rollback;
