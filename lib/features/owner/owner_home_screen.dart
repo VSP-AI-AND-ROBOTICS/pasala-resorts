@@ -8,6 +8,7 @@ import '../../core/greeting.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../reports/providers.dart';
+import 'setup_checklist_card.dart';
 
 /// `/owner` -- the super_admin landing page and hub for the whole Owner
 /// flow (Business Dashboard -> Revenue -> Occupancy -> Bookings ->
@@ -22,7 +23,8 @@ import '../reports/providers.dart';
 /// `dashboard_summary()` RPC `BusinessDashboardScreen` already reads) --
 /// the same "real data at the top, then the destination grid" shape as
 /// `AdminHomeScreen`. The destination tiles follow, including Rooms (the
-/// room status grid).
+/// room status grid); a pending resort gets its setup checklist above the
+/// figures.
 class OwnerHomeScreen extends ConsumerWidget {
   const OwnerHomeScreen({super.key});
 
@@ -111,7 +113,8 @@ class OwnerHomeScreen extends ConsumerWidget {
     final now = DateTime.now();
     // A screen reached without a current resort is impossible after Task
     // 14's redirect.
-    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final resort = ref.watch(currentResortProvider)!;
+    final propertyId = resort.propertyId;
     final summaryAsync = ref.watch(dashboardSummaryProvider(propertyId));
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
@@ -133,6 +136,15 @@ class OwnerHomeScreen extends ConsumerWidget {
                 textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: Spacing.md),
+          // A resort waiting for review (P10) leads with what is left to
+          // do before it can go live.
+          if (resort.status == 'pending') ...[
+            SetupChecklistCard(
+              propertyId: propertyId,
+              resortName: resort.resortName,
+            ),
+            const SizedBox(height: Spacing.md),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
