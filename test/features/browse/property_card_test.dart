@@ -169,4 +169,55 @@ void main() {
       handle.dispose();
     });
   });
+
+  testWidgets('shows the search meta line when search data is given',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: PropertyCard(
+            property: property,
+            distanceKm: 12.3,
+            minPrice: 4000,
+            avgRating: 4.5,
+            reviewCount: 2,
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('4.5 (2)'), findsOneWidget);
+    expect(find.text('12 km'), findsOneWidget);
+    expect(find.text('from ₹4,000 / night'), findsOneWidget);
+  });
+
+  testWidgets('a day-use-only resort shows distance and rating but no price',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: PropertyCard(
+            property: property,
+            distanceKm: 3,
+            avgRating: 4.0,
+            reviewCount: 3,
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('3 km'), findsOneWidget);
+    expect(find.textContaining('₹'), findsNothing);
+  });
+
+  testWidgets('without search data the card looks as before (admin screens)',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(body: PropertyCard(property: property)),
+    ));
+
+    expect(find.byIcon(Icons.near_me_outlined), findsNothing);
+    expect(find.byIcon(Icons.star_rounded), findsNothing);
+    expect(find.textContaining('/ night'), findsNothing);
+  });
 }

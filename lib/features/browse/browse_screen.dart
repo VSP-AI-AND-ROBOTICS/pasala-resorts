@@ -16,6 +16,7 @@ import '../../data/repositories/auth_repository.dart';
 import '../shell/app_shell.dart' show showAccountSheet;
 import 'location_badge.dart';
 import 'providers.dart';
+import 'resort_meta_line.dart';
 
 class BrowseScreen extends ConsumerStatefulWidget {
   const BrowseScreen({super.key});
@@ -435,10 +436,26 @@ class AmenityWrap extends StatelessWidget {
 const double _cardMediaMaxHeight = 220;
 
 class PropertyCard extends StatefulWidget {
-  const PropertyCard({super.key, required this.property, this.onTap});
+  const PropertyCard({
+    super.key,
+    required this.property,
+    this.onTap,
+    this.distanceKm,
+    this.minPrice,
+    this.avgRating,
+    this.reviewCount = 0,
+  });
 
   final Property property;
   final VoidCallback? onTap;
+
+  /// What `search_resorts` adds on the browse screen, shown by
+  /// [ResortMetaLine]. These are null on admin screens that reuse this
+  /// card, and then the line renders nothing.
+  final double? distanceKm;
+  final num? minPrice;
+  final double? avgRating;
+  final int reviewCount;
 
   @override
   State<PropertyCard> createState() => _PropertyCardState();
@@ -498,6 +515,12 @@ class _PropertyCardState extends State<PropertyCard> {
                           ),
                         ),
                       ],
+                      ResortMetaLine(
+                        avgRating: widget.avgRating,
+                        reviewCount: widget.reviewCount,
+                        distanceKm: widget.distanceKm,
+                        minPrice: widget.minPrice,
+                      ),
                       const SizedBox(height: Spacing.sm),
                       AmenityWrap(amenities: property.amenities),
                       const SizedBox(height: Spacing.sm),
