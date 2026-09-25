@@ -10,6 +10,7 @@ import '../../core/widgets/failure_view.dart';
 import '../../data/models/payment_method.dart';
 import '../../data/repositories/room_status_repository.dart';
 import '../../data/repositories/stay_repository.dart';
+import '../admin/reception_checkout_screen.dart' show deskCheckoutDoneLocation;
 import '../booking/payment_gateway.dart';
 import '../finance/providers.dart';
 import '../staff/providers.dart' show allBookingsProvider;
@@ -27,6 +28,8 @@ Widget checkoutScreenFor(Object? extra) => switch (extra) {
 /// optional receipt or UTR number -- and the gateway is never called.
 /// `checkout_booking` never trusts a client-supplied amount, and refuses a
 /// desk method from anyone who is not staff at the booking's resort.
+/// A guest's checkout ends on their invoice; a desk checkout goes back to
+/// reception's check-out list ([deskCheckoutDoneLocation]).
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key, required this.reservationId, this.desk = false});
 
@@ -98,8 +101,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         ref.invalidate(checkedInProvider);
         ref.invalidate(allBookingsProvider);
         ref.invalidate(roomBoardProvider);
+        // Back to reception's own list, with the success banner and the
+        // invoice download -- not the guest's /my-stay/invoice screen.
+        context.go(deskCheckoutDoneLocation(widget.reservationId));
+      } else {
+        context.go('/my-stay/invoice/${widget.reservationId}');
       }
-      context.go('/my-stay/invoice/${widget.reservationId}');
     } on BookingFailure catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)

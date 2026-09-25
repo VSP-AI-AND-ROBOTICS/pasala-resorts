@@ -627,7 +627,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/admin/check-out',
-            builder: (_, _) => const ReceptionCheckoutScreen(),
+            // `?checkedOut=<id>` after a desk checkout: the success banner
+            // with the invoice download. In the URL so a reload keeps it;
+            // redirectFor checks matchedLocation, which has no query.
+            builder: (_, state) => ReceptionCheckoutScreen(
+              checkedOutId: state.uri.queryParameters[checkedOutParam],
+            ),
             routes: [
               // Reception's desk checkout at /admin/check-out/:reservationId.
               // The reservation id and desk mode both live in the URL so a
