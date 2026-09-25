@@ -7,11 +7,13 @@ import '../../core/widgets/failure_view.dart';
 import '../../data/models/subscription.dart';
 import '../../data/repositories/platform_repository.dart';
 
-/// "Plan prices" (spec decision 11): the monthly INR price of each plan.
-/// Save sends only the prices that changed, through `set_plan_price`. A
-/// change applies to every resort on that plan at once, so the list, the
-/// cards (MRR) and the plans are refetched -- even after a partial failure,
-/// because the prices saved before it are real.
+/// "Plan prices" (spec decision 11): the monthly INR price of each plan,
+/// and (P8) the Razorpay plan behind it -- blank keeps that plan billed by
+/// hand. Save sends only what changed, through `set_plan_price` and
+/// `set_plan_razorpay_id`. A change applies to every resort on that plan
+/// at once, so the list, the cards (MRR) and the plans are refetched --
+/// even after a partial failure, because the changes saved before it are
+/// real.
 class PlanPricesDialog extends ConsumerStatefulWidget {
   const PlanPricesDialog({super.key, required this.plans});
 
@@ -26,15 +28,22 @@ class _PlanPricesDialogState extends ConsumerState<PlanPricesDialog> {
     for (final plan in widget.plans)
       plan.tier: TextEditingController(text: _show(plan.monthlyPriceInr)),
   };
+  late final Map<SubscriptionTier, TextEditingController> _planIds = {
+    for (final plan in widget.plans)
+      plan.tier: TextEditingController(text: plan.razorpayPlanId ?? ''),
+  };
   String? _error;
   bool _busy = false;
+
+  /// The same rule as the database's check (0057_subscription_billing.sql).
+  static final _planIdPattern = RegExp(r'^plan_[A-Za-z0-9]{6,40}$');
 
   static String _show(num price) =>
       price % 1 == 0 ? price.toStringAsFixed(0) : price.toStringAsFixed(2);
 
   @override
   void dispose() {
-    for (final c in _prices.values) {
+    for (final c in [..._prices.values, ..._planIds.values]) {
       c.dispose();
     }
     super.dispose();
@@ -42,6 +51,7 @@ class _PlanPricesDialogState extends ConsumerState<PlanPricesDialog> {
 
   Future<void> _save() async {
     final changes = <SubscriptionTier, num>{};
+    final planIdChanges = <SubscriptionTier, String?>{};
     for (final plan in widget.plans) {
       final text = _prices[plan.tier]!.text.trim().replaceAll(',', '');
       final value = num.tryParse(text);
@@ -51,8 +61,17 @@ class _PlanPricesDialogState extends ConsumerState<PlanPricesDialog> {
         return;
       }
       if (value != plan.monthlyPriceInr) changes[plan.tier] = value;
+
+      final id = _planIds[plan.tier]!.text.trim();
+      if (id.isNotEmpty && !_planIdPattern.hasMatch(id)) {
+        setState(() => _error = 'A Razorpay plan id looks like plan_ '
+            'followed by letters and digits.');
+        return;
+      }
+      final newId = id.isEmpty ? null : id;
+      if (newId != plan.razorpayPlanId) planIdChanges[plan.tier] = newId;
     }
-    if (changes.isEmpty) {
+    if (changes.isEmpty && planIdChanges.isEmpty) {
       Navigator.of(context).pop();
       return;
     }
@@ -63,10 +82,12 @@ class _PlanPricesDialogState extends ConsumerState<PlanPricesDialog> {
     });
     BookingFailure? failure;
     try {
+      final source = ref.read(platformSourceProvider);
       for (final change in changes.entries) {
-        await ref
-            .read(platformSourceProvider)
-            .setPlanPrice(change.key, change.value);
+        await source.setPlanPrice(change.key, change.value);
+      }
+      for (final change in planIdChanges.entries) {
+        await source.setRazorpayPlanId(change.key, change.value);
       }
     } on BookingFailure catch (e) {
       failure = e;
@@ -112,6 +133,22 @@ class _PlanPricesDialogState extends ConsumerState<PlanPricesDialog> {
                 'straight away.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              const SizedBox(height: Spacing.md),
+              Text('Razorpay auto-pay',
+                  style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: Spacing.sm),
+              for (final plan in widget.plans)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Spacing.sm),
+                  child: TextField(
+                    key: Key('plan-razorpay-${subscriptionTierToDb(plan.tier)}'),
+                    controller: _planIds[plan.tier],
+                    decoration: InputDecoration(
+                      labelText: '${plan.name} Razorpay plan id',
+                      helperText: 'Blank = billed by hand',
+                    ),
+                  ),
+                ),
               if (_error != null) ...[
                 const SizedBox(height: Spacing.sm),
                 Text(

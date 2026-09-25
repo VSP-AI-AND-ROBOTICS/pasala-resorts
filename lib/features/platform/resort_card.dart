@@ -5,6 +5,7 @@ import '../../core/errors.dart';
 import '../../core/format.dart';
 import '../../core/theme/spacing.dart';
 import '../../core/widgets/failure_view.dart';
+import '../../data/models/billing.dart';
 import '../../data/models/subscription.dart';
 import '../../data/repositories/platform_repository.dart';
 import 'change_plan_dialog.dart';
@@ -83,6 +84,7 @@ class ResortCard extends ConsumerWidget {
                 if (plan != null) PlanLine(plan: plan),
               ],
             ),
+            _BillingLine(propertyId: resort.propertyId),
             const SizedBox(height: Spacing.sm),
             Text(
               '${resort.bookings30d} bookings · ${formatInr(resort.revenue30d)} '
@@ -204,6 +206,42 @@ class PlanLine extends StatelessWidget {
         const SizedBox(width: Spacing.xs),
         Flexible(child: Text(text, style: TextStyle(color: error))),
       ],
+    );
+  }
+}
+
+/// The `Auto-pay: …` line (P8): the auto-pay state and the last payment.
+/// Nothing for a resort that never had auto-pay, while loading, or when
+/// the billing read fails: it is extra detail and never hides the card.
+class _BillingLine extends ConsumerWidget {
+  const _BillingLine({required this.propertyId});
+
+  final String propertyId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final entry = switch (ref.watch(platformBillingProvider)) {
+      AsyncData(:final value) => value[propertyId],
+      _ => null,
+    };
+    if (entry == null) return const SizedBox.shrink();
+    final status = entry.status;
+    final paid = lastPaymentLine(entry.lastPaymentInr, entry.lastPaymentAt);
+    final parts = [
+      if (status != null) 'Auto-pay: ${status.label}',
+      ?paid,
+    ];
+    if (parts.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: Spacing.xs),
+      child: Text(
+        parts.join(' · '),
+        key: Key('resort-billing-$propertyId'),
+        style: Theme.of(context)
+            .textTheme
+            .bodySmall
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+      ),
     );
   }
 }

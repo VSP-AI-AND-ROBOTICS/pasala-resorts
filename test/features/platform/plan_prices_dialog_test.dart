@@ -86,4 +86,75 @@ void main() {
         findsOneWidget);
     expect(find.byType(AlertDialog), findsOneWidget);
   });
+
+  testWidgets("shows each plan's Razorpay plan id and saves only the changes",
+      (tester) async {
+    final source = FakePlatformSource()
+      ..store = [resortSummary()]
+      ..planList = [
+        for (final p in defaultPlans)
+          SubscriptionPlan(
+            tier: p.tier,
+            name: p.name,
+            monthlyPriceInr: p.monthlyPriceInr,
+            sortOrder: p.sortOrder,
+            razorpayPlanId: p.tier == SubscriptionTier.starter
+                ? 'plan_StarterMon001'
+                : null,
+          ),
+      ];
+    await _openFromConsole(tester, source);
+
+    expect(_field(tester, 'plan-razorpay-starter'), 'plan_StarterMon001');
+    expect(_field(tester, 'plan-razorpay-pro'), '');
+
+    await tester.ensureVisible(find.byKey(const Key('plan-razorpay-starter')));
+    await tester.enterText(find.byKey(const Key('plan-razorpay-starter')), '');
+    await tester.ensureVisible(find.byKey(const Key('plan-razorpay-pro')));
+    await tester.enterText(
+        find.byKey(const Key('plan-razorpay-pro')), ' plan_ProMonthly0001 ');
+    await _save(tester);
+
+    expect(source.priceCalls, isEmpty);
+    expect(source.planIdCalls, [
+      (SubscriptionTier.starter, null),
+      (SubscriptionTier.pro, 'plan_ProMonthly0001'),
+    ]);
+    expect(find.byType(AlertDialog), findsNothing);
+  });
+
+  testWidgets('a malformed Razorpay plan id is refused and nothing is saved',
+      (tester) async {
+    final source = FakePlatformSource()..store = [resortSummary()];
+    await _openFromConsole(tester, source);
+
+    await tester.ensureVisible(find.byKey(const Key('plan-razorpay-pro')));
+    await tester.enterText(find.byKey(const Key('plan-razorpay-pro')), 'pro-monthly');
+    await _save(tester);
+
+    expect(
+        find.text(
+            'A Razorpay plan id looks like plan_ followed by letters and digits.'),
+        findsOneWidget);
+    expect(source.planIdCalls, isEmpty);
+    expect(source.priceCalls, isEmpty);
+    expect(find.byType(AlertDialog), findsOneWidget);
+  });
+
+  testWidgets('a refused plan id shows the server message', (tester) async {
+    final source = FakePlatformSource()
+      ..store = [resortSummary()]
+      ..planIdError = const InvalidState(
+          'That Razorpay plan id is already used by another plan.');
+    await _openFromConsole(tester, source);
+
+    await tester.ensureVisible(find.byKey(const Key('plan-razorpay-pro')));
+    await tester.enterText(
+        find.byKey(const Key('plan-razorpay-pro')), 'plan_ProMonthly0001');
+    await _save(tester);
+
+    expect(find.text('That Razorpay plan id is already used by another plan.'),
+        findsOneWidget);
+    expect(find.byType(AlertDialog), findsOneWidget);
+  });
 }

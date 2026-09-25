@@ -45,10 +45,11 @@ class _PlatformScreenState extends ConsumerState<PlatformScreen> {
     super.dispose();
   }
 
-  /// After any change the list and the cards both move.
+  /// After any change the list, the cards and the billing column all move.
   void _refresh() {
     ref.invalidate(platformResortsProvider);
     ref.invalidate(platformTotalsProvider);
+    ref.invalidate(platformBillingProvider);
   }
 
   @override

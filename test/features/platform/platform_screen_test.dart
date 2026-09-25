@@ -176,6 +176,20 @@ void main() {
     expect(find.text('Resort A'), findsOneWidget);
   });
 
+  testWidgets('a change refetches the billing column too', (tester) async {
+    final repo = FakePlatformSource()..store = [_resortA, _resortB];
+    await tester.pumpWidget(_appFor(repo));
+    await tester.pumpAndSettle();
+    expect(repo.billingCalls, 1);
+
+    await tester.tap(find.byKey(const Key('resort-status-btn-p1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Suspend'));
+    await tester.pumpAndSettle();
+
+    expect(repo.billingCalls, 2);
+  });
+
   group('cards, search and tier filter', () {
     final paidPro = resortSummary(
         propertyId: 'p1',
