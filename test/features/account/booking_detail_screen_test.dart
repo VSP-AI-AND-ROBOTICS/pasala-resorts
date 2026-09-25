@@ -7,8 +7,13 @@ import 'package:pasala/data/models/quote.dart';
 import 'package:pasala/data/models/refund_quote.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/repositories/booking_repository.dart';
+import 'package:pasala/data/repositories/stay_pass_repository.dart';
 import 'package:pasala/features/account/booking_detail_screen.dart';
+import 'package:pasala/features/admin/admin_bookings_screen.dart' show bookingCode;
 import 'package:pasala/features/booking/providers.dart' show reservationProvider;
+import 'package:qr_flutter/qr_flutter.dart';
+
+import '../../support/fake_stay_pass_source.dart';
 
 /// A [RefundSource] fake whose `computeRefund` either returns a scripted
 /// [RefundQuote] or throws a scripted [BookingFailure], recording every
@@ -217,6 +222,8 @@ Reservation _block({String id = 'block-1'}) => Reservation(
       blockReason: 'roof repair',
     );
 
+final _passes = FakeStayPassSource();
+
 void main() {
   late GoRouter router;
 
@@ -241,6 +248,7 @@ void main() {
     );
     return ProviderScope(
       overrides: [
+        stayPassSourceProvider.overrideWithValue(_passes),
         reservationProvider(reservation.id).overrideWith((ref) async => reservation),
         bookingActionsProvider.overrideWithValue(actions),
         refundSourceProvider.overrideWithValue(refunds ?? _FakeRefundSource()),
@@ -282,6 +290,17 @@ void main() {
     expect(find.text('₹13,500'), findsOneWidget,
         reason: 'the total must come straight from Quote.total, never be '
             're-derived in Dart');
+  });
+
+  testWidgets('the Check-in QR card shows the signed pass and booking code',
+      (tester) async {
+    final reservation = _reservation(status: ReservationStatus.confirmed);
+    await openDetail(tester, reservation, _FakeCancelActions());
+
+    expect(find.text('Check-in QR'), findsOneWidget);
+    expect(find.byType(QrImageView), findsOneWidget);
+    expect(_passes.issueCalls, contains('r1'));
+    expect(find.text('Booking code ${bookingCode('r1')}'), findsOneWidget);
   });
 
   // I3: `quote_sheet.dart` (the booking-time screen) renders a coupon
@@ -635,6 +654,7 @@ void main() {
       );
       return ProviderScope(
         overrides: [
+          stayPassSourceProvider.overrideWithValue(_passes),
           // Reads the fake server row each time it is (re)built, so only an
           // actual invalidation of reservationProvider picks up a cancel.
           reservationProvider('r1').overrideWith((ref) async => serverRow),

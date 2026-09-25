@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/errors.dart';
 import '../../core/format.dart';
@@ -15,6 +14,7 @@ import '../../data/repositories/booking_repository.dart';
 import '../../data/repositories/stay_repository.dart' show currentStayProvider;
 import '../booking/providers.dart' show reservationProvider;
 import '../staff/providers.dart' show allBookingsProvider;
+import '../stay/stay_pass_qr.dart';
 import 'providers.dart';
 
 class BookingDetailScreen extends ConsumerWidget {
@@ -227,18 +227,7 @@ class _DetailState extends ConsumerState<_Detail> {
               children: [
                 Text('Check-in QR', style: textTheme.titleMedium),
                 const SizedBox(height: Spacing.sm),
-                Container(
-                  padding: const EdgeInsets.all(Spacing.sm),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
-                  ),
-                  child: QrImageView(
-                    data: reservation.id,
-                    size: 140,
-                    backgroundColor: Colors.white,
-                  ),
-                ),
+                StayPassQr(reservationId: reservation.id),
                 const SizedBox(height: Spacing.md),
                 FilledButton(
                   onPressed: () => context.push('/my-stay'),

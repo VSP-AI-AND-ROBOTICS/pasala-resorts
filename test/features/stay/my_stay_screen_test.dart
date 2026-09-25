@@ -5,8 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/models/review.dart';
 import 'package:pasala/data/repositories/review_repository.dart';
+import 'package:pasala/data/repositories/stay_pass_repository.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
+import 'package:pasala/features/admin/admin_bookings_screen.dart' show bookingCode;
 import 'package:pasala/features/stay/my_stay_screen.dart';
+
+import '../../support/fake_stay_pass_source.dart';
 
 final _checkedOut = Reservation(
   id: 'res-1',
@@ -17,10 +21,20 @@ final _checkedOut = Reservation(
   status: ReservationStatus.checkedOut,
 );
 
+final _confirmed = Reservation(
+  id: 'res-2',
+  unitId: 'u1',
+  start: DateTime(2026, 9, 26),
+  end: DateTime(2026, 9, 28),
+  kind: ReservationKind.booking,
+  status: ReservationStatus.confirmed,
+);
+
 Widget _app({
   Reservation? currentStay,
   Reservation? mostRecentCheckedOut,
   Review? existingReview,
+  FakeStayPassSource? passes,
 }) {
   final router = GoRouter(
     initialLocation: '/my-stay',
@@ -35,6 +49,7 @@ Widget _app({
 
   return ProviderScope(
     overrides: [
+      stayPassSourceProvider.overrideWithValue(passes ?? FakeStayPassSource()),
       currentStayProvider.overrideWith((ref) async => currentStay),
       mostRecentCheckedOutProvider.overrideWith(
           (ref) async => mostRecentCheckedOut),
@@ -102,5 +117,20 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('REVIEW SCREEN'), findsOneWidget);
+  });
+
+  testWidgets('the hub shows the check-in pass, and a tap opens it full size',
+      (tester) async {
+    final passes = FakeStayPassSource();
+    await tester.pumpWidget(_app(currentStay: _confirmed, passes: passes));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('stay-pass-thumbnail')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('stay-pass-thumbnail')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Check-in pass'), findsOneWidget);
+    expect(find.text('Booking code ${bookingCode('res-2')}'), findsOneWidget);
+    expect(passes.issueCalls, everyElement('res-2'));
   });
 }
