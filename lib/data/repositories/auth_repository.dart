@@ -90,13 +90,10 @@ final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => AuthRepository(ref.watch(supabaseProvider)),
 );
 
-final currentUserProvider = StreamProvider<AppUser?>(
-  (ref) async* {
-    final repo = ref.watch(authRepositoryProvider);
-    yield await repo.current();
-    yield* repo.watch();
-  },
-  // Screens show their own Retry button (see StaffProfileScreen); don't
-  // also auto-retry (Riverpod 3 retries non-Error throws by default).
-  retry: (retryCount, error) => null,
-);
+/// Deliberately keeps Riverpod's default auto-retry: this is app-wide auth
+/// state the router depends on, not just StaffProfileScreen's secondary Retry.
+final currentUserProvider = StreamProvider<AppUser?>((ref) async* {
+  final repo = ref.watch(authRepositoryProvider);
+  yield await repo.current();
+  yield* repo.watch();
+});
