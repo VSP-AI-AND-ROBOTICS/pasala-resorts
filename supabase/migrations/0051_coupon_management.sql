@@ -121,7 +121,10 @@ revoke execute on function public.coupon_check_input(uuid, text, public.coupon_k
 -- against; Tasks 2 and 3 of the plan replace the stub bodies.
 
 -- Every coupon of the resort, for the Coupons screen. Owner/admin of the
--- resort (reads are allowed while it is suspended).
+-- resort (reads are allowed while it is suspended). Dates come back as
+-- calendar days in the resort's time zone. status follows the order
+-- resolve_coupon checks at booking time: inactive, expired, not yet valid
+-- (scheduled), used up, else active. Active coupons first, newest first.
 create function public.list_coupons(p_property uuid)
 returns table (
   id                uuid,
@@ -145,12 +148,48 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+#variable_conflict use_column
+declare
+  v_tz text;
 begin
-  raise exception 'list_coupons is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property, false, 'owner', 'admin');
+
+  select p.timezone into v_tz from public.properties p where p.id = p_property;
+
+  return query
+    select c.id,
+           c.code,
+           c.kind,
+           c.value,
+           c.min_booking_value,
+           (c.valid_from at time zone v_tz)::date,
+           (c.valid_to at time zone v_tz)::date,
+           c.max_redemptions,
+           c.redeemed_count,
+           c.customer_id,
+           u.email::text,
+           pr.full_name,
+           c.is_active,
+           case
+             when not c.is_active then 'inactive'
+             when c.valid_to is not null and now() > c.valid_to then 'expired'
+             when c.valid_from is not null and now() < c.valid_from then 'scheduled'
+             when c.max_redemptions is not null
+                  and c.redeemed_count >= c.max_redemptions then 'used_up'
+             else 'active'
+           end,
+           c.created_at
+      from public.coupons c
+      left join auth.users u on u.id = c.customer_id
+      left join public.profiles pr on pr.id = c.customer_id
+     where c.property_id = p_property
+     order by c.is_active desc, c.created_at desc, c.code;
 end;
 $$;
 
--- The guest with this email, if they have booked at the resort.
+-- The account with this email (case-insensitive, trimmed), if it has a
+-- real booking at the resort (is_resort_guest). Zero or one row. It never
+-- reveals an account that has not booked at this resort.
 create function public.find_resort_guest(p_property uuid, p_email text)
 returns table (user_id uuid, email text, full_name text)
 language plpgsql
@@ -158,8 +197,16 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+#variable_conflict use_column
 begin
-  raise exception 'find_resort_guest is not implemented yet' using errcode = '0A000';
+  perform public.assert_resort_role(p_property, false, 'owner', 'admin');
+
+  return query
+    select u.id, u.email::text, pr.full_name
+      from auth.users u
+      left join public.profiles pr on pr.id = u.id
+     where lower(u.email) = lower(btrim(p_email))
+       and public.is_resort_guest(p_property, u.id);
 end;
 $$;
 

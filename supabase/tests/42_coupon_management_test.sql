@@ -12,7 +12,7 @@
 -- straight into the table: OLD5 (3 of 5 uses taken) and KIRANVIP
 -- (restricted to Kiran).
 begin;
-select plan(62);
+select plan(89);
 
 insert into auth.users (id, email) values
   ('c0000000-0000-0000-0000-000000000001','cp-r-owner@example.com'),
@@ -322,6 +322,125 @@ select is((select count(*)::int from public.audit_log
               and property_id = 'c1000000-0000-4000-8000-000000000001'
               and actor_id is null),
   0, 'every coupon audit row names who made the change');
+
+-- === Task 3: listing, guest lookup, suspended and archived resorts ===========
+
+-- One coupon in each remaining state, written straight into the table.
+-- (Still superuser with empty claims from the end of Task 2's section.)
+insert into public.coupons (property_id, code, kind, value, valid_to) values
+  ('c1000000-0000-4000-8000-000000000001', 'EXPIRED1', 'fixed', 100, now() - interval '1 day');
+insert into public.coupons (property_id, code, kind, value, valid_from) values
+  ('c1000000-0000-4000-8000-000000000001', 'LATER1', 'fixed', 100, now() + interval '5 days');
+insert into public.coupons (property_id, code, kind, value, max_redemptions, redeemed_count) values
+  ('c1000000-0000-4000-8000-000000000001', 'USEDUP', 'fixed', 100, 1, 1);
+insert into public.coupons (property_id, code, kind, value, is_active) values
+  ('c1000000-0000-4000-8000-000000000001', 'OFF1', 'fixed', 100, false);
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select is((select count(*)::int from public.list_coupons('c1000000-0000-4000-8000-000000000001')),
+  10, 'an admin lists every coupon of the resort, inactive ones too');
+select is((select array_agg(code || ':' || status order by code)
+             from public.list_coupons('c1000000-0000-4000-8000-000000000001')
+            where code in ('EXPIRED1','LATER1','OFF1','SAVE15','USEDUP')),
+  array['EXPIRED1:expired','LATER1:scheduled','OFF1:inactive','SAVE15:active','USEDUP:used_up'],
+  'each coupon''s status follows the rules booking applies');
+select is((select valid_from || '|' || valid_until || '|' || redeemed_count || '|' ||
+                  customer_email || '|' || customer_name
+             from public.list_coupons('c1000000-0000-4000-8000-000000000001')
+            where code = 'SUMMER'),
+  '2026-10-01|2026-10-31|0|Gita.Guest@Example.com|Gita Guest',
+  'dates come back as the days picked, with the guest''s email and name');
+select is((select redeemed_count || '/' || max_redemptions
+             from public.list_coupons('c1000000-0000-4000-8000-000000000001')
+            where code = 'OLD5'),
+  '3/3', 'the usage count comes back with the limit');
+select is((select code from public.list_coupons('c1000000-0000-4000-8000-000000000001') offset 9),
+  'OFF1', 'inactive coupons are listed last');
+
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select is((select count(*)::int from public.list_coupons('c1000000-0000-4000-8000-000000000001')),
+  10, 'the owner lists them too');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select * from public.list_coupons('c1000000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'staff cannot list coupons');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select * from public.list_coupons('c1000000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'an accountant cannot list coupons');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+select throws_ok($$select * from public.list_coupons('c1000000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'the platform admin cannot list a resort''s coupons');
+
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select is((select array_agg(code) from public.list_coupons('c1000000-0000-4000-8000-000000000002')),
+  array['SAVE10'], 'another resort lists only its own coupons');
+select throws_ok($$select * from public.list_coupons('c1000000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'another resort''s owner cannot list this resort''s coupons');
+select is((select count(*)::int
+             from public.find_resort_guest('c1000000-0000-4000-8000-000000000002', 'gita.guest@example.com')),
+  0, 'a guest who never booked at S is not found there');
+select is((select count(*)::int
+             from public.find_resort_guest('c1000000-0000-4000-8000-000000000002', 'cp-olu@example.com')),
+  1, 'S finds its own guest');
+
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select is((select user_id || '|' || email || '|' || full_name
+             from public.find_resort_guest('c1000000-0000-4000-8000-000000000001', '  GITA.guest@example.COM ')),
+  'c0000000-0000-0000-0000-000000000006|Gita.Guest@Example.com|Gita Guest',
+  'finds a guest who booked here, whatever the case and spacing');
+select is((select count(*)::int
+             from public.find_resort_guest('c1000000-0000-4000-8000-000000000001', 'cp-olu@example.com')),
+  0, 'a guest of another resort is not found');
+select is((select count(*)::int
+             from public.find_resort_guest('c1000000-0000-4000-8000-000000000001', 'cp-hana@example.com')),
+  0, 'a guest with only a hold is not found');
+select is((select count(*)::int
+             from public.find_resort_guest('c1000000-0000-4000-8000-000000000001', 'cp-kiran@example.com')),
+  0, 'a guest whose only booking was cancelled is not found');
+select is((select count(*)::int
+             from public.find_resort_guest('c1000000-0000-4000-8000-000000000001', 'nobody@example.com')),
+  0, 'an unknown email finds nobody');
+select is((select count(*)::int
+             from public.find_resort_guest('c1000000-0000-4000-8000-000000000001', 'cp-r-staff@example.com')),
+  0, 'a team member who never booked is not found');
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select * from public.find_resort_guest('c1000000-0000-4000-8000-000000000001', 'cp-olu@example.com')$$,
+  'P0020', null, 'staff cannot look up guests');
+
+-- Suspended: reads work, writes P0022. `reset role` keeps the claims;
+-- clear them so the status change runs with no authenticated caller.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'suspended'
+ where id = 'c1000000-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select is((select count(*)::int from public.list_coupons('c1000000-0000-4000-8000-000000000001')),
+  10, 'a suspended resort''s admin still lists coupons');
+select is((select count(*)::int
+             from public.find_resort_guest('c1000000-0000-4000-8000-000000000001', 'gita.guest@example.com')),
+  1, 'and still looks up guests');
+select throws_ok($$select public.create_coupon('c1000000-0000-4000-8000-000000000001', 'PAUSED', 'fixed', 100)$$,
+  'P0022', null, 'no new coupons at a suspended resort');
+select throws_ok($$select public.update_coupon('c1000000-0000-4000-8000-000000000031', 'OLD5', 'fixed', 500,
+    null, null, null, 3)$$,
+  'P0022', null, 'no edits at a suspended resort');
+select throws_ok($$select public.set_coupon_active('c1000000-0000-4000-8000-000000000031', false)$$,
+  'P0022', null, 'no deactivating at a suspended resort');
+
+-- Archived: closed.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'archived'
+ where id = 'c1000000-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"c0000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select throws_ok($$select * from public.list_coupons('c1000000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'an archived resort''s coupons are closed to its admin');
+select throws_ok($$select * from public.find_resort_guest('c1000000-0000-4000-8000-000000000001', 'gita.guest@example.com')$$,
+  'P0020', null, 'and so is its guest lookup');
+reset role;
+set local request.jwt.claims to '';
 
 select * from finish();
 rollback;
