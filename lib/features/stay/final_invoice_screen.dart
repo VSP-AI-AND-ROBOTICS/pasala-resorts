@@ -8,6 +8,7 @@ import '../../core/widgets/async_view.dart';
 import '../../data/repositories/stay_repository.dart';
 import '../booking/providers.dart' show reservationProvider;
 import '../invoice/invoice_pdf_button.dart';
+import 'included_tax_line.dart';
 
 /// Itemized final invoice, with its PDF (`InvoicePdfButton`). The guest
 /// lands here after self-checkout, and reception after a desk checkout.
@@ -57,11 +58,18 @@ class FinalInvoiceScreen extends ConsumerWidget {
                         const Expanded(child: Text('Food')),
                         Text(formatInr(charges.foodAmount)),
                       ]),
+                      if (charges.foodTax > 0)
+                        IncludedTaxLine(
+                            key: const Key('invoice-food-tax'), amount: charges.foodTax),
                       const SizedBox(height: Spacing.xs),
                       Row(children: [
                         const Expanded(child: Text('Activities')),
                         Text(formatInr(charges.activityAmount)),
                       ]),
+                      if (charges.activityTax > 0)
+                        IncludedTaxLine(
+                            key: const Key('invoice-activity-tax'),
+                            amount: charges.activityTax),
                       const Divider(),
                       Row(children: [
                         Expanded(child: Text('Final amount', style: textTheme.titleMedium)),

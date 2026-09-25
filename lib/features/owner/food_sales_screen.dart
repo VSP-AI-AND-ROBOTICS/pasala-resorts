@@ -12,6 +12,7 @@ import '../../data/models/food_sale.dart';
 import '../../data/models/payment_method.dart';
 import '../../data/models/resort_membership.dart';
 import '../../data/repositories/food_sale_repository.dart';
+import '../finance/finance_tables.dart' show formatMoney;
 import '../finance/providers.dart';
 
 String _categoryLabel(SaleCategory c) => switch (c) {
@@ -141,7 +142,10 @@ class _FoodSalesScreenState extends ConsumerState<FoodSalesScreen> {
                             '${_categoryLabel(sale.category)} · '
                             '${sale.paymentMethod.label} · '
                             '${formatDate(sale.saleDate)} · '
-                            '${sale.quantity} × ${formatInr(sale.unitPrice)}',
+                            '${sale.quantity} × ${formatInr(sale.unitPrice)}'
+                            // The tax inside the amount, stored by the
+                            // server when the sale was logged (0053).
+                            '${sale.taxAmount > 0 ? ' · Includes tax ${formatMoney(sale.taxAmount)}' : ''}',
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,

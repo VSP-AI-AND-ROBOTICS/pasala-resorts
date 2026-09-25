@@ -111,6 +111,8 @@ void main() {
           desk: {PaymentMethod.cash: 2800, PaymentMethod.card: 120},
           refunds: 600,
           roomTax: 240,
+          foodTax: 72.25,
+          spaTax: 468,
           inHouseCount: 1,
           inHouseBalance: 1200,
         );
@@ -124,6 +126,8 @@ void main() {
       expect(_inKey('today-refunds', '₹600.00'), findsOneWidget);
       expect(_inKey('today-net', '₹3,320.00'), findsOneWidget);
       expect(_inKey('today-room-tax', '₹240.00'), findsOneWidget);
+      expect(_inKey('today-food-tax', '₹72.25'), findsOneWidget);
+      expect(_inKey('today-spa-tax', '₹468.00'), findsOneWidget);
       expect(_inKey('today-in-house', '1'), findsOneWidget);
       expect(_inKey('today-in-house', 'Unpaid balance ₹1,200.00'), findsOneWidget);
       expect(source.summaryCalls, isNotEmpty);
@@ -346,7 +350,7 @@ void main() {
 
       expect(_inKey('ledger-tax-strip', 'Taxable ₹10,200.00'), findsOneWidget);
       expect(_inKey('ledger-tax-strip', 'Tax ₹1,140.00'), findsOneWidget);
-      expect(_inKey('ledger-tax-strip', 'Current rate 12%'), findsOneWidget);
+      expect(_inKey('ledger-tax-strip', 'Room rate 12%'), findsOneWidget);
       expect(_inKey('ledger-tax-strip', 'GSTIN 29ABCDE1234F1Z5'), findsOneWidget);
     });
 
@@ -366,7 +370,10 @@ void main() {
       await _openTab(tester, 'Ledger');
 
       expect(find.byKey(const Key('ledger-table')), findsOneWidget);
-      for (final header in ['Room', 'F&B', 'Spa/Activities', 'Ancillary', 'Taxable', 'Tax', 'Total']) {
+      for (final header in [
+        'Room', 'F&B', 'Spa/Activities', 'Ancillary', 'Taxable',
+        'Room tax', 'F&B tax', 'Spa/Activities tax', 'Ancillary tax', 'Tax', 'Total',
+      ]) {
         expect(find.text(header), findsWidgets, reason: header);
       }
       expect(find.text('₹11,340.00'), findsOneWidget);
@@ -391,6 +398,46 @@ void main() {
       expect(name, 'fin-r-ledger-2026-08-01-2026-08-31.csv');
       expect(csv, contains('Date,Category,Source,Gross,Discount,Taxable,Tax,Net\r\n'));
       expect(csv, contains('2026-08-10,room,booking,10000.00,1000.00,9000.00,1080.00,10080.00\r\n'));
+    });
+
+    final withSpa = [
+      ...rows,
+      ledgerRow(
+          day: DateTime(2026, 8, 11),
+          category: LedgerCategory.spaActivities,
+          source: 'activity_booking',
+          gross: 2000,
+          tax: 360),
+    ];
+
+    testWidgets('the tax strip lists the tax of each category and every rate', (tester) async {
+      await _pump(
+          tester,
+          FakeFinanceSource()
+            ..ledgerRows = withSpa
+            ..summaryValue = financeSummary(resort: financeResort(fnbTaxPct: 5, spaTaxPct: 18)));
+      await _openTab(tester, 'Ledger');
+
+      expect(_inKey('ledger-tax-strip', 'Room tax ₹1,080.00'), findsOneWidget);
+      expect(_inKey('ledger-tax-strip', 'Ancillary tax ₹60.00'), findsOneWidget);
+      expect(_inKey('ledger-tax-strip', 'Spa/Activities tax ₹360.00'), findsOneWidget);
+      // No F&B tax in the period: no line for it.
+      expect(_inKey('ledger-tax-strip', 'F&B tax ₹0.00'), findsNothing);
+      expect(_inKey('ledger-tax-strip', 'Tax ₹1,500.00'), findsOneWidget);
+      expect(_inKey('ledger-tax-strip', 'Room rate 12%'), findsOneWidget);
+      expect(_inKey('ledger-tax-strip', 'F&B rate 5%'), findsOneWidget);
+      expect(_inKey('ledger-tax-strip', 'Spa/Activities rate 18%'), findsOneWidget);
+    });
+
+    testWidgets("a phone card lists each category's tax under Tax", (tester) async {
+      await _pump(tester, FakeFinanceSource()..ledgerRows = withSpa);
+      await _openTab(tester, 'Ledger');
+
+      expect(_inKey('ledger-2026-08-10', 'Room tax ₹1,080.00'), findsOneWidget);
+      expect(_inKey('ledger-2026-08-10', 'Ancillary tax ₹60.00'), findsOneWidget);
+      expect(_inKey('ledger-2026-08-11', 'Tax ₹360.00'), findsOneWidget);
+      expect(_inKey('ledger-2026-08-11', 'Spa/Activities tax ₹360.00'), findsOneWidget);
+      expect(_inKey('ledger-2026-08-11', 'F&B tax ₹0.00'), findsNothing);
     });
   });
 

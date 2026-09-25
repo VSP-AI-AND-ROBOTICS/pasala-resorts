@@ -78,7 +78,7 @@ class OwnerSettingsScreen extends ConsumerWidget {
               _SettingsTile(
                 icon: Icons.percent_outlined,
                 title: 'Taxes',
-                subtitle: 'Tax rate and GSTIN',
+                subtitle: 'Room, food and spa tax rates, GSTIN',
                 color: scheme.primary,
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => TaxSettingsScreen(property: property),

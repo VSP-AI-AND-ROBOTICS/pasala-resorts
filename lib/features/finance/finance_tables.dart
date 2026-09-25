@@ -77,32 +77,39 @@ CollectionDay collectionsTotal(List<CollectionDay> days) => CollectionDay(
       refunds: _sum(days.map((d) => d.refunds)),
     );
 
-/// One day of the Ledger view: each category's taxable amount, and the
-/// day's tax. [day] is null on the totals row.
+/// One day of the Ledger view: each category's taxable amount and each
+/// category's tax. [day] is null on the totals row.
 class LedgerDay {
-  const LedgerDay({this.day, this.byCategory = const {}, this.tax = 0});
+  const LedgerDay({
+    this.day,
+    this.byCategory = const {},
+    this.taxByCategory = const {},
+  });
 
   final DateTime? day;
   final Map<LedgerCategory, num> byCategory;
-  final num tax;
+  final Map<LedgerCategory, num> taxByCategory;
 
   num categoryTotal(LedgerCategory category) => byCategory[category] ?? 0;
+  num taxFor(LedgerCategory category) => taxByCategory[category] ?? 0;
   num get taxable => _sum(byCategory.values);
+  num get tax => _sum(taxByCategory.values);
   num get total => taxable + tax;
 }
 
 /// Pivots `report_ledger` lines into one [LedgerDay] per day, oldest first.
 List<LedgerDay> ledgerByDay(List<LedgerRow> rows) {
   final byDay = <DateTime, Map<LedgerCategory, num>>{};
-  final tax = <DateTime, num>{};
+  final taxByDay = <DateTime, Map<LedgerCategory, num>>{};
   for (final r in rows) {
     final categories = byDay.putIfAbsent(r.day, () => {});
     categories[r.category] = (categories[r.category] ?? 0) + r.taxable;
-    tax[r.day] = (tax[r.day] ?? 0) + r.tax;
+    final taxes = taxByDay.putIfAbsent(r.day, () => {});
+    taxes[r.category] = (taxes[r.category] ?? 0) + r.tax;
   }
   return [
     for (final d in byDay.keys.toList()..sort())
-      LedgerDay(day: d, byCategory: byDay[d]!, tax: tax[d] ?? 0),
+      LedgerDay(day: d, byCategory: byDay[d]!, taxByCategory: taxByDay[d]!),
   ];
 }
 
@@ -112,5 +119,8 @@ LedgerDay ledgerTotal(List<LedgerDay> days) => LedgerDay(
         for (final c in LedgerCategory.values)
           c: _sum(days.map((d) => d.categoryTotal(c))),
       },
-      tax: _sum(days.map((d) => d.tax)),
+      taxByCategory: {
+        for (final c in LedgerCategory.values)
+          c: _sum(days.map((d) => d.taxFor(c))),
+      },
     );
