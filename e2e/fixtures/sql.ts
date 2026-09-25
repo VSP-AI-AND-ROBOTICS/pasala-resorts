@@ -44,6 +44,17 @@ declare
   v_pass   int;
   t        text;
 begin
+  -- 0. Tasks cannot be removed from here: tasks_enforce_write (0047) lets
+  --    only a signed-in owner/admin of the resort delete a task or clear
+  --    its unit_id (which deleting the unit cascades to), and this psql
+  --    session has no auth.uid(). Specs that create tasks delete them
+  --    through the app (see tests/staff.spec.ts). Fail with a clear message
+  --    instead of a bare "permission denied for table tasks" if one is left.
+  if exists (select 1 from public.tasks where property_id = any(v_props)) then
+    raise exception 'e2e teardown: % task(s) left at fixture resorts; delete them in the app as the resort''s admin (tasks_enforce_write), then rerun npm run fixtures:teardown',
+      (select count(*) from public.tasks where property_id = any(v_props));
+  end if;
+
   -- 1. Every row at a fixture resort, then the resorts.
   select coalesce(array_agg(format('public.%I', c.table_name)), '{}')
     into v_tables
@@ -121,7 +132,9 @@ function usersSql(): string {
     .map((u) => `(${lit(u.id)}::uuid, ${lit(u.email)}, ${lit(u.fullName)})`)
     .join(',\n  ');
   return `
--- Accounts, as supabase/seed.sql creates them. on_auth_user_created adds
+-- Accounts, as supabase/seed.sql creates them. Identities are added for
+-- exactly these ids (not by email pattern), so an extra account a spec adds
+-- under the same domain in its own beforeAll is never matched twice. on_auth_user_created adds
 -- each profile (role customer).
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password,
                         email_confirmed_at, raw_app_meta_data,
@@ -144,7 +157,7 @@ select gen_random_uuid(), u.id::text, u.id,
                           'email_verified', true),
        'email', now(), now(), now()
 from auth.users u
-where u.email like ${USER_EMAILS};
+where u.id in (${allUsers.map((u) => `${lit(u.id)}::uuid`).join(', ')});
 
 update public.profiles set role = 'platform_admin' where id = ${lit(platformAdmin.id)};
 `;
