@@ -66,6 +66,8 @@ dependencies:
   # (lib/core/pdf/). `printing` delivers them through the platform share
   # sheet on Android/iOS/desktop; the web downloads them directly
   # (lib/core/pdf/pdf_deliver_web.dart).
+  # Locked at pdf 3.12.0 / printing 5.14.3: pdf 3.13 and printing 5.15 need
+  # Dart 3.12 / Flutter 3.41, above this repo's 3.10.8 / 3.38.1 floor.
   pdf: ^3.12.0
   printing: ^5.14.3
 
