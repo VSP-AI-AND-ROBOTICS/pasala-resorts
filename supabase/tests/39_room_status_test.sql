@@ -11,7 +11,7 @@
 -- (slot-only), Old Barn (inactive) and Cottage 4 (a confirmed arrival
 -- today, Asia/Kolkata).
 begin;
-select plan(81);
+select plan(92);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters
 -- it). Used by later sections.
@@ -443,6 +443,67 @@ select throws_ok($$select * from public.room_status_board('eeeeeeee-0000-4000-80
   'P0020', null, 'an archived resort''s board is closed to its staff');
 reset role;
 set local request.jwt.claims to '';
+
+-- === 0050: deletes with no signed-in caller ===============================
+-- Migrations, SQL tooling and service jobs run with no auth.uid(). They may
+-- delete a unit with housekeeping history (its tasks' unit_id is set null)
+-- and delete tasks. Signed-in callers keep every rule. Resort S (active)
+-- gets two rooms and, on the first, a finished and an open task for Sam.
+insert into public.units (id, property_id, name, capacity_base, capacity_max, booking_mode, is_active) values
+  ('eeeeeeee-0000-4000-8000-000000000015','eeeeeeee-0000-4000-8000-000000000002','S Cottage 1',2,4,'nightly',true),
+  ('eeeeeeee-0000-4000-8000-000000000016','eeeeeeee-0000-4000-8000-000000000002','S Cottage 2',2,4,'nightly',true);
+insert into public.tasks (id, property_id, assignee_id, title, kind, unit_id, created_by, status) values
+  ('eeeeeeee-0000-4000-8000-000000000041','eeeeeeee-0000-4000-8000-000000000002',
+   'e0000000-0000-0000-0000-000000000007','Clean S Cottage 1','housekeeping',
+   'eeeeeeee-0000-4000-8000-000000000015','e0000000-0000-0000-0000-000000000006','done'),
+  ('eeeeeeee-0000-4000-8000-000000000042','eeeeeeee-0000-4000-8000-000000000002',
+   'e0000000-0000-0000-0000-000000000007','Clean S Cottage 1','housekeeping',
+   'eeeeeeee-0000-4000-8000-000000000015','e0000000-0000-0000-0000-000000000006','todo'),
+  ('eeeeeeee-0000-4000-8000-000000000043','eeeeeeee-0000-4000-8000-000000000002',
+   'e0000000-0000-0000-0000-000000000007','Clean S Cottage 2','housekeeping',
+   'eeeeeeee-0000-4000-8000-000000000016','e0000000-0000-0000-0000-000000000006','todo');
+
+-- Sam (staff, the assignee) still cannot delete or re-home his task.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"e0000000-0000-0000-0000-000000000007","role":"authenticated"}';
+select is(pg_temp.rows_affected($$delete from public.tasks
+  where id = 'eeeeeeee-0000-4000-8000-000000000042'$$),
+  0, 'a signed-in staff member still cannot delete their task');
+select throws_ok($$update public.tasks set unit_id = 'eeeeeeee-0000-4000-8000-000000000016'
+  where id = 'eeeeeeee-0000-4000-8000-000000000042'$$,
+  '42501', null, 'a signed-in staff member still cannot move their task to another room');
+select throws_ok($$update public.tasks set unit_id = null
+  where id = 'eeeeeeee-0000-4000-8000-000000000042'$$,
+  '42501', null, 'a signed-in staff member still cannot unlink their task from its room');
+-- Past RLS (the superuser role) but with Sam's JWT: the trigger itself
+-- still refuses him.
+reset role;
+select throws_ok($$delete from public.tasks where id = 'eeeeeeee-0000-4000-8000-000000000042'$$,
+  '42501', null, 'with a signed-in non-admin caller the trigger still refuses a delete');
+select throws_ok($$update public.tasks set unit_id = null
+  where id = 'eeeeeeee-0000-4000-8000-000000000042'$$,
+  '42501', null, 'with a signed-in non-admin caller the trigger still refuses a direct unlink');
+-- ...but the unlink a unit delete cascades to (on delete set null, run
+-- from the foreign key's own trigger) is not an edit by the caller.
+select lives_ok($$delete from public.units where id = 'eeeeeeee-0000-4000-8000-000000000016'$$,
+  'a unit delete''s set-null reaches its task whoever the caller is');
+
+-- No signed-in caller: the superuser, as SQL tooling runs.
+set local request.jwt.claims to '';
+select lives_ok($$delete from public.units where id = 'eeeeeeee-0000-4000-8000-000000000015'$$,
+  'the superuser can delete a unit with housekeeping history');
+select is((select count(*)::int from public.tasks
+            where property_id = 'eeeeeeee-0000-4000-8000-000000000002'
+              and unit_id is null and kind = 'housekeeping'),
+  3, 'the rooms'' housekeeping tasks are kept, unlinked from them');
+select lives_ok($$delete from public.tasks where id = 'eeeeeeee-0000-4000-8000-000000000041'$$,
+  'the superuser can delete a finished task');
+select lives_ok($$delete from public.tasks where status <> 'done'
+  and property_id = 'eeeeeeee-0000-4000-8000-000000000002'$$,
+  'the superuser can delete open tasks');
+select is((select count(*)::int from public.tasks
+            where property_id = 'eeeeeeee-0000-4000-8000-000000000002'),
+  0, 'the deleted tasks are gone');
 
 select * from finish();
 rollback;

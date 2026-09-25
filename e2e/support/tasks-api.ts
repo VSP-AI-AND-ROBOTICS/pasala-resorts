@@ -1,12 +1,9 @@
 // Staff tasks through the app's own REST API (PostgREST), signed in as a
 // fixture account -- the same authenticated path the app itself uses.
 //
-// Why not SQL (fixtures/db.ts): tasks_enforce_write (0047) lets only a
-// signed-in owner/admin of the resort delete a task, or clear the unit_id
-// that deleting a unit cascades to. The fixture teardown's psql session has
-// no auth.uid(), so it cannot remove tasks, and it refuses to run while any
-// are left at a fixture resort (fixtures/sql.ts). Specs that create tasks
-// delete them here, as the resort's admin.
+// Why not SQL (fixtures/db.ts): these run mid-suite as a real user, the
+// way the app writes tasks; the SQL teardown (fixtures/sql.ts) removes any
+// task still left at a fixture resort afterwards.
 //
 // Why not the UI: cleanup must not depend on the screens under test (the
 // /admin/tasks delete flow is itself covered in tests/staff.spec.ts).

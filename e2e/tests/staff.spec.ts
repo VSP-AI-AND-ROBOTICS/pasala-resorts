@@ -31,8 +31,8 @@ const taskRow = (page: Page, title: string) =>
   page.getByRole('group', { name: new RegExp(`^${title} `) });
 
 test.describe('Staff / Incharge (Resort A)', () => {
-  // Tests here create tasks; only a signed-in admin can delete one, and the
-  // fixture teardown refuses to run while any are left (support/tasks-api.ts).
+  // Tests here create tasks; remove them so each test starts with none at
+  // Resort A. (The fixture teardown would delete any left over too.)
   test.afterAll(async () => {
     await deleteAllTasks(resortA.team.admin, resortA.id);
   });
@@ -199,29 +199,3 @@ test.describe('Staff / Incharge (Resort A)', () => {
     }
   });
 });
-
-// KNOWN BUG (infra, not this suite's specs): tasks_enforce_write_trigger
-// (supabase/migrations/0047_room_status.sql, ~line 128-141) compares
-// `new.unit_id is distinct from old.unit_id` as part of "editing a task's
-// details," which only an admin (has_resort_role(..., 'owner','admin'),
-// itself based on auth.uid()) may do. That comparison also fires when a
-// unit is deleted and its `ON DELETE SET NULL` foreign key cascades into
-// an UPDATE of tasks.unit_id -- including when that DELETE is run as the
-// bare `postgres` role via psql (e2e/fixtures/db.ts), which has no
-// auth.uid()/JWT context, so has_resort_role is always false there.
-// Repro: dispatch housekeeping (creates a `tasks` row with a `unit_id`),
-// then delete that unit (or its resort) with e2e/fixtures/sql.ts's
-// teardownSql() run through psql as `postgres`:
-//   ERROR: permission denied for table tasks
-//   HINT: only an administrator can edit a task's details
-//   CONTEXT: ... UPDATE ONLY "public"."tasks" SET "unit_id" = NULL ...
-// This breaks `npm run fixtures:teardown` / globalTeardown for the whole
-// e2e suite (not just this file) whenever ANY task still points at a unit
-// being torn down, including a completed ("done") housekeeping task --
-// the check is on unit_id changing, not on task status. It also means a
-// real deploy's own admin tooling would hit the same wall if it ever
-// deletes a unit/property outside of a signed-in admin request. This
-// spec works around it by deleting every task it creates as Resort A's
-// admin through the REST API (support/tasks-api.ts, a real authenticated
-// session), in the test and again in afterAll, so cleanup does not depend
-// on the admin UI.
