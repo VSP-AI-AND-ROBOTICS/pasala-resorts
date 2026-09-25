@@ -293,6 +293,50 @@ the only seeded resort; all four staff accounts are `resort_members` of it
 work as-is once `supabase start` has run — no manual key copying needed for
 `make`-driven runs. Phase 2 added no new `make` targets.
 
+## End-to-end tests (Playwright)
+
+`e2e/` holds a Playwright suite (Chromium) that drives the real web build
+against the local Supabase stack. Flutter web paints to a canvas, so the
+tests go through Flutter's semantics DOM (`flt-semantics` elements with
+ARIA roles and labels). The E2E build turns semantics on at startup via
+`--dart-define=E2E=true` (`lib/core/e2e_semantics.dart`); a normal build is
+unaffected.
+
+```bash
+supabase start                       # the local stack must be running
+cd e2e
+npm install                          # first time only
+npx playwright install chromium      # first time only
+./build-app.sh                       # flutter build web (E2E) into ../build/web
+npx playwright test                  # serves build/web on :8790 and runs every spec
+npx playwright test tests/smoke.spec.ts          # one spec
+npx playwright test -g "owner of Resort A"       # one test by title
+npx playwright show-report           # HTML report of the last run
+```
+
+Rebuild with `./build-app.sh` after any change under `lib/`: the suite
+serves whatever is in `build/web`.
+
+**Fixtures are self-cleaning and never reset the database.** The local
+database holds real data, so the suite never runs `supabase db reset`.
+Instead, a global setup writes its own fixture world through `psql` in the
+`supabase_db_pasala_farm` container — a platform admin; "E2E Resort A"
+(`e2e-a`, Enterprise) and "E2E Resort B" (`e2e-b`, Starter), each with
+units, rates, and an owner, admin, staff and accountant; a suspended "E2E
+Resort S" (`e2e-s`); and guests with a confirmed arrival today and a
+checked-in stay at Resort A — and a global teardown deletes it again.
+Every fixture account ends in `@e2e.resorthub.test` and every fixture
+resort slug starts with `e2e-`; setup and teardown only ever touch rows
+matching those patterns. `e2e/fixtures/world.ts` lists every id, email and
+booking, and the shared test-only password.
+
+- `E2E_KEEP_FIXTURES=1 npx playwright test` leaves the fixtures in place
+  after the run, to poke at by hand.
+- `npm run fixtures:setup` / `npm run fixtures:teardown` create or remove
+  them without running any tests (e.g. after a killed run; the next run's
+  setup also clears leftovers first).
+- Tests run one at a time (`workers: 1`) because they share one database.
+
 ## Per-platform host
 
 Local Supabase binds to `127.0.0.1`. Each platform reaches that differently:
