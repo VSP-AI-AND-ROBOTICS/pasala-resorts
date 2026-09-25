@@ -610,6 +610,59 @@ void main() {
       expect(screen.desk, isTrue);
     });
 
+    // E2E (frontdesk.spec.ts, on the web build): when the session loads,
+    // the user AND the resort both change, so the router is refreshed
+    // twice. The first refresh's redirect handed back the held location
+    // and forgot it; the second, still on /splash, then sent the user to
+    // their landing page (/admin) instead.
+    testWidgets(
+        'a cold start at /admin/check-out/:id still lands there when the '
+        'resort resolves along with the user (two refreshes)', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final users = StreamController<AppUser?>();
+      addTearDown(users.close);
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => users.stream),
+        // The real CurrentResort: null until the user loads, then the
+        // user's one membership -- a second router refresh.
+        currentChargesProvider.overrideWith((ref, id) async => const CurrentCharges(
+              stayAmount: 3000,
+              foodAmount: 0,
+              activityAmount: 0,
+              total: 3000,
+              paid: 1000,
+              balance: 2000,
+            )),
+      ]);
+      addTearDown(container.dispose);
+
+      tester.platformDispatcher.defaultRouteNameTestValue =
+          '/admin/check-out/res-1';
+      addTearDown(tester.platformDispatcher.clearDefaultRouteNameTestValue);
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: Consumer(
+          builder: (_, ref, _) =>
+              MaterialApp.router(routerConfig: ref.watch(routerProvider)),
+        ),
+      ));
+      await tester.pump();
+      tester.platformDispatcher.defaultRouteNameTestValue = '/';
+
+      users.add(_staff);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      // Past the splash's own 1.5s auto-advance, in case it is still up.
+      await tester.pump(const Duration(seconds: 2));
+
+      final router = container.read(routerProvider);
+      expect(router.routerDelegate.currentConfiguration.uri.path,
+          '/admin/check-out/res-1');
+      final screen = tester.widget<CheckoutScreen>(find.byType(CheckoutScreen));
+      expect(screen.reservationId, 'res-1');
+      expect(screen.desk, isTrue);
+    });
+
     testWidgets(
         'a signed-out cold start at a protected path never shows it: splash '
         'then welcome', (tester) async {

@@ -371,7 +371,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       return '/splash';
     }
     final held = heldLocation;
-    heldLocation = null;
+    if (auth.value == null) heldLocation = null;
     if (held != null && onPreAuthScreen && auth.value != null) return held;
     return redirectFor(
       user: auth.value,
@@ -766,7 +766,31 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
     errorBuilder: (_, _) => const NotFoundScreen(),
   );
+
+  // The held location is forgotten only once the app has shown a page past
+  // the pre-auth screens, and only after that frame. Loading the session
+  // changes the user and then the resort, so the router is refreshed more
+  // than once while the app is still on /splash; a refresh re-reads the
+  // location the Router last reported to the platform, which lags until
+  // the end of the frame. Forgetting the held location as soon as it was
+  // handed back let a later refresh, still on /splash, send the user to
+  // their landing page instead (frontdesk.spec.ts, on a reload).
+  var forgetScheduled = false;
+  void forgetHeldOnceShown() {
+    if (heldLocation == null || forgetScheduled) return;
+    final shown = router.routerDelegate.currentConfiguration.uri.path;
+    if (preAuthPaths.contains(shown)) return;
+    forgetScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      forgetScheduled = false;
+      final shown = router.routerDelegate.currentConfiguration.uri.path;
+      if (!preAuthPaths.contains(shown)) heldLocation = null;
+    });
+  }
+
+  router.routerDelegate.addListener(forgetHeldOnceShown);
   ref.onDispose(() {
+    router.routerDelegate.removeListener(forgetHeldOnceShown);
     router.dispose();
     refresh.dispose();
   });

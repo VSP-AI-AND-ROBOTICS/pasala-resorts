@@ -1054,6 +1054,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.chevron_left),
+                        tooltip: 'Previous month',
                         onPressed: () => setSheetState(
                           () => setState(() => _month =
                               DateTime(_month.year, _month.month - 1)),
@@ -1065,6 +1066,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.chevron_right),
+                        tooltip: 'Next month',
                         onPressed: () => setSheetState(
                           () => setState(() => _month =
                               DateTime(_month.year, _month.month + 1)),

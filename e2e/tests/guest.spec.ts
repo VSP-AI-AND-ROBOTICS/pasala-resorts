@@ -15,17 +15,13 @@ import { currentPath, expectAt, fillField, goTo, landingPath, login, openApp, wa
 test.beforeAll(() => setupGuestData());
 test.afterAll(() => teardownGuestData());
 
-/** Clicks the calendar sheet's month-forward arrow. Both chevrons render
- * with no accessible name (no tooltip is set on either IconButton in
- * booking_screen.dart's date-picker sheet), so they are the only two
- * `role=button` semantics nodes on the page with an empty name -- every
- * other button on this screen (day cells, "Pay", the guest stepper, etc.)
- * carries a real label. The right-hand (forward) one is the second of the
- * two in document order. */
+/** Clicks the calendar sheet's month-forward arrow ("Next month", the
+ * IconButton's tooltip in booking_screen.dart's date-picker sheet). It used
+ * to have no accessible name, so this picked the second unlabelled button
+ * on the page -- which broke whenever the page had other unlabelled buttons,
+ * i.e. whenever a stay crossed into next month. */
 async function clickNextMonth(page: Page): Promise<void> {
-  const navButtons = page.locator('flt-semantics[role="button"]:not([aria-label])');
-  await expect(navButtons).toHaveCount(2);
-  await navButtons.nth(1).click();
+  await page.getByRole('button', { name: 'Next month', exact: true }).click();
 }
 
 /** Opens the check-in/check-out sheet from the property page and picks a
@@ -238,7 +234,12 @@ test(
     // label, which would satisfy the count-0 check below too early. Then
     // the cancelled booking no longer offers Cancel booking -- on this
     // screen, and on a fresh visit to it.
-    await expect(page.getByText('Booking cancelled', { exact: true })).toBeVisible();
+    // Flutter web also copies a SnackBar's text into its aria-live
+    // announcer (flt-announcement-polite), so scope to the semantics tree
+    // to match the snackbar itself.
+    await expect(
+      page.locator('flt-semantics-host').getByText('Booking cancelled', { exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Cancel booking', exact: true })).toHaveCount(0);
     await goTo(page, `/booking-detail/${reservationId}`);
     await expect(page.getByRole('button', { name: 'Cancel booking', exact: true })).toHaveCount(0);

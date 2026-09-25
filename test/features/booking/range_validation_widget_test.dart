@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:pasala/data/models/quote.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/models/unit.dart';
@@ -203,5 +204,32 @@ void main() {
     );
     expect(actions.calls, isEmpty,
         reason: 'an invalid range must never reach createHold/quote');
+  });
+
+  // E2E (guest.spec.ts): the date sheet's month arrows had no accessible
+  // name, so a screen reader announced two bare "button"s and the web
+  // suite had to guess which unlabelled button was "next" -- which broke
+  // as soon as other unlabelled buttons were on the page.
+  testWidgets('the date sheet names its month arrows for screen readers',
+      (tester) async {
+    await tester.pumpWidget(
+      bookingApp(actions: _NoCreateHoldActions(), reservations: const []),
+    );
+    await tester.pumpAndSettle();
+    await openDateSheet(tester);
+
+    expect(find.byTooltip('Previous month'), findsOneWidget);
+    expect(find.byTooltip('Next month'), findsOneWidget);
+
+    final now = DateTime.now();
+    final next = DateTime(now.year, now.month + 1);
+    await tester.tap(find.byTooltip('Next month'));
+    await tester.pumpAndSettle();
+    expect(find.text(DateFormat.yMMMM().format(next)), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Previous month'));
+    await tester.pumpAndSettle();
+    expect(find.text(DateFormat.yMMMM().format(DateTime(now.year, now.month))),
+        findsOneWidget);
   });
 }
