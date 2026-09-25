@@ -15,7 +15,7 @@ void main() {
     expect(heading, findsOneWidget);
     expect(
       tester.getSemantics(heading),
-      containsSemantics(label: 'Page not found', isHeader: true),
+      isSemantics(label: 'Page not found', isHeader: true),
     );
     expect(tester.getSemantics(heading).getSemanticsData().headingLevel, 1);
     semantics.dispose();
