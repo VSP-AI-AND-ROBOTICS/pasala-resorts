@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/refund_rule.dart';
 import 'package:pasala/data/repositories/refund_rule_repository.dart';
@@ -102,6 +103,65 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
 
+    expect(repo.deletedIds, ['r1']);
+    expect(find.text('7+ days before check-in'), findsNothing);
+  });
+
+  // E2E-shaped bug: this screen is pushed (from OwnerSettingsScreen) onto
+  // whatever navigator its caller resolves to, and /owner/settings lives
+  // inside the router's ShellRoute -- so the screen's own context resolves
+  // to the shell navigator while showDialog puts the confirm dialog on the
+  // root one. The dialog's buttons must pop the dialog, not the page
+  // (mirrors lib/features/admin/tasks_screen.dart's ShellRoute regression
+  // test).
+  testWidgets(
+      'confirming delete inside a ShellRoute closes the dialog, not the page',
+      (tester) async {
+    final repo = FakeRefundRuleRepository()
+      ..store.add(const RefundRule(id: 'r1', propertyId: 'p1', minDaysBefore: 7, refundPct: 50));
+    final router = GoRouter(
+      initialLocation: '/owner/settings/cancellation-policy',
+      routes: [
+        ShellRoute(
+          builder: (_, _, child) => Scaffold(body: child),
+          routes: [
+            GoRoute(path: '/owner', builder: (_, _) => const Text('Owner home')),
+            GoRoute(
+              path: '/owner/settings/cancellation-policy',
+              builder: (_, _) => const CancellationPolicyScreen(property: _property),
+            ),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [refundRuleRepositoryProvider.overrideWithValue(repo)],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    // Cancel first: the dialog closes and the page stays.
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(CancellationPolicyScreen), findsOneWidget);
+    expect(repo.deletedIds, isEmpty);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(CancellationPolicyScreen), findsOneWidget);
     expect(repo.deletedIds, ['r1']);
     expect(find.text('7+ days before check-in'), findsNothing);
   });

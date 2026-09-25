@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/staff_shift.dart';
@@ -181,6 +182,74 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
 
+    expect(repo.deletedIds, ['s1']);
+    expect(find.text('Sita Staff'), findsNothing);
+  });
+
+  // E2E-shaped bug: /admin/staff-shifts lives inside the router's
+  // ShellRoute, so the screen's own context resolves to the shell navigator
+  // while showDialog puts the confirm dialog on the root one. The dialog's
+  // buttons must pop the dialog, not the page (mirrors
+  // lib/features/admin/tasks_screen.dart's ShellRoute regression test).
+  testWidgets(
+      'confirming delete inside a ShellRoute closes the dialog, not the page',
+      (tester) async {
+    final repo = FakeStaffShiftRepository()
+      ..store.add(StaffShift(
+        id: 's1',
+        staffId: 'staff-1',
+        staffName: 'Sita Staff',
+        shiftDate: DateTime(2026, 9, 1),
+        startTime: const TimeOfDay(hour: 9, minute: 0),
+        endTime: const TimeOfDay(hour: 17, minute: 0),
+      ));
+    final router = GoRouter(
+      initialLocation: '/admin/staff-shifts',
+      routes: [
+        ShellRoute(
+          builder: (_, _, child) => Scaffold(body: child),
+          routes: [
+            GoRoute(path: '/admin', builder: (_, _) => const Text('Admin home')),
+            GoRoute(
+              path: '/admin/staff-shifts',
+              builder: (_, _) => const StaffShiftsScreen(),
+            ),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        staffShiftRepositoryProvider.overrideWithValue(repo),
+        rosterOverride,
+        currentResortProvider.overrideWith(_FixedResort.new),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    // Cancel first: the dialog closes and the page stays.
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(StaffShiftsScreen), findsOneWidget);
+    expect(repo.deletedIds, isEmpty);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(StaffShiftsScreen), findsOneWidget);
     expect(repo.deletedIds, ['s1']);
     expect(find.text('Sita Staff'), findsNothing);
   });

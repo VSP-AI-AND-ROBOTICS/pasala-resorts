@@ -172,20 +172,24 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
 
   Future<void> _remove() async {
     final member = widget.member;
+    // Pop with the dialog's own context: showDialog puts the dialog on the
+    // root navigator, but inside the router's ShellRoute the screen's
+    // `context` resolves to the shell navigator, so popping that would
+    // remove the Team page and leave the dialog up.
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text('Remove ${member.fullName ?? member.email}?'),
         content: const Text(
           'They will lose access to this resort. This cannot be undone.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('Remove'),
           ),
         ],

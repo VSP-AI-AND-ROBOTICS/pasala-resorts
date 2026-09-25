@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/expense.dart';
@@ -222,6 +223,70 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
 
+    expect(repo.deletedIds, ['e1']);
+    expect(find.text('Electricity bill'), findsNothing);
+  });
+
+  // E2E-shaped bug: /owner/expenses lives inside the router's ShellRoute, so
+  // the screen's own context resolves to the shell navigator while
+  // showDialog puts the confirm dialog on the root one. The dialog's
+  // buttons must pop the dialog, not the page (mirrors
+  // lib/features/admin/tasks_screen.dart's ShellRoute regression test).
+  testWidgets(
+      'confirming delete inside a ShellRoute closes the dialog, not the page',
+      (tester) async {
+    final repo = FakeExpenseRepository()
+      ..store.add(Expense(
+        id: 'e1',
+        propertyId: 'p1',
+        expenseDate: DateTime.now(),
+        category: 'Utilities',
+        description: 'Electricity bill',
+        amount: 5000,
+      ));
+    final router = GoRouter(
+      initialLocation: '/owner/expenses',
+      routes: [
+        ShellRoute(
+          builder: (_, _, child) => Scaffold(body: child),
+          routes: [
+            GoRoute(path: '/owner', builder: (_, _) => const Text('Owner home')),
+            GoRoute(path: '/owner/expenses', builder: (_, _) => const ExpensesScreen()),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        expenseRepositoryProvider.overrideWithValue(repo),
+        currentResortProvider.overrideWith(() => _FixedResort(_admin.memberships.first)),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    // Cancel first: the dialog closes and the page stays.
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(ExpensesScreen), findsOneWidget);
+    expect(repo.deletedIds, isEmpty);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(ExpensesScreen), findsOneWidget);
     expect(repo.deletedIds, ['e1']);
     expect(find.text('Electricity bill'), findsNothing);
   });
