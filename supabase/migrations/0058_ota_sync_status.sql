@@ -538,3 +538,42 @@ begin
   end loop;
 end;
 $$;
+
+-- ---------------------------------------------------------------------
+-- 4. Feed URL rules (P0039). A pasted link is trimmed and webcal:// (what
+--    some calendar apps show) becomes https://; it must then be an http(s)
+--    link with a host, at most 2048 characters, and new to its unit.
+--    Invoker: the duplicate check reads ical_feeds through the caller's RLS,
+--    and an owner or admin sees every feed of their resort. Existing rows
+--    are normalised first, before the trigger exists.
+
+update public.ical_feeds
+   set url = regexp_replace(btrim(url, E' \t\r\n'), '^webcal://', 'https://', 'i')
+ where url is distinct from
+       regexp_replace(btrim(url, E' \t\r\n'), '^webcal://', 'https://', 'i');
+
+create function public.ical_feeds_normalize_url()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  new.url := regexp_replace(btrim(coalesce(new.url, ''), E' \t\r\n'),
+                            '^webcal://', 'https://', 'i');
+  if length(new.url) > 2048
+     or new.url !~* '^https?://[^[:space:]/?#]+[^[:space:]]*$' then
+    raise exception using errcode = 'P0039', message = 'invalid_feed_url';
+  end if;
+  if exists (select 1 from public.ical_feeds f
+              where f.unit_id = new.unit_id
+                and f.url = new.url
+                and f.id is distinct from new.id) then
+    raise exception using errcode = 'P0039', message = 'duplicate_feed';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger ical_feeds_normalize_url
+  before insert or update of url, unit_id on public.ical_feeds
+  for each row execute function public.ical_feeds_normalize_url();

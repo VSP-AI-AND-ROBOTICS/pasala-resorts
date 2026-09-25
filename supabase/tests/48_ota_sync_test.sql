@@ -8,7 +8,7 @@
 -- column defaults) with an admin (Asha) and a staff member (Sunil); units
 -- Cottage A and Cottage B; an inactive contract feed on Cottage B.
 begin;
-select plan(91);
+select plan(102);
 
 insert into auth.users (id, email) values
   ('f9000000-0000-4000-8000-000000000001','ota-admin@example.com'),
@@ -626,6 +626,59 @@ select ok(not public.ical_event_is_echo('f9000000-0000-4000-8000-000000000011',
 select ok(not public.ical_event_is_echo('f9000000-0000-4000-8000-000000000011',
     '2027-11-23', '2027-11-23'),
   'no nights at all: not an echo');
+
+-- === Task 4: feed URL rules (P0039) =========================================
+
+reset role;
+set local request.jwt.claims to '';
+
+insert into public.ical_feeds (id, unit_id, url, label) values
+  ('f9000000-0000-4000-8000-000000000060','f9000000-0000-4000-8000-000000000012',
+   E'  WEBCAL://www.airbnb.com/calendar/ical/77.ics?s=abc \n','Pasted');
+select is((select url from public.ical_feeds where id = 'f9000000-0000-4000-8000-000000000060'),
+  'https://www.airbnb.com/calendar/ical/77.ics?s=abc',
+  'a pasted link is trimmed and webcal:// becomes https://');
+select throws_ok($$insert into public.ical_feeds (unit_id, url)
+  values ('f9000000-0000-4000-8000-000000000012', 'ftp://example.com/a.ics')$$,
+  'P0039', 'invalid_feed_url', 'only http(s) and webcal links are feeds');
+select throws_ok($$insert into public.ical_feeds (unit_id, url)
+  values ('f9000000-0000-4000-8000-000000000012', 'airbnb.com/calendar/ical/1.ics')$$,
+  'P0039', 'invalid_feed_url', 'a link without a scheme is refused');
+select throws_ok($$insert into public.ical_feeds (unit_id, url)
+  values ('f9000000-0000-4000-8000-000000000012', 'https://')$$,
+  'P0039', 'invalid_feed_url', 'a link without a host is refused');
+select throws_ok($$insert into public.ical_feeds (unit_id, url)
+  values ('f9000000-0000-4000-8000-000000000012', 'https://example.com/my cal.ics')$$,
+  'P0039', 'invalid_feed_url', 'a link with a space inside is refused');
+select throws_ok($$insert into public.ical_feeds (unit_id, url)
+  values ('f9000000-0000-4000-8000-000000000012',
+          'webcal://www.airbnb.com/calendar/ical/77.ics?s=abc')$$,
+  'P0039', 'duplicate_feed',
+  'the webcal:// form of a stored https:// link is the same calendar');
+select lives_ok($$insert into public.ical_feeds (unit_id, url)
+  values ('f9000000-0000-4000-8000-000000000011',
+          'https://www.airbnb.com/calendar/ical/77.ics?s=abc')$$,
+  'the same link on another unit is fine');
+select throws_ok($$update public.ical_feeds set url = 'not a url'
+  where id = 'f9000000-0000-4000-8000-000000000060'$$,
+  'P0039', 'invalid_feed_url', 'editing a link checks it too');
+select lives_ok($$update public.ical_feeds set label = 'Airbnb'
+  where id = 'f9000000-0000-4000-8000-000000000060'$$,
+  'editing only the label is not checked');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f9000000-0000-4000-8000-000000000001","role":"authenticated"}';
+select throws_ok($$insert into public.ical_feeds (unit_id, url)
+  values ('f9000000-0000-4000-8000-000000000012',
+          'https://www.airbnb.com/calendar/ical/77.ics?s=abc')$$,
+  'P0039', 'duplicate_feed', 'an admin adding a calendar twice gets duplicate_feed');
+insert into public.ical_feeds (id, unit_id, url) values
+  ('f9000000-0000-4000-8000-000000000061','f9000000-0000-4000-8000-000000000012',
+   'webcal://www.booking.com/ical/88.ics');
+select is((select url from public.ical_feeds where id = 'f9000000-0000-4000-8000-000000000061'),
+  'https://www.booking.com/ical/88.ics', 'an admin''s webcal:// link is stored as https://');
+reset role;
+set local request.jwt.claims to '';
 
 select * from finish();
 rollback;
