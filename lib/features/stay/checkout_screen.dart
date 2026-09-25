@@ -21,10 +21,11 @@ Widget checkoutScreenFor(Object? extra) => switch (extra) {
       _ => throw ArgumentError.value(extra, 'extra', 'checkout needs a reservation id'),
     };
 
-/// The final bill. A guest settles it through the same mock
-/// [PaymentGateway] seam `booking_screen.dart`'s own `_pay` uses. At the
-/// desk ([desk]) reception records how the guest paid -- the method and an
-/// optional receipt or UTR number -- and the gateway is never called.
+/// The final bill. A guest settles it through the same [PaymentGateway]
+/// `booking_screen.dart`'s own `_pay` uses (Razorpay, or the mock without
+/// keys). At the desk ([desk]) reception records how the guest paid -- the
+/// method and an optional receipt or UTR number -- and the gateway is
+/// never called.
 /// `checkout_booking` never trusts a client-supplied amount, and refuses a
 /// desk method from anyone who is not staff at the booking's resort.
 class CheckoutScreen extends ConsumerStatefulWidget {
@@ -67,9 +68,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       } else {
         String? paymentRef;
         if (balance > 0) {
-          final payment = await ref
-              .read(paymentGatewayProvider)
-              .charge(reservationId: widget.reservationId, amount: balance);
+          final payment = await ref.read(paymentGatewayProvider).charge(
+                reservationId: widget.reservationId,
+                amount: balance,
+                purpose: PaymentPurpose.balance,
+              );
           if (!payment.succeeded) {
             throw InvalidState(payment.failureMessage ?? 'Payment failed');
           }
@@ -102,6 +105,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       context.go('/my-stay/invoice/${widget.reservationId}');
     } on BookingFailure catch (e) {
       if (!mounted) return;
+      // The balance may have changed under an online payment (a food order
+      // placed meanwhile leaves the payment unapplied and refunded), so
+      // show the current figure before the guest tries again.
+      if (!widget.desk) {
+        ref.invalidate(currentChargesProvider(widget.reservationId));
+      }
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
     } finally {

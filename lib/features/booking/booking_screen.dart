@@ -754,6 +754,12 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       final remaining = _hold?.holdRemaining;
       if (remaining == null || remaining == Duration.zero) {
+        // A payment in flight owns the hold until it finishes: the server
+        // still confirms a payment captured moments after the expiry
+        // (payment_order_settle), so the payment window must not have the
+        // booking torn down underneath it. The next tick after it
+        // finishes handles a hold that really did lapse.
+        if (_busy) return;
         _ticker?.cancel();
         _ticker = null;
         _handleFailure(const HoldExpired());
@@ -806,9 +812,11 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       });
       _startHoldTicker();
 
-      final payment = await ref
-          .read(paymentGatewayProvider)
-          .charge(reservationId: hold.id, amount: payAmount);
+      final payment = await ref.read(paymentGatewayProvider).charge(
+            reservationId: hold.id,
+            amount: payAmount,
+            purpose: PaymentPurpose.advance,
+          );
       if (!payment.succeeded) {
         throw InvalidState(payment.failureMessage ?? 'Payment failed');
       }
