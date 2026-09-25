@@ -789,6 +789,179 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------------
+-- The console's queue (spec decision 25): undecided applications, the
+-- submitted ones first (oldest submission first), then the rest by when
+-- they applied. Platform admin only; no guest data.
+create or replace function public.platform_listing_applications()
+returns table(
+  property_id             uuid,
+  name                    text,
+  city                    text,
+  address                 text,
+  contact_phone           text,
+  description             text,
+  applicant_email         text,
+  applicant_name          text,
+  tier                    public.subscription_tier,
+  created_at              timestamptz,
+  submitted_at            timestamptz,
+  has_photos              boolean,
+  has_unit                boolean,
+  has_rates               boolean,
+  has_payment_settings    boolean,
+  has_cancellation_policy boolean,
+  has_tax_details         boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  return query
+    select a.property_id, p.name, p.city, p.address, p.contact_phone, p.description,
+           u.email::text, pr.full_name, a.tier, a.created_at, a.submitted_at,
+           f.has_photos, f.has_unit, f.has_rates, f.has_payment_settings,
+           f.has_cancellation_policy, f.has_tax_details
+      from public.listing_applications a
+      join public.properties p on p.id = a.property_id
+      left join auth.users u on u.id = a.applicant_id
+      left join public.profiles pr on pr.id = a.applicant_id
+      cross join lateral public.listing_setup_flags(a.property_id) f
+     where a.decision is null
+     order by a.submitted_at nulls last, a.created_at, p.name, a.property_id;
+end;
+$$;
+
+-- Approve (spec decisions 4, 9, 12): only a submitted application whose
+-- checklist is still complete. The resort goes live, a trial restarts
+-- from today, and the owner is told.
+create or replace function public.approve_listing(p_property uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_app   public.listing_applications;
+  v_old   public.resort_subscriptions;
+  v_new   public.resort_subscriptions;
+  v_flags record;
+begin
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  select * into v_app from public.listing_applications
+   where property_id = p_property
+   for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+  perform 1 from public.properties where id = p_property for update;
+
+  if v_app.decision is not null then
+    raise exception 'This application has already been decided.' using errcode = 'P0040';
+  end if;
+  if v_app.submitted_at is null then
+    raise exception 'This resort has not been submitted for review yet.' using errcode = 'P0040';
+  end if;
+
+  select * into v_flags from public.listing_setup_flags(p_property);
+  if not (v_flags.has_photos and v_flags.has_unit and v_flags.has_rates
+          and v_flags.has_payment_settings and v_flags.has_cancellation_policy
+          and v_flags.has_tax_details) then
+    raise exception 'The setup checklist is no longer complete.' using errcode = 'P0040';
+  end if;
+
+  update public.properties set status = 'active' where id = p_property;
+  update public.listing_applications
+     set decision = 'approved', decided_at = now(), decided_by = auth.uid()
+   where property_id = p_property;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values
+    (auth.uid(), 'property', p_property, 'status:pending->active',
+     jsonb_build_object('status', 'pending'), jsonb_build_object('status', 'active'), p_property),
+    (auth.uid(), 'listing', p_property, 'listing:approve', null,
+     jsonb_build_object('decision', 'approved'), p_property);
+
+  -- Review time does not eat the trial.
+  select * into v_old from public.resort_subscriptions
+   where property_id = p_property
+   for update;
+  if v_old.status = 'trial' then
+    update public.resort_subscriptions
+       set trial_ends_on = (now() at time zone 'Asia/Kolkata')::date + 30,
+           updated_at = now(),
+           updated_by = auth.uid()
+     where property_id = p_property
+    returning * into v_new;
+
+    insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+    values (auth.uid(), 'subscription', p_property, 'subscription:trial-restart',
+            to_jsonb(v_old), to_jsonb(v_new), p_property);
+  end if;
+
+  perform public.enqueue_listing_message(p_property, 'listing_approved');
+end;
+$$;
+
+-- Reject with a reason (spec decisions 4, 12, 15): any time before a
+-- decision. The resort is archived; the applicant sees the reason through
+-- my_listing_applications and the email.
+create or replace function public.reject_listing(p_property uuid, p_reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_reason text := btrim(coalesce(p_reason, ''));
+  v_app    public.listing_applications;
+begin
+  if not public.is_platform_admin() then
+    raise exception 'not permitted' using errcode = 'P0008';
+  end if;
+
+  if length(v_reason) not between 5 and 500 then
+    raise exception 'Give the owner a reason (5 to 500 characters).' using errcode = 'P0005';
+  end if;
+
+  select * into v_app from public.listing_applications
+   where property_id = p_property
+   for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+  perform 1 from public.properties where id = p_property for update;
+
+  if v_app.decision is not null then
+    raise exception 'This application has already been decided.' using errcode = 'P0040';
+  end if;
+
+  update public.properties set status = 'archived' where id = p_property;
+  update public.listing_applications
+     set decision = 'rejected', decided_at = now(), decided_by = auth.uid(),
+         rejection_reason = v_reason
+   where property_id = p_property;
+
+  insert into public.audit_log (actor_id, entity, entity_id, action, before, after, property_id)
+  values
+    (auth.uid(), 'property', p_property, 'status:pending->archived',
+     jsonb_build_object('status', 'pending'), jsonb_build_object('status', 'archived'), p_property),
+    (auth.uid(), 'listing', p_property, 'listing:reject', null,
+     jsonb_build_object('decision', 'rejected', 'reason', v_reason), p_property);
+
+  perform public.enqueue_listing_message(p_property, 'listing_rejected');
+end;
+$$;
+
 revoke execute on function public.apply_for_listing(text, text, text, text, text, public.subscription_tier) from public, anon;
 revoke execute on function public.my_listing_applications() from public, anon;
 revoke execute on function public.listing_setup_status(uuid) from public, anon;

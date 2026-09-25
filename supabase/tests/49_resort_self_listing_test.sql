@@ -15,7 +15,7 @@
 --      by O, a Pro trial ending in 10 days, one active unit (Cottage 1)
 --   D  "Listing D", active, Starter, paid with no end date
 begin;
-select plan(81);
+select plan(111);
 
 -- "Today" as the listing functions see it.
 create function pg_temp.today() returns date
@@ -410,6 +410,138 @@ select is((select concat_ws('|', status::text, attempts) from public.outbox
   'pending|1', 'the resort''s guest-email toggle does not hold back a listing email');
 delete from public.notification_settings
   where property_id = '49100000-0000-4000-8000-00000000000c';
+
+-- === Task 4: review and decisions ==========================================
+
+-- Undecided now: C (submitted, complete), A's Green Acres and B's Green
+-- Acres (both still being set up).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok($$select * from public.platform_listing_applications()$$,
+  'P0008', null, 'an owner cannot list applications');
+select throws_ok($$select public.approve_listing('49100000-0000-4000-8000-00000000000c')$$,
+  'P0008', null, 'an owner cannot approve their own resort');
+
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select is((select count(*)::int from public.platform_listing_applications()), 3,
+  'three undecided applications');
+select is((select name from public.platform_listing_applications() limit 1), 'Listing C',
+  'submitted applications come first');
+select is((select concat_ws('|', applicant_email, coalesce(applicant_name, ''), tier::text, city,
+                            contact_phone, has_photos::text, has_unit::text, has_rates::text,
+                            has_payment_settings::text, has_cancellation_policy::text,
+                            has_tax_details::text)
+             from public.platform_listing_applications()
+            where property_id = '49100000-0000-4000-8000-00000000000c'),
+  'list-owner-c@example.com|Chetan Owner|pro|Pune|+919876543210|true|true|true|true|true|true',
+  'the console sees the applicant, the contact details and the checklist');
+select throws_ok(format('select public.approve_listing(%L)', current_setting('app.list_a')),
+  'P0040', 'This resort has not been submitted for review yet.',
+  'an application still being set up cannot be approved');
+select throws_ok($$select public.approve_listing('49100000-0000-4000-8000-0000000000ff')$$,
+  'P0002', null, 'an unknown application');
+
+-- The owner removes the photo after submitting: approval re-checks.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set images = '{}' where id = '49100000-0000-4000-8000-00000000000c';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select throws_ok($$select public.approve_listing('49100000-0000-4000-8000-00000000000c')$$,
+  'P0040', 'The setup checklist is no longer complete.',
+  'a resort that lost a checklist item is not approved');
+reset role;
+set local request.jwt.claims to '';
+update public.properties set images = array['https://example.com/c1.jpg']
+  where id = '49100000-0000-4000-8000-00000000000c';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select lives_ok($$select public.approve_listing('49100000-0000-4000-8000-00000000000c')$$,
+  'the platform admin approves Listing C');
+select throws_ok($$select public.approve_listing('49100000-0000-4000-8000-00000000000c')$$,
+  'P0040', 'This application has already been decided.', 'a decision is final');
+reset role;
+set local request.jwt.claims to '';
+
+select is((select status from public.properties where id = '49100000-0000-4000-8000-00000000000c'),
+  'active', 'Listing C is live');
+select is((select concat_ws('|', decision, decided_by::text) from public.listing_applications
+            where property_id = '49100000-0000-4000-8000-00000000000c'),
+  'approved|49000000-0000-0000-0000-000000000001', 'the decision and who made it are stored');
+select is((select trial_ends_on - pg_temp.today() from public.resort_subscriptions
+            where property_id = '49100000-0000-4000-8000-00000000000c'),
+  30, 'approval restarts the 30-day trial');
+select is((select array_agg(action order by action) from public.audit_log
+            where property_id = '49100000-0000-4000-8000-00000000000c'
+              and action in ('status:pending->active','listing:approve','subscription:trial-restart')),
+  array['listing:approve','status:pending->active','subscription:trial-restart'],
+  'approval is audited');
+select is((select concat_ws('|', recipient, status::text) from public.outbox
+            where property_id = '49100000-0000-4000-8000-00000000000c'
+              and template = 'listing_approved'),
+  'list-owner-c@example.com|pending', 'the owner is told the resort is live');
+select ok((select body from public.outbox
+            where property_id = '49100000-0000-4000-8000-00000000000c'
+              and template = 'listing_approved')
+          like ('%runs until ' || to_char(pg_temp.today() + 30, 'DD Mon YYYY') || '.'),
+  'the approval email carries the restarted trial''s end');
+set local role anon;
+select is((select count(*)::int from public.properties
+            where id = '49100000-0000-4000-8000-00000000000c'), 1,
+  'guests can now see Listing C');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select is((select count(*)::int from public.platform_listing_applications()), 2,
+  'Listing C has left the queue');
+select throws_ok(format('select public.reject_listing(%L, %L)', current_setting('app.list_b'), '  no '),
+  'P0005', 'Give the owner a reason (5 to 500 characters).', 'a rejection needs a reason');
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok(format('select public.reject_listing(%L, %L)', current_setting('app.list_b'),
+                        'Photos do not match.'),
+  'P0008', null, 'only the platform admin rejects');
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select lives_ok(format('select public.reject_listing(%L, %L)', current_setting('app.list_b'),
+                       'Photos do not match the address.'),
+  'the platform admin rejects B''s resort');
+select throws_ok($$select public.reject_listing('49100000-0000-4000-8000-00000000000c', 'Too late to change.')$$,
+  'P0040', 'This application has already been decided.', 'an approved resort cannot be rejected');
+select is((select concat_ws('|', subscribed_count, active_count, trial_count, mrr_inr::int)
+             from public.platform_summary()),
+  '2|2|1|2999', 'the approved trial now counts; the rejected and the pending ones do not');
+reset role;
+set local request.jwt.claims to '';
+
+select is((select status from public.properties where id = current_setting('app.list_b')::uuid),
+  'archived', 'a rejected resort is archived');
+select is((select array_agg(action order by action) from public.audit_log
+            where property_id = current_setting('app.list_b')::uuid
+              and action in ('status:pending->archived','listing:reject')),
+  array['listing:reject','status:pending->archived'], 'rejection is audited');
+select ok((select body from public.outbox
+            where property_id = current_setting('app.list_b')::uuid
+              and template = 'listing_rejected')
+          like '%Reason: Photos do not match the address.%',
+  'the rejection email carries the reason');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"49000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is((select concat_ws('|', property_status, decision, rejection_reason)
+             from public.my_listing_applications()),
+  'archived|rejected|Photos do not match the address.',
+  'B still sees the decision and the reason');
+select ok(not public.has_resort_role(current_setting('app.list_b')::uuid, false, 'owner'),
+  'B keeps no access to the archived resort');
+select ok(set_config('app.list_b2',
+    public.apply_for_listing('Green Acres Lakeside', 'Lonavala', '5 Lake Road, Lonavala',
+      '9876501234', 'Lakeside tents and a big lawn, now with photos.')::text,
+    true) is not null,
+  'B can apply again after a rejection');
+select is((select count(*)::int from public.my_listing_applications()), 2,
+  'B now has the old and the new application');
+reset role;
+set local request.jwt.claims to '';
 
 select * from finish();
 rollback;
