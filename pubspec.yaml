@@ -51,9 +51,13 @@ dependencies:
   # Photo attachment on maintenance reports (works on web via a file
   # picker, no native camera dependency required).
   image_picker: ^1.2.0
-  # Decorative QR code on the confirmation/booking-detail screens --
-  # nothing in this app ever scans one back.
+  # Draws the guest's signed check-in pass as a QR
+  # (lib/features/stay/stay_pass_qr.dart).
   qr_flutter: ^4.1.0
+  # Reception's camera scanner for those passes
+  # (lib/features/admin/scan_pass_screen.dart). Web: uses the browser's
+  # BarcodeDetector, or loads zxing-wasm itself; needs HTTPS or localhost.
+  mobile_scanner: ^7.4.2
   # Used directly in lib/features/browse/property_screen.dart to open the
   # property's address in the device's maps app -- previously a transitive
   # dependency only, pulled in by supabase_flutter.
