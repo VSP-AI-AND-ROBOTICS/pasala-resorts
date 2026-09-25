@@ -18,7 +18,7 @@ pw.Document buildInvoiceDocument(
 }) {
   final s = fonts.safe;
   const muted = pw.TextStyle(fontSize: 9, color: PdfColors.grey700);
-  const bold = pw.TextStyle(fontWeight: pw.FontWeight.bold);
+  final bold = pw.TextStyle(fontWeight: pw.FontWeight.bold);
 
   String taxCell(InvoiceLine line) {
     if (line.tax == 0) return '—';

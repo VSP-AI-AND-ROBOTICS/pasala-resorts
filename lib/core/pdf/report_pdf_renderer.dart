@@ -32,7 +32,7 @@ pw.Document buildReportDocument(
   final s = fonts.safe;
   final at = (generatedAt ?? DateTime.now()).toLocal();
   const small = pw.TextStyle(fontSize: 8);
-  const smallBold = pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold);
+  final smallBold = pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold);
 
   pw.Widget cell(String text, ReportPdfColumn column, pw.TextStyle style) =>
       pw.Padding(

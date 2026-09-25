@@ -66,8 +66,8 @@ dependencies:
   # (lib/core/pdf/). `printing` delivers them through the platform share
   # sheet on Android/iOS/desktop; the web downloads them directly
   # (lib/core/pdf/pdf_deliver_web.dart).
-  pdf: ^3.13.1
-  printing: ^5.15.1
+  pdf: ^3.12.0
+  printing: ^5.14.3
 
 dev_dependencies:
   flutter_test:
