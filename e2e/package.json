@@ -1,0 +1,19 @@
+{
+  "name": "resorthub-e2e",
+  "private": true,
+  "description": "Playwright end-to-end tests for the ResortHub Flutter web app",
+  "scripts": {
+    "build-app": "./build-app.sh",
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "fixtures:setup": "node --experimental-strip-types fixtures/cli.ts setup",
+    "fixtures:teardown": "node --experimental-strip-types fixtures/cli.ts teardown"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.2",
+    "http-server": "^14.1.1",
+    "typescript": "^7.0.2"
+  },
+  "type": "module"
+}

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/e2e_semantics.dart';
 import 'core/router.dart';
 import 'core/supabase_client.dart';
 import 'core/theme/app_theme.dart';
@@ -9,6 +10,8 @@ import 'core/widgets/app_splash_overlay.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // No effect unless built with --dart-define=E2E=true (e2e/build-app.sh).
+  ensureE2eSemantics();
   await initSupabase();
   runApp(const ProviderScope(child: PasalaApp()));
 }

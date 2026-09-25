@@ -1,0 +1,171 @@
+// PERSONA: owner. Covers the Resort A owner console: the /owner landing
+// page, the Team screen (list/add/re-role/remove, and the last-owner
+// guard), the Settings screen's plan line, the Rooms and Finance entry
+// points, and tenant isolation on the admin bookings list.
+//
+// Extra fixture data (a Resort B booking, for the tenancy check) lives in
+// support/owner-data.ts, created in beforeAll and deleted in afterAll --
+// see that file's header for why it isn't in fixtures/world.ts.
+//
+// Every test signs in as the Resort A owner and leaves the team roster
+// exactly as it found it, so tests can run in any order and repeatedly.
+
+import { expect, test } from '@playwright/test';
+import { guests, resortA } from '../fixtures/world.ts';
+import { expectAt, fillField, goTo, landingPath, login } from '../support/index.ts';
+import { createOwnerTenancyFixture, deleteOwnerTenancyFixture, tenancyGuestB } from '../support/owner-data.ts';
+
+const owner = resortA.team.owner;
+
+test.beforeAll(() => {
+  createOwnerTenancyFixture();
+});
+
+test.afterAll(() => {
+  deleteOwnerTenancyFixture();
+});
+
+test('owner lands on /owner with the day\'s business figures', async ({ page }) => {
+  expect(await login(page, owner)).toBe(landingPath.owner);
+
+  await expect(page.getByRole('heading', { name: 'Owner' })).toBeVisible();
+  const firstName = owner.fullName.split(' ')[0];
+  await expect(page.getByText(new RegExp(`Good (Morning|Afternoon|Evening), ${firstName}`))).toBeVisible();
+  // The two KPI cards: revenue and net profit this month, both real numbers
+  // (not the "--" loading placeholder) once dashboard_summary() resolves.
+  await expect(page.getByText('Revenue this month')).toBeVisible();
+  await expect(page.getByText('Net profit this month')).toBeVisible();
+  await expect(page.getByText(/₹[\d,]+/).first()).toBeVisible();
+
+  // The MANAGE grid's destination tiles this spec exercises below.
+  await expect(page.getByRole('button', { name: /^Team/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Rooms/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Finance/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Settings/ })).toBeVisible();
+});
+
+test('Team screen: lists members, adds a fixture account as staff, changes its role, removes it', async ({
+  page,
+}) => {
+  await login(page, owner);
+  await goTo(page, '/owner/team');
+
+  // Every seeded member of Resort A is listed.
+  await expect(page.getByRole('button', { name: /^Olivia OwnerA/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Adam AdminA/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Sam StaffA/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Alice AccountantA/ })).toBeVisible();
+
+  const newRow = page.getByRole('button', { name: new RegExp(`^${guests.fresh.fullName}`) });
+
+  try {
+    // Add an existing fixture account (a guest, so far a member of no
+    // resort) by email. The dialog defaults its role to Staff / Incharge.
+    await page.getByRole('button', { name: '', exact: true }).last().click(); // the FAB
+    await fillField(page.getByLabel('Email'), guests.fresh.email);
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+
+    await expect(newRow).toBeVisible();
+    await expect(newRow).toHaveAttribute('aria-label', new RegExp(`${guests.fresh.email}\\nStaff / Incharge$`));
+
+    // Change her role: tap the row (its role value is merged into the same
+    // tappable node as the name/email) to open the role popup menu, then
+    // pick a different role.
+    await newRow.click();
+    await page.getByRole('menuitem', { name: 'Admin', exact: true }).click();
+    await expect(newRow).toHaveAttribute('aria-label', new RegExp(`${guests.fresh.email}\\nAdmin$`));
+
+    // Remove her: the row's own "Remove" icon button, then confirm the
+    // dialog (its title has no separate heading role -- it's merged into
+    // the same alertdialog text node as the body copy -- so match by text).
+    await newRow.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(page.getByText(`Remove ${guests.fresh.fullName}?`)).toBeVisible();
+    await page.getByRole('button', { name: 'Remove', exact: true }).last().click();
+    await expect(newRow).toHaveCount(0);
+  } finally {
+    // Best-effort cleanup if an assertion above threw mid-flow: leave the
+    // team exactly as this test found it either way.
+    if ((await newRow.count()) > 0) {
+      await newRow.getByRole('button', { name: 'Remove', exact: true }).click();
+      await page.getByRole('button', { name: 'Remove', exact: true }).last().click();
+      await expect(newRow).toHaveCount(0);
+    }
+  }
+});
+
+test('Team screen: refuses to demote the resort\'s only owner', async ({ page }) => {
+  await login(page, owner);
+  await goTo(page, '/owner/team');
+
+  const ownerRow = page.getByRole('button', { name: /^Olivia OwnerA/ });
+  await ownerRow.click();
+  await page.getByRole('menuitem', { name: 'Admin', exact: true }).click();
+
+  // BUG (lib/core/errors.dart P0023 mapping, fed by the raw `message =
+  // 'last_owner'` raised in supabase/migrations/0046_drop_global_role_helpers.sql's
+  // set_role): the guard correctly blocks the demotion, but the snackbar
+  // shows the server's internal code word "last_owner" verbatim instead of
+  // a sentence written for the owner reading it (contrast P0021/P0023's own
+  // doc comment in errors.dart, which claims this message is "already safe
+  // to show verbatim" -- it is not, for this code path). Asserting the
+  // literal text here so a future fix of the copy is the thing that breaks
+  // this line, not a silent regression of the guard itself. Scoped to the
+  // semantics host: Flutter also mirrors new text into a hidden
+  // <flt-announcement-polite> live region for screen readers, which would
+  // otherwise make this match two elements.
+  await expect(page.locator('flt-semantics-host').getByText('last_owner', { exact: true })).toBeVisible();
+
+  // The demotion did not go through: the row is still Owner.
+  await expect(ownerRow).toHaveAttribute('aria-label', /\nOwner$/);
+});
+
+test('Settings: the plan line shows the resort\'s subscription tier', async ({ page }) => {
+  await login(page, owner);
+  await goTo(page, '/owner/settings');
+
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  // resortA.subscription.tier is 'enterprise' (world.ts); the screen shows
+  // the tier's display label, "Enterprise" (subscription.dart's SubscriptionTierLabel).
+  await expect(page.getByText('Plan: Enterprise')).toBeVisible();
+});
+
+test('Rooms tile opens the room status grid', async ({ page }) => {
+  await login(page, owner);
+  await expectAt(page, '/owner');
+
+  await page.getByRole('button', { name: /^Rooms/ }).click();
+  await expectAt(page, '/staff/rooms');
+  await expect(page.getByRole('heading', { name: 'Rooms' })).toBeVisible();
+  // Resort A's three units are on the grid, one tile each (a tile's
+  // accessible name joins its name, status and detail line -- see the
+  // support/flutter.ts "Quirks" notes -- so match by prefix).
+  for (const unit of resortA.units) {
+    await expect(page.getByRole('button', { name: new RegExp(`^${unit.name}`) })).toBeVisible();
+  }
+});
+
+test('Finance tile opens the finance tabs', async ({ page }) => {
+  await login(page, owner);
+  await expectAt(page, '/owner');
+
+  await page.getByRole('button', { name: /^Finance/ }).click();
+  await expectAt(page, '/finance');
+  await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
+  for (const label of ['Today', 'Collections', 'Ledger', 'Settlements']) {
+    await expect(page.getByRole('tab', { name: label, exact: true })).toBeVisible();
+  }
+});
+
+test('tenancy: the owner of Resort A never sees a Resort B booking', async ({ page }) => {
+  await login(page, owner);
+  await goTo(page, '/admin/bookings');
+
+  // Resort A's own bookings are there (sanity check the list isn't just
+  // empty). Each booking card is one merged semantics node (code, status,
+  // guest name and more all joined together), so match by substring.
+  await expect(page.getByText(guests.arriving.fullName)).toBeVisible();
+  await expect(page.getByText(guests.inHouse.fullName)).toBeVisible();
+
+  // A guest who only ever booked Resort B never appears here.
+  await expect(page.getByText(tenancyGuestB.fullName)).toHaveCount(0);
+});
