@@ -84,6 +84,15 @@ class AlreadyDispatched extends BookingFailure {
       : super('Housekeeping is already on its way to this room.');
 }
 
+/// P0038 -- `billing_subscribe_state`: the chosen tier has no Razorpay
+/// plan id yet, so it cannot be paid online (P8). The server sends the
+/// bare code word `billing_unavailable`, so the copy lives here.
+class BillingUnavailable extends BookingFailure {
+  const BillingUnavailable()
+      : super("Online payment isn't set up for this plan yet. "
+            'Contact ResortHub.');
+}
+
 /// P0037 -- `retry_outbox_message` refused a message that is not failed or
 /// dry run (it is already queued again, sent, or skipped).
 class NotRetryable extends BookingFailure {
@@ -238,6 +247,8 @@ BookingFailure mapPostgrestError(Object error) {
     // (`reason_required`, `already_dispatched`), so the copy lives here.
     'P0030' => const ReasonRequired(),
     'P0031' => const AlreadyDispatched(),
+    // P0038: subscription billing (0057). Bare code word, copy lives here.
+    'P0038' => const BillingUnavailable(),
     // P0037: outbox delivery (0056). Only retry_outbox_message reaches the
     // app; complete_outbox_message's P0037 is service_role-only.
     'P0037' => const NotRetryable(),

@@ -63,6 +63,13 @@ void main() {
     expect(failure.message, 'Housekeeping is already on its way to this room.');
   });
 
+  test('P0038 maps to BillingUnavailable with readable copy', () {
+    final failure = map('P0038', 'billing_unavailable');
+    expect(failure, isA<BillingUnavailable>());
+    expect(failure.message,
+        "Online payment isn't set up for this plan yet. Contact ResortHub.");
+  });
+
   test('P0037 maps to NotRetryable with readable copy', () {
     final failure = map('P0037', 'not_retryable');
     expect(failure, isA<NotRetryable>());

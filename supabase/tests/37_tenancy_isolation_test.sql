@@ -442,6 +442,14 @@ select is(
         -- 0048: finance reports. Each asserts owner/admin/accountant at the
         -- resort it is given. (checkout_booking is already listed above.)
         'report_collections','report_ledger','report_settlements','finance_summary',
+        -- 0057: subscription billing. set_plan_razorpay_id and
+        -- platform_billing check is_platform_admin(); my_resort_billing and
+        -- billing_subscribe_state assert the owner at the resort they are
+        -- given; the three billing writes are executable by service_role
+        -- only and derive the resort from the Razorpay subscription row.
+        'set_plan_razorpay_id','my_resort_billing','platform_billing',
+        'billing_subscribe_state','billing_subscription_opened',
+        'billing_subscription_cancel_requested','billing_webhook_apply',
         -- 0056: email and SMS delivery. claim/complete/record run only as
         -- service_role (the outbox-dispatch Edge Function);
         -- outbox_delivery_status asserts the caller's role at the resort
