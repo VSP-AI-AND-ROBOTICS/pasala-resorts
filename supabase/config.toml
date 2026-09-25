@@ -417,3 +417,12 @@ enabled = true
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# Subscription auto-billing (P8). billing-subscribe needs the caller's
+# Supabase JWT; Razorpay calls billing-webhook without one, so that
+# function checks X-Razorpay-Signature instead.
+[functions.billing-subscribe]
+verify_jwt = true
+
+[functions.billing-webhook]
+verify_jwt = false
