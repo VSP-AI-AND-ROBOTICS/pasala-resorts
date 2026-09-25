@@ -128,7 +128,12 @@ begin
 end;
 $$;
 
--- Stub: Task 3 replaces the body.
+-- Checks a scanned or typed pass at the front desk. The order is
+-- deliberate (spec decision 11): format and signature, then the caller's
+-- Staff+ role at the resort the pass names (so another resort's staff
+-- learn nothing more), then expiry, then that the booking still exists at
+-- that resort. The booking is returned in any status; check_in_booking
+-- stays the only thing that changes it.
 create function public.verify_stay_pass(p_token text)
 returns jsonb
 language plpgsql
@@ -136,8 +141,53 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_raw     bytea;
+  v_body    bytea;
+  v_res_id  uuid;
+  v_prop    uuid;
+  v_expires bigint;
+  v_row     public.reservations;
 begin
-  raise exception using errcode = '0A000', message = 'verify_stay_pass not implemented';
+  -- 'rh1.' and exactly 75 base64url characters (56 bytes). Anything else
+  -- -- an old bare-UUID QR, a Wi-Fi code -- is not a pass, and decode()
+  -- never sees it.
+  if p_token is null or p_token !~ '^rh1\.[A-Za-z0-9_-]{75}$' then
+    raise exception using errcode = 'P0034', message = 'pass_invalid';
+  end if;
+
+  v_raw  := private.b64url_decode(substr(p_token, 5));
+  v_body := substring(v_raw from 1 for 40);
+  if length(v_raw) <> 56
+     or substring(v_raw from 41 for 16) <> private.stay_pass_mac(v_body) then
+    raise exception using errcode = 'P0034', message = 'pass_invalid';
+  end if;
+
+  v_res_id  := encode(substring(v_body from 1 for 16), 'hex')::uuid;
+  v_prop    := encode(substring(v_body from 17 for 16), 'hex')::uuid;
+  v_expires := ('x' || encode(substring(v_body from 33 for 8), 'hex'))::bit(64)::bigint;
+
+  if not public.has_resort_role(v_prop, false, 'owner','admin','staff','accountant') then
+    raise exception using errcode = 'P0034', message = 'pass_other_resort';
+  end if;
+
+  if v_expires < extract(epoch from now()) then
+    raise exception using errcode = 'P0034', message = 'pass_expired';
+  end if;
+
+  select * into v_row from public.reservations
+   where id = v_res_id
+     and property_id = v_prop
+     and kind = 'booking';
+  if not found then
+    raise exception using errcode = 'P0034', message = 'pass_invalid';
+  end if;
+
+  return to_jsonb(v_row) || jsonb_build_object(
+    'profiles', (select jsonb_build_object('full_name', p.full_name, 'phone', p.phone)
+                   from public.profiles p
+                  where p.id = v_row.customer_id),
+    'unit_name', (select u.name from public.units u where u.id = v_row.unit_id));
 end;
 $$;
 

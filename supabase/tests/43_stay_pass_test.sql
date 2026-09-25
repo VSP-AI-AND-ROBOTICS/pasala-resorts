@@ -15,7 +15,7 @@
 --   ...025 R Cottage 2  confirmed    -5 -> -3 days, a no-show whose stay has ended (Gita)
 --   ...026 S Villa      confirmed    tomorrow -> +3 days   (Hari)
 begin;
-select plan(35);
+select plan(65);
 
 insert into auth.users (id, email) values
   ('f3000000-0000-0000-0000-000000000001','pass-r-owner@example.com'),
@@ -195,6 +195,130 @@ select is(current_setting('test.tok_r1'),
     (select extract(epoch from upper(period))::bigint from public.reservations
       where id = 'f3f3f3f3-0000-4000-8000-000000000021')),
   'stay_pass_token builds the same pass');
+
+-- ---------------------------------------------------------------------
+-- Section 3: verify_stay_pass (Task 3)
+
+-- Passes minted as the superuser: expired, swapped to resort S (correctly
+-- signed, so only the resort check can catch it), and for the cancelled
+-- booking.
+reset role;
+select set_config('test.tok_expired', private.stay_pass_token(
+  'f3f3f3f3-0000-4000-8000-000000000021', 'f3f3f3f3-0000-4000-8000-000000000001',
+  extract(epoch from now())::bigint - 1), true);
+select set_config('test.tok_swap', private.stay_pass_token(
+  'f3f3f3f3-0000-4000-8000-000000000021', 'f3f3f3f3-0000-4000-8000-000000000002',
+  extract(epoch from now())::bigint + 86400), true);
+select set_config('test.tok_cancel', private.stay_pass_token(
+  'f3f3f3f3-0000-4000-8000-000000000023', 'f3f3f3f3-0000-4000-8000-000000000001',
+  extract(epoch from now())::bigint + 86400), true);
+
+-- R's staff member at the desk.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is(public.verify_stay_pass(current_setting('test.tok_r1')) ->> 'id',
+  'f3f3f3f3-0000-4000-8000-000000000021', 'R staff: the pass opens its booking');
+select is(public.verify_stay_pass(current_setting('test.tok_r1')) ->> 'property_id',
+  'f3f3f3f3-0000-4000-8000-000000000001', 'the booking''s resort is returned');
+select is(public.verify_stay_pass(current_setting('test.tok_r1')) ->> 'unit_name',
+  'Cottage 1', 'the unit name is returned');
+select is(public.verify_stay_pass(current_setting('test.tok_r1')) -> 'profiles' ->> 'full_name',
+  'Gita Guest', 'the guest''s name is returned');
+select is(public.verify_stay_pass(current_setting('test.tok_r1')) ->> 'status',
+  'confirmed', 'the booking''s status is returned');
+select is(public.verify_stay_pass(current_setting('test.tok_in')) ->> 'status',
+  'checked_in', 'a checked-in booking verifies, with its status');
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_past'))$$,
+  'P0034', 'pass_expired', 'a pass whose stay has ended is expired');
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_expired'))$$,
+  'P0034', 'pass_expired', 'a pass one second past its expiry is expired');
+select is(public.verify_stay_pass(current_setting('test.tok_cancel')) ->> 'status',
+  'cancelled', 'a cancelled booking verifies and shows as cancelled');
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_s1'))$$,
+  'P0034', 'pass_other_resort', 'a pass for resort S is another resort''s');
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_swap'))$$,
+  'P0034', 'pass_other_resort', 'a pass re-signed for resort S is another resort''s');
+select throws_ok($$select public.verify_stay_pass(
+    'rh1.' || case when substr(current_setting('test.tok_r1'), 5, 1) = 'A' then 'B' else 'A' end
+           || substr(current_setting('test.tok_r1'), 6))$$,
+  'P0034', 'pass_invalid', 'a pass with one character changed is invalid');
+select throws_ok($$select public.verify_stay_pass('hello')$$,
+  'P0034', 'pass_invalid', 'any other QR text is invalid');
+select throws_ok($$select public.verify_stay_pass('f3f3f3f3-0000-4000-8000-000000000021')$$,
+  'P0034', 'pass_invalid', 'an old bare-UUID QR is invalid');
+select throws_ok($$select public.verify_stay_pass(null)$$,
+  'P0034', 'pass_invalid', 'no pass is invalid');
+select throws_ok($$select public.verify_stay_pass('rh1.' || repeat('A', 75))$$,
+  'P0034', 'pass_invalid', 'a well-formed but unsigned pass is invalid');
+select throws_ok($$select public.verify_stay_pass('rh1.' || repeat('!', 75))$$,
+  'P0034', 'pass_invalid', 'a pass with characters outside base64url is invalid');
+
+-- Every Staff+ role at R.
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select is(public.verify_stay_pass(current_setting('test.tok_r1')) ->> 'id',
+  'f3f3f3f3-0000-4000-8000-000000000021', 'R owner verifies');
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select is(public.verify_stay_pass(current_setting('test.tok_r1')) ->> 'id',
+  'f3f3f3f3-0000-4000-8000-000000000021', 'R admin verifies');
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select is(public.verify_stay_pass(current_setting('test.tok_r1')) ->> 'id',
+  'f3f3f3f3-0000-4000-8000-000000000021', 'R accountant verifies');
+
+-- S's staff member.
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_r1'))$$,
+  'P0034', 'pass_other_resort', 'S staff: an R pass is another resort''s');
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_expired'))$$,
+  'P0034', 'pass_other_resort', 'S staff learn nothing about an R pass''s expiry');
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_swap'))$$,
+  'P0034', 'pass_invalid', 'S staff: a pass naming S for an R booking is invalid');
+select is(public.verify_stay_pass(current_setting('test.tok_s1')) ->> 'id',
+  'f3f3f3f3-0000-4000-8000-000000000026', 'S staff verify their own guest''s pass');
+
+-- Not staff at all.
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000006","role":"authenticated"}';
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_r1'))$$,
+  'P0034', 'pass_other_resort', 'the guest cannot verify their own pass');
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000008","role":"authenticated"}';
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_r1'))$$,
+  'P0034', 'pass_other_resort', 'an outsider cannot verify a pass');
+reset role;
+set local role anon;
+set local request.jwt.claims to '{"role":"anon"}';
+select throws_ok($$select public.verify_stay_pass('rh1.x')$$,
+  '42501', null, 'anon cannot call verify_stay_pass');
+
+-- Suspended resort: verifying is a read and still works.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'suspended'
+ where id = 'f3f3f3f3-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select is(public.verify_stay_pass(current_setting('test.tok_r1')) ->> 'id',
+  'f3f3f3f3-0000-4000-8000-000000000021', 'a suspended resort''s staff can still verify');
+
+-- Archived resort: no access at all.
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'archived'
+ where id = 'f3f3f3f3-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_r1'))$$,
+  'P0034', 'pass_other_resort', 'an archived resort''s staff cannot verify');
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'active'
+ where id = 'f3f3f3f3-0000-4000-8000-000000000001';
+
+-- Rotating the secret invalidates every earlier pass.
+update private.stay_pass_secret set secret = extensions.gen_random_bytes(32);
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f3000000-0000-0000-0000-000000000003","role":"authenticated"}';
+select throws_ok($$select public.verify_stay_pass(current_setting('test.tok_r1'))$$,
+  'P0034', 'pass_invalid', 'after a rotation the old pass is invalid');
+reset role;
 
 select * from finish();
 rollback;
