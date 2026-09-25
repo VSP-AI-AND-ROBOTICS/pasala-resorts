@@ -450,6 +450,13 @@ select is(
         -- as an RPC); it fires only on a task update that tasks_update RLS
         -- and tasks_enforce_write already allowed.
         'tasks_housekeeping_done',
+        -- 0055: online payments. payment_order_quote checks that the
+        -- caller is the booking's own guest; the other seven are
+        -- executable by service_role only (the payments-* Edge Functions)
+        -- and take the resort from the order or reservation row.
+        'payment_order_quote','payment_order_open','payment_order_settle',
+        'payment_order_failed','payment_order_refunded','payment_webhook_begin',
+        'payment_webhook_done','payments_set_live',
         -- 0044: properties_guard_status checks is_platform_admin() directly
         -- before allowing a status change; reviews_set_author_name has no
         -- check of its own, but it only ever fires on a row the reviews_insert

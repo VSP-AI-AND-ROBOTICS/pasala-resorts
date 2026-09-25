@@ -62,7 +62,7 @@ class _FakeGateway implements PaymentGateway {
   final charges = <num>[];
 
   @override
-  Future<PaymentResult> charge({required String reservationId, required num amount}) async {
+  Future<PaymentResult> charge({required String reservationId, required num amount, PaymentPurpose purpose = PaymentPurpose.advance}) async {
     charges.add(amount);
     return PaymentResult.success('mock_$reservationId');
   }

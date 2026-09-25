@@ -1,6 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models/payment_order.dart';
+import 'razorpay_checkout.dart';
+import 'razorpay_checkout_platform.dart';
 import 'razorpay_gateway.dart';
+
+export '../../data/models/payment_order.dart' show PaymentPurpose;
 
 class PaymentResult {
   const PaymentResult.success(this.reference)
@@ -20,9 +25,13 @@ class PaymentResult {
 /// interface — hold creation, confirmation, calendar updates — is already
 /// exercised by the mock, so swapping the implementation changes no other file.
 abstract interface class PaymentGateway {
+  /// Takes [amount] rupees for [reservationId]. [purpose] tells the server
+  /// which rule the amount must meet: the advance range for a hold, the
+  /// balance due for a checked-in stay.
   Future<PaymentResult> charge({
     required String reservationId,
     required num amount,
+    PaymentPurpose purpose = PaymentPurpose.advance,
   });
 }
 
@@ -39,6 +48,7 @@ class MockGateway implements PaymentGateway {
   Future<PaymentResult> charge({
     required String reservationId,
     required num amount,
+    PaymentPurpose purpose = PaymentPurpose.advance,
   }) async {
     await Future<void>.delayed(latency);
     if (alwaysFail) {
@@ -82,3 +92,8 @@ PaymentGateway resolvePaymentGateway({
 final paymentGatewayProvider = Provider<PaymentGateway>((ref) =>
     resolvePaymentGateway(
         keyId: _razorpayKeyId, keySecret: _razorpayKeySecret));
+
+/// The Razorpay payment window for this platform. Tests override it with
+/// `FakeRazorpayCheckout`.
+final razorpayCheckoutProvider =
+    Provider<RazorpayCheckout>((ref) => createRazorpayCheckout());

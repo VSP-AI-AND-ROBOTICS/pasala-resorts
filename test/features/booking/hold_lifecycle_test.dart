@@ -137,6 +137,7 @@ class _ScriptedGateway implements PaymentGateway {
   Future<PaymentResult> charge({
     required String reservationId,
     required num amount,
+    PaymentPurpose purpose = PaymentPurpose.advance,
   }) async {
     final result = _results[callCount.clamp(0, _results.length - 1)];
     callCount++;

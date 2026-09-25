@@ -71,6 +71,7 @@ class RazorpayGateway implements PaymentGateway {
   Future<PaymentResult> charge({
     required String reservationId,
     required num amount,
+    PaymentPurpose purpose = PaymentPurpose.advance,
   }) async {
     final auth = base64Encode(utf8.encode('$_keyId:$_keySecret'));
     http.Response response;

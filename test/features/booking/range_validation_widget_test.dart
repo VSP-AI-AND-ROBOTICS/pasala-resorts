@@ -84,6 +84,7 @@ class _NoopGateway implements PaymentGateway {
   Future<PaymentResult> charge({
     required String reservationId,
     required num amount,
+    PaymentPurpose purpose = PaymentPurpose.advance,
   }) =>
       throw UnimplementedError();
 }
