@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -509,6 +511,120 @@ void main() {
       final screen = tester.widget<CheckoutScreen>(find.byType(CheckoutScreen));
       expect(screen.reservationId, 'res-1');
       expect(screen.desk, isTrue);
+    });
+  });
+
+  // E2E bug (e2e/tests/frontdesk.spec.ts): reloading the desk checkout
+  // landed on the user's landing page instead of the checkout.
+  group('reload / cold start', () {
+    test('keeps one GoRouter while the signed-in user and resort change',
+        () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final users = StreamController<AppUser?>();
+      addTearDown(users.close);
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => users.stream),
+        currentResortProvider.overrideWith(_StaffResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      // Listened, as MaterialApp.router's `ref.watch` would.
+      container.listen(currentUserProvider, (_, _) {});
+      final first = container.listen(routerProvider, (_, _) {}).read();
+      users.add(_staff);
+      await container.read(currentUserProvider.future);
+      users.add(const AppUser(id: 's', email: 'staff@pasala.test', memberships: [_staffM]));
+      await pumpEventQueue();
+
+      // A fresh GoRouter restarts at its initialLocation (/splash), which
+      // sends a signed-in user to their landing page -- losing the page.
+      expect(container.read(routerProvider), same(first));
+    });
+
+    testWidgets(
+        'a cold start at /admin/check-out/:id lands there once the session '
+        'has loaded', (tester) async {
+      final users = StreamController<AppUser?>();
+      addTearDown(users.close);
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => users.stream),
+        currentResortProvider.overrideWith(_StaffResort.new),
+        currentChargesProvider.overrideWith((ref, id) async => const CurrentCharges(
+              stayAmount: 3000,
+              foodAmount: 0,
+              activityAmount: 0,
+              total: 3000,
+              paid: 1000,
+              balance: 2000,
+            )),
+      ]);
+      addTearDown(container.dispose);
+
+      // A reload: the browser URL is the app's first route, and the stored
+      // session has not been read yet (the user stream has not emitted).
+      tester.platformDispatcher.defaultRouteNameTestValue =
+          '/admin/check-out/res-1';
+      addTearDown(tester.platformDispatcher.clearDefaultRouteNameTestValue);
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: Consumer(
+          builder: (_, ref, _) =>
+              MaterialApp.router(routerConfig: ref.watch(routerProvider)),
+        ),
+      ));
+      await tester.pump();
+      // Flutter web answers defaultRouteName from the URL only until the
+      // app's first navigation, then '/' (the engine resets it).
+      tester.platformDispatcher.defaultRouteNameTestValue = '/';
+
+      users.add(_staff);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      final router = container.read(routerProvider);
+      final url = router.routeInformationParser
+          .restoreRouteInformation(router.routerDelegate.currentConfiguration)!
+          .uri;
+      expect(url.path, '/admin/check-out/res-1');
+      final screen = tester.widget<CheckoutScreen>(find.byType(CheckoutScreen));
+      expect(screen.reservationId, 'res-1');
+      expect(screen.desk, isTrue);
+    });
+
+    testWidgets(
+        'a signed-out cold start at a protected path never shows it: splash '
+        'then welcome', (tester) async {
+      final users = StreamController<AppUser?>();
+      addTearDown(users.close);
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => users.stream),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      tester.platformDispatcher.defaultRouteNameTestValue =
+          '/admin/check-out/res-1';
+      addTearDown(tester.platformDispatcher.clearDefaultRouteNameTestValue);
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: Consumer(
+          builder: (_, ref, _) =>
+              MaterialApp.router(routerConfig: ref.watch(routerProvider)),
+        ),
+      ));
+      await tester.pump();
+      tester.platformDispatcher.defaultRouteNameTestValue = '/';
+
+      users.add(null);
+      await tester.pump();
+      expect(find.byType(CheckoutScreen), findsNothing);
+      // The splash auto-advances to /welcome after 1.5s.
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 1));
+
+      final router = container.read(routerProvider);
+      expect(router.routerDelegate.currentConfiguration.uri.path, '/welcome');
+      expect(find.byType(CheckoutScreen), findsNothing);
     });
   });
 }

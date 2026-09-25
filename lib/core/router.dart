@@ -255,19 +255,52 @@ Page<void> fadeSlidePage(Widget child, GoRouterState state) =>
       },
     );
 
+/// The app's one [GoRouter], built once for the app's lifetime.
+///
+/// It used to `ref.watch` the signed-in user and resort, so every change to
+/// either built a brand-new GoRouter, which restarts at `initialLocation`
+/// (`/splash`) and sends a signed-in user to their landing page -- any
+/// page, e.g. a reloaded desk checkout, was lost. Now a change only
+/// re-runs [redirectFor] on the current location (`refreshListenable`).
+///
+/// A reload also starts before the stored session has been read: the user
+/// provider is still loading, which [redirectFor] would treat as signed out
+/// and bounce to `/login`. Instead the requested location is held while
+/// the app waits on `/splash`, and restored once a signed-in user is known
+/// (then checked by [redirectFor] like any other navigation). If the
+/// session turns out to be signed out, the held location is dropped.
 final routerProvider = Provider<GoRouter>((ref) {
-  final auth = ref.watch(currentUserProvider);
-  final resort = ref.watch(currentResortProvider);
+  final refresh = ValueNotifier<int>(0);
+  ref.listen(currentUserProvider, (_, _) => refresh.value++);
+  ref.listen(currentResortProvider, (_, _) => refresh.value++);
 
   const preAuthPaths = {'/splash', '/welcome', '/login', '/signup'};
-  return GoRouter(
-    initialLocation: '/splash',
-    redirect: (context, state) => redirectFor(
+  String? heldLocation;
+
+  String? redirect(BuildContext context, GoRouterState state) {
+    final auth = ref.read(currentUserProvider);
+    final path = state.matchedLocation;
+    final onPreAuthScreen = preAuthPaths.contains(path);
+    if (auth.isLoading && !auth.hasValue) {
+      if (onPreAuthScreen) return null;
+      heldLocation = state.uri.toString();
+      return '/splash';
+    }
+    final held = heldLocation;
+    heldLocation = null;
+    if (held != null && onPreAuthScreen && auth.value != null) return held;
+    return redirectFor(
       user: auth.value,
-      resort: resort,
-      path: state.matchedLocation,
-      onPreAuthScreen: preAuthPaths.contains(state.matchedLocation),
-    ),
+      resort: ref.read(currentResortProvider),
+      path: path,
+      onPreAuthScreen: onPreAuthScreen,
+    );
+  }
+
+  final router = GoRouter(
+    initialLocation: '/splash',
+    refreshListenable: refresh,
+    redirect: redirect,
     routes: [
       GoRoute(
         path: '/splash',
@@ -509,19 +542,24 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/check-out',
             builder: (_, _) => const ReceptionCheckoutScreen(),
-          ),
-          // Reception's desk checkout. The reservation id and desk mode
-          // both live in the URL so a web refresh or back/forward rebuilds
-          // it -- a route `extra` does not survive either.
-          GoRoute(
-            path: '/admin/check-out/:reservationId',
-            pageBuilder: (_, state) => fadeSlidePage(
-              CheckoutScreen(
-                reservationId: state.pathParameters['reservationId']!,
-                desk: true,
+            routes: [
+              // Reception's desk checkout at /admin/check-out/:reservationId.
+              // The reservation id and desk mode both live in the URL so a
+              // web refresh or back/forward rebuilds it -- a route `extra`
+              // does not survive either. A child of the list so `context.go`
+              // (which, unlike `push`, updates the browser URL) still
+              // stacks it above the list.
+              GoRoute(
+                path: ':reservationId',
+                pageBuilder: (_, state) => fadeSlidePage(
+                  CheckoutScreen(
+                    reservationId: state.pathParameters['reservationId']!,
+                    desk: true,
+                  ),
+                  state,
+                ),
               ),
-              state,
-            ),
+            ],
           ),
           GoRoute(
             path: '/admin/kitchen-orders',
@@ -642,4 +680,9 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
     errorBuilder: (_, _) => const NotFoundScreen(),
   );
+  ref.onDispose(() {
+    router.dispose();
+    refresh.dispose();
+  });
+  return router;
 });
