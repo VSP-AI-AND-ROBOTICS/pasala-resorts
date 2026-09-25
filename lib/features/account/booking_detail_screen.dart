@@ -122,7 +122,18 @@ class _DetailState extends ConsumerState<_Detail> {
       // reservation -- cancelling that exact one must let My Stay move on
       // to whatever's next (or nothing), not keep showing the cancelled one.
       ref.invalidate(currentStayProvider);
-      context.pop();
+      // The reservation itself is cached per id (a non-autoDispose family),
+      // so without this the screen -- and any later visit to it -- keeps
+      // showing the confirmed booking, QR and Cancel button.
+      ref.invalidate(reservationProvider(widget.reservation.id));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(isBlock ? 'Block removed' : 'Booking cancelled'),
+      ));
+      // Opened from a list, go back to it. Opened directly (a link or URL,
+      // i.e. a `go` with nothing beneath it), there is nothing to pop --
+      // `context.pop()` would throw GoError('There is nothing to pop') -- so
+      // stay here; the invalidation above re-renders the cancelled state.
+      if (context.canPop()) context.pop();
     } on BookingFailure catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -151,6 +162,16 @@ class _DetailState extends ConsumerState<_Detail> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (reservation.status == ReservationStatus.cancelled) ...[
+                Chip(
+                  key: const Key('booking-cancelled-chip'),
+                  label: Text(isBlock ? 'Removed' : 'Cancelled'),
+                  backgroundColor: scheme.errorContainer,
+                  labelStyle: TextStyle(color: scheme.onErrorContainer),
+                  side: BorderSide.none,
+                ),
+                const SizedBox(height: Spacing.sm),
+              ],
               if (isBlock) ...[
                 Chip(
                   label: const Text('Admin block'),

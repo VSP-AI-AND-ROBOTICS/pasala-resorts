@@ -207,33 +207,16 @@ test('a guest can book, see the 35% advance option, confirm with the mock gatewa
 });
 
 // -----------------------------------------------------------------------
-// App bug: cancelling a confirmed booking succeeds server-side but crashes
-// the client before the screen can update. `cancel_booking` returns 200 (a
-// direct DB check after this test's own run confirmed the row really does
-// flip to status = 'cancelled', refund_pct 0, the correct reason text, all
-// recorded correctly) -- but the app then throws an uncaught error and the
-// Cancel booking button, price breakdown and QR all keep showing the old
-// confirmed state, as if nothing happened. A customer who cancels this way
-// has no way to tell their cancellation actually went through; a refresh of
-// My Bookings would show it as cancelled, but this screen itself never does.
-//
-// `lib/features/account/booking_detail_screen.dart`'s `_cancelBooking`,
-// immediately after the `cancel_booking` call succeeds:
-//   ref.invalidate(myBookingsProvider);
-//   ref.invalidate(allBookingsProvider);   // <- staff/admin-only provider
-//   ref.invalidate(currentStayProvider);
-//   context.pop();
-// is the prime suspect: `allBookingsProvider` (imported from
-// `../staff/providers.dart`) backs the staff/admin bookings list, and this
-// screen is shared by staff/admin/customer alike, but a plain customer
-// session has no current-resort/staff context for it to rebuild against.
-// The browser console's minified stack trace (Riverpod container frames
-// inside the tap handler, not a GoRouter frame) points at one of these three
-// `ref.invalidate` calls rather than the `context.pop()` after them, but
-// pinning down which one -- and confirming `allBookingsProvider` specifically
-// -- needs a non-minified debug build's real stack trace.
-test.fail(
-  'cancelling a confirmed booking leaves the screen stuck on the old state (BUG: booking_detail_screen.dart _cancelBooking)',
+// Regression: cancelling a confirmed booking used to succeed server-side and
+// then throw client-side. This test reaches the detail screen by a hash
+// change (a `go`, nothing beneath it to pop), and `_cancelBooking` in
+// lib/features/account/booking_detail_screen.dart called `context.pop()`
+// unconditionally -- GoRouter threw "There is nothing to pop" -- and never
+// invalidated `reservationProvider`, so the screen kept showing the
+// confirmed booking, QR and Cancel booking button. It now pops only when it
+// can, and refreshes the reservation so the cancelled state renders.
+test(
+  'cancelling a confirmed booking shows the cancelled state',
   async ({ page }) => {
     const reservationId = await bookGuestResort(page, 10);
 
@@ -250,9 +233,13 @@ test.fail(
     // booking) -- scoping to the dialog picks the right one unambiguously.
     await dialog.getByRole('button', { name: 'Cancel booking', exact: true }).click();
 
-    // This is what a customer actually sees: the same confirmed-booking
-    // screen, Cancel booking button and all, even though the reservation
-    // really has been cancelled (server-side) by now.
+    // Wait for the cancel to actually land (the confirmation snackbar) --
+    // while it is in flight the trigger button shows a spinner with no
+    // label, which would satisfy the count-0 check below too early. Then
+    // the cancelled booking no longer offers Cancel booking -- on this
+    // screen, and on a fresh visit to it.
+    await expect(page.getByText('Booking cancelled', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cancel booking', exact: true })).toHaveCount(0);
     await goTo(page, `/booking-detail/${reservationId}`);
     await expect(page.getByRole('button', { name: 'Cancel booking', exact: true })).toHaveCount(0);
   },
