@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:pasala/core/router.dart';
 import 'package:pasala/core/widgets/brand_mark.dart';
 import 'package:pasala/features/auth/signup_screen.dart';
 
@@ -39,5 +42,31 @@ void main() {
     expect(find.text('ResortHub'), findsOneWidget);
     expect(find.text('Pasala Resorts'), findsNothing);
     expect(find.byType(BrandMark), findsNothing);
+  });
+
+  testWidgets('Already have an account keeps next', (tester) async {
+    final router = GoRouter(
+      initialLocation: '/signup?next=%2Flist-your-resort',
+      routes: [
+        GoRoute(
+          path: '/signup',
+          builder: (_, state) => SignupScreen(next: postSignInPath(state.uri)),
+        ),
+        GoRoute(
+          path: '/login',
+          builder: (_, state) =>
+              Text('Login next=${state.uri.queryParameters['next']}'),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+        ProviderScope(child: MaterialApp.router(routerConfig: router)));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Already have an account? Sign in'));
+    await tester.tap(find.text('Already have an account? Sign in'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Login next=/list-your-resort'), findsOneWidget);
   });
 }

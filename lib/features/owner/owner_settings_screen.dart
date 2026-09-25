@@ -14,6 +14,7 @@ import 'cancellation_policy_screen.dart';
 import 'notification_settings_screen.dart';
 import 'payment_settings_screen.dart';
 import 'subscription_billing_card.dart';
+import 'property_photos_screen.dart';
 import 'tax_settings_screen.dart';
 
 /// `/owner/settings` -- the hub for every owner-level control: some open a
@@ -68,6 +69,15 @@ class OwnerSettingsScreen extends ConsumerWidget {
                 color: scheme.primary,
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => PropertyFormScreen(existing: property),
+                )),
+              ),
+              _SettingsTile(
+                icon: Icons.photo_library_outlined,
+                title: 'Photos',
+                subtitle: 'Pictures guests see on your listing',
+                color: scheme.primary,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => PropertyPhotosScreen(propertyId: property.id),
                 )),
               ),
               _SettingsTile(

@@ -34,6 +34,7 @@ import '../features/auth/signup_screen.dart';
 import '../features/auth/welcome_screen.dart';
 import '../features/booking/confirmation_screen.dart';
 import '../features/finance/finance_screen.dart';
+import '../features/listing/list_your_resort_screen.dart';
 import '../features/browse/browse_screen.dart';
 import '../features/browse/customer_reviews_screen.dart';
 import '../features/browse/property_screen.dart';
@@ -99,16 +100,46 @@ import 'theme/tokens.dart';
 /// Route guarding is user experience only. RLS in Postgres is what actually
 /// enforces access; a customer who forges a route sees a not-found page and
 /// would get 42501 from the database regardless.
+/// Pages a pre-auth screen may hand the user on to after they sign in or
+/// sign up, through `?next=`. An allow-list, so a crafted link can never
+/// send someone to an arbitrary page.
+const postSignInPaths = {'/list-your-resort'};
+
+/// The `next` query parameter of [uri] when it is on [postSignInPaths],
+/// otherwise null.
+String? postSignInPath(Uri uri) {
+  final next = uri.queryParameters['next'];
+  return postSignInPaths.contains(next) ? next : null;
+}
+
 String? redirectFor({
   required AppUser? user,
   required ResortMembership? resort,
   required String path,
   required bool onPreAuthScreen,
+  String? next,
 }) {
-  if (user == null) return onPreAuthScreen ? null : '/login';
-  if (onPreAuthScreen) return landingPathFor(user, resort);
+  if (user == null) {
+    if (onPreAuthScreen) return null;
+    // "List your resort" tapped while signed out: come back after sign-in.
+    if (path == '/list-your-resort') return '/login?next=%2Flist-your-resort';
+    return '/login';
+  }
+  if (onPreAuthScreen) {
+    // A pre-auth screen opened with an allowed `?next=` hands the user on
+    // there (the platform admin has no use for it).
+    if (next != null &&
+        postSignInPaths.contains(next) &&
+        !user.isPlatformAdmin) {
+      return next;
+    }
+    return landingPathFor(user, resort);
+  }
 
   if (path == '/platform') return user.isPlatformAdmin ? null : '/404';
+  // Anyone signed in may apply to list a resort, except the platform
+  // admin, who adds resorts from the console.
+  if (path == '/list-your-resort') return user.isPlatformAdmin ? '/404' : null;
   if (path == '/choose-resort') {
     if (user.memberships.length < 2) return '/404';
     // The chooser never navigates itself: picking a resort (or a
@@ -382,6 +413,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       resort: ref.read(currentResortProvider),
       path: path,
       onPreAuthScreen: onPreAuthScreen,
+      next: state.uri.queryParameters['next'],
     );
   }
 
@@ -400,11 +432,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/login',
-        pageBuilder: (_, state) => fadeSlidePage(const LoginScreen(), state),
+        pageBuilder: (_, state) => fadeSlidePage(
+          LoginScreen(next: postSignInPath(state.uri)),
+          state,
+        ),
       ),
       GoRoute(
         path: '/signup',
-        pageBuilder: (_, state) => fadeSlidePage(const SignupScreen(), state),
+        pageBuilder: (_, state) => fadeSlidePage(
+          SignupScreen(next: postSignInPath(state.uri)),
+          state,
+        ),
       ),
       GoRoute(path: '/404', builder: (_, _) => const NotFoundScreen()),
       // Outside the ShellRoute (like the pre-auth screens): a multi-resort
@@ -465,6 +503,11 @@ final routerProvider = Provider<GoRouter>((ref) {
               BookingDetailScreen(reservationId: state.pathParameters['id']!),
               state,
             ),
+          ),
+          GoRoute(
+            path: '/list-your-resort',
+            pageBuilder: (_, state) =>
+                fadeSlidePage(const ListYourResortScreen(), state),
           ),
           GoRoute(path: '/admin', builder: (_, _) => const AdminHomeScreen()),
           GoRoute(

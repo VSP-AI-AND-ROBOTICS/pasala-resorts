@@ -16,8 +16,10 @@ String _statusLabel(String status) =>
 /// One resort on the platform console: name, status, owners, its plan
 /// (tier chip and plan line), booking summary, and the actions -- Change
 /// plan (Set plan when it has none) and Suspend (active) or Reactivate
-/// (suspended). An archived resort gets no action at all. [onChanged]
-/// runs after a change, so the console refetches the list and the cards.
+/// (suspended). An archived resort gets no action at all, and a pending
+/// one (P10) waits for Approve or Reject in the Pending review list.
+/// [onChanged] runs after a change, so the console refetches the list and
+/// the cards.
 class ResortCard extends ConsumerWidget {
   const ResortCard({super.key, required this.resort, required this.onChanged});
 
@@ -31,6 +33,9 @@ class ResortCard extends ConsumerWidget {
     // Archived resorts are neither suspended nor active: they get no
     // status action here (Suspend would pretend they were active).
     final archived = resort.status == 'archived';
+    // A pending resort waits for Approve / Reject in the Pending review
+    // list (P10); Suspend or a plan change here would bypass the review.
+    final pending = resort.status == 'pending';
     final plan = resort.plan;
 
     return Card(
@@ -47,12 +52,15 @@ class ResortCard extends ConsumerWidget {
                       style: Theme.of(context).textTheme.titleMedium),
                 ),
                 Chip(
-                  label: Text(_statusLabel(resort.status)),
-                  backgroundColor: suspended
-                      ? scheme.errorContainer
-                      : archived
-                          ? scheme.surfaceContainerHighest
-                          : scheme.secondaryContainer,
+                  label: Text(
+                      pending ? 'Pending review' : _statusLabel(resort.status)),
+                  backgroundColor: pending
+                      ? scheme.tertiaryContainer
+                      : suspended
+                          ? scheme.errorContainer
+                          : archived
+                              ? scheme.surfaceContainerHighest
+                              : scheme.secondaryContainer,
                   side: BorderSide.none,
                 ),
               ],
@@ -98,7 +106,7 @@ class ResortCard extends ConsumerWidget {
                   .bodySmall
                   ?.copyWith(color: scheme.onSurfaceVariant),
             ),
-            if (!archived) ...[
+            if (!archived && !pending) ...[
               const SizedBox(height: Spacing.sm),
               Align(
                 alignment: Alignment.centerRight,
@@ -119,6 +127,17 @@ class ResortCard extends ConsumerWidget {
                     ),
                   ],
                 ),
+              ),
+            ],
+            if (pending) ...[
+              const SizedBox(height: Spacing.sm),
+              Text(
+                'Waiting for review: see Pending review above.',
+                key: Key('resort-pending-note-${resort.propertyId}'),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ],
           ],

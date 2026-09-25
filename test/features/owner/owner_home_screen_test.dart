@@ -7,9 +7,13 @@ import 'package:pasala/core/theme/app_theme.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/report.dart';
 import 'package:pasala/data/models/resort_membership.dart';
+import 'package:pasala/data/models/listing.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
+import 'package:pasala/data/repositories/listing_repository.dart';
 import 'package:pasala/features/owner/owner_home_screen.dart';
 import 'package:pasala/features/reports/providers.dart';
+
+import '../../support/fake_listing_source.dart';
 
 class _FixedResort extends CurrentResort {
   _FixedResort(this._value);
@@ -29,6 +33,8 @@ const _owner = AppUser(
 );
 
 Widget _appFor({
+  ResortMembership resort = _ownerM,
+  FakeListingSource? listing,
   DashboardSummary summary = const DashboardSummary(
     todayRevenue: 0,
     monthRevenue: 120000,
@@ -54,8 +60,9 @@ Widget _appFor({
   return ProviderScope(
     overrides: [
       currentUserProvider.overrideWith((ref) => Stream.value(_owner)),
-      currentResortProvider.overrideWith(() => _FixedResort(_ownerM)),
+      currentResortProvider.overrideWith(() => _FixedResort(resort)),
       dashboardSummaryProvider.overrideWith((ref, propertyId) async => summary),
+      listingSourceProvider.overrideWithValue(listing ?? FakeListingSource()),
     ],
     child: MaterialApp.router(
       theme: buildTheme(Brightness.light),
@@ -195,5 +202,34 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Coupons screen'), findsOneWidget);
+  });
+
+  testWidgets('a pending resort shows its setup checklist first',
+      (tester) async {
+    final listing = FakeListingSource()
+      ..setup = listingSetup(done: {SetupStep.units});
+    await tester.pumpWidget(_appFor(
+      resort: const ResortMembership(
+          propertyId: 'p1',
+          resortName: 'Pasala',
+          role: ResortRole.owner,
+          status: 'pending'),
+      listing: listing,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('setup-checklist')), findsOneWidget);
+    expect(find.text('Finish setting up Pasala'), findsOneWidget);
+    expect(listing.setupCalls, ['p1']);
+  });
+
+  testWidgets('an active resort shows no checklist and asks for none',
+      (tester) async {
+    final listing = FakeListingSource();
+    await tester.pumpWidget(_appFor(listing: listing));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('setup-checklist')), findsNothing);
+    expect(listing.setupCalls, isEmpty);
   });
 }

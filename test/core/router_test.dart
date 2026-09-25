@@ -472,6 +472,90 @@ void main() {
     });
   });
 
+  group('list your resort', () {
+    const platformAdmin = AppUser(
+        id: 'p', email: 'e', platformRole: PlatformRole.platformAdmin);
+
+    test('a signed-out visit goes to sign-in and comes back afterwards', () {
+      expect(_to(null, null, '/list-your-resort'),
+          '/login?next=%2Flist-your-resort');
+    });
+
+    test('any signed-in user but the platform admin opens it', () {
+      expect(_to(_customer, null, '/list-your-resort'), null);
+      expect(_to(_superAdmin, _ownerM, '/list-your-resort'), null);
+      expect(_to(_staff, _staffM, '/list-your-resort'), null);
+      expect(_to(platformAdmin, null, '/list-your-resort'), '/404');
+    });
+
+    test('after sign-in an allowed next wins over the landing page', () {
+      expect(
+          redirectFor(
+              user: _customer,
+              resort: null,
+              path: '/login',
+              onPreAuthScreen: true,
+              next: '/list-your-resort'),
+          '/list-your-resort');
+      expect(
+          redirectFor(
+              user: _superAdmin,
+              resort: _ownerM,
+              path: '/signup',
+              onPreAuthScreen: true,
+              next: '/list-your-resort'),
+          '/list-your-resort');
+    });
+
+    test('a next outside the allow-list, or for the platform admin, is ignored',
+        () {
+      expect(
+          redirectFor(
+              user: _customer,
+              resort: null,
+              path: '/login',
+              onPreAuthScreen: true,
+              next: '/admin'),
+          '/');
+      expect(
+          redirectFor(
+              user: _customer,
+              resort: null,
+              path: '/login',
+              onPreAuthScreen: true,
+              next: 'https://evil.example/list-your-resort'),
+          '/');
+      expect(
+          redirectFor(
+              user: platformAdmin,
+              resort: null,
+              path: '/login',
+              onPreAuthScreen: true,
+              next: '/list-your-resort'),
+          '/platform');
+    });
+
+    test('postSignInPath reads only allowed next values', () {
+      expect(postSignInPath(Uri.parse('/login?next=%2Flist-your-resort')),
+          '/list-your-resort');
+      expect(postSignInPath(Uri.parse('/login?next=%2Fadmin')), isNull);
+      expect(postSignInPath(Uri.parse('/login')), isNull);
+    });
+
+    test('the app router registers /list-your-resort', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(null)),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      final router = container.read(routerProvider);
+
+      expect(_paths(router.configuration.routes), contains('/list-your-resort'));
+    });
+  });
+
   group('finance', () {
     test('owner, admin and accountant open /finance', () {
       expect(_to(_superAdmin, _ownerM, '/finance'), null);
