@@ -1,7 +1,15 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/core/router.dart';
 import 'package:pasala/data/models/app_user.dart';
+import 'package:pasala/data/models/current_charges.dart';
 import 'package:pasala/data/models/resort_membership.dart';
+import 'package:pasala/data/repositories/auth_repository.dart';
+import 'package:pasala/data/repositories/stay_repository.dart';
+import 'package:pasala/features/stay/checkout_screen.dart';
 
 const _ownerM =
     ResortMembership(propertyId: 'r1', resortName: 'R1', role: ResortRole.owner);
@@ -28,6 +36,23 @@ String? _to(AppUser? user, ResortMembership? resort, String path) => redirectFor
       path: path,
       onPreAuthScreen: false,
     );
+
+Iterable<String> _paths(List<RouteBase> routes) sync* {
+  for (final route in routes) {
+    if (route is GoRoute) yield route.path;
+    yield* _paths(route.routes);
+  }
+}
+
+class _NoResort extends CurrentResort {
+  @override
+  ResortMembership? build() => null;
+}
+
+class _StaffResort extends CurrentResort {
+  @override
+  ResortMembership? build() => _staffM;
+}
 
 void main() {
   group('unauthenticated', () {
@@ -70,8 +95,8 @@ void main() {
       expect(landingPathFor(_staff, _staffM), '/staff');
     });
 
-    test('accountant lands on /staff/dashboard', () {
-      expect(landingPathFor(_accountant, _accountantM), '/staff/dashboard');
+    test('accountant lands on /finance', () {
+      expect(landingPathFor(_accountant, _accountantM), '/finance');
     });
 
     test('admin lands on /admin', () {
@@ -82,12 +107,12 @@ void main() {
       expect(landingPathFor(_superAdmin, _ownerM), '/owner');
     });
 
-    test('owner lands on /owner, staff on /staff, accountant on dashboard', () {
+    test('owner lands on /owner, staff on /staff, accountant on /finance', () {
       for (final (role, path) in [
         (ResortRole.owner, '/owner'),
         (ResortRole.admin, '/admin'),
         (ResortRole.staff, '/staff'),
-        (ResortRole.accountant, '/staff/dashboard'),
+        (ResortRole.accountant, '/finance'),
       ]) {
         final m = ResortMembership(propertyId: 'a', resortName: 'A', role: role);
         final u = AppUser(id: 'u', email: 'e', memberships: [m]);
@@ -129,8 +154,8 @@ void main() {
       expect(loginRedirect(_staff, _staffM), '/staff');
     });
 
-    test('accountant -> /staff/dashboard', () {
-      expect(loginRedirect(_accountant, _accountantM), '/staff/dashboard');
+    test('accountant -> /finance', () {
+      expect(loginRedirect(_accountant, _accountantM), '/finance');
     });
 
     test('admin -> /admin', () {
@@ -182,6 +207,7 @@ void main() {
       expect(_to(_staff, _staffM, '/admin/outbox'), null);
       expect(_to(_staff, _staffM, '/admin/check-in'), null);
       expect(_to(_staff, _staffM, '/admin/check-out'), null);
+      expect(_to(_staff, _staffM, '/admin/check-out/res-1'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
@@ -223,6 +249,7 @@ void main() {
       expect(_to(_accountant, _accountantM, '/admin/outbox'), null);
       expect(_to(_accountant, _accountantM, '/admin/check-in'), null);
       expect(_to(_accountant, _accountantM, '/admin/check-out'), null);
+      expect(_to(_accountant, _accountantM, '/admin/check-out/res-1'), null);
     });
 
     test('is redirected away from admin-only management routes', () {
@@ -370,6 +397,118 @@ void main() {
     test('/owner/team requires owner', () {
       expect(_to(_superAdmin, _ownerM, '/owner/team'), null);
       expect(_to(_admin, _adminM, '/owner/team'), '/404');
+    });
+  });
+
+  group('room status grid', () {
+    test('the app router registers /staff/rooms', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(null)),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      final router = container.read(routerProvider);
+
+      expect(_paths(router.configuration.routes), contains('/staff/rooms'));
+    });
+
+    test('/staff/rooms opens for every role at the current resort', () {
+      expect(_to(_superAdmin, _ownerM, '/staff/rooms'), null);
+      expect(_to(_admin, _adminM, '/staff/rooms'), null);
+      expect(_to(_staff, _staffM, '/staff/rooms'), null);
+      expect(_to(_accountant, _accountantM, '/staff/rooms'), null);
+    });
+
+    test('/staff/rooms is closed to customers', () {
+      expect(_to(_customer, null, '/staff/rooms'), '/404');
+    });
+  });
+
+  group('finance', () {
+    test('owner, admin and accountant open /finance', () {
+      expect(_to(_superAdmin, _ownerM, '/finance'), null);
+      expect(_to(_admin, _adminM, '/finance'), null);
+      expect(_to(_accountant, _accountantM, '/finance'), null);
+    });
+
+    test('staff and customers are refused /finance', () {
+      expect(_to(_staff, _staffM, '/finance'), '/404');
+      expect(_to(_customer, null, '/finance'), '/404');
+    });
+
+    test('two memberships and no pick go to /choose-resort first', () {
+      const u = AppUser(id: 'u', email: 'e', memberships: [
+        ResortMembership(propertyId: 'a', resortName: 'A', role: ResortRole.accountant),
+        ResortMembership(propertyId: 'b', resortName: 'B', role: ResortRole.staff),
+      ]);
+      expect(_to(u, null, '/finance'), '/choose-resort');
+    });
+
+    test('an accountant who picked a resort they are only staff at is refused', () {
+      const u = AppUser(id: 'u', email: 'e', memberships: [
+        ResortMembership(propertyId: 'a', resortName: 'A', role: ResortRole.accountant),
+        ResortMembership(propertyId: 'b', resortName: 'B', role: ResortRole.staff),
+      ]);
+      expect(_to(u, u.memberships.last, '/finance'), '/404');
+      expect(_to(u, u.memberships.first, '/finance'), null);
+    });
+
+    test('the app router registers /finance', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(null)),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      final router = container.read(routerProvider);
+
+      expect(_paths(router.configuration.routes), contains('/finance'));
+    });
+  });
+
+  group('desk checkout', () {
+    test('customers are refused /admin/check-out/:reservationId', () {
+      expect(_to(_customer, null, '/admin/check-out/res-1'), '/404');
+    });
+
+    // A web refresh or back/forward rebuilds the page from the URL alone:
+    // no route `extra` survives it, so the reservation id and desk mode
+    // must both live in the path.
+    testWidgets('builds the desk checkout from the URL alone', (tester) async {
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
+        currentResortProvider.overrideWith(_StaffResort.new),
+        currentChargesProvider.overrideWith((ref, id) async => const CurrentCharges(
+              stayAmount: 3000,
+              foodAmount: 0,
+              activityAmount: 0,
+              total: 3000,
+              paid: 1000,
+              balance: 2000,
+            )),
+      ]);
+      addTearDown(container.dispose);
+      // Riverpod 3 auto-disposes an unlistened provider before its stream
+      // emits; keep the signed-in user alive, as the widget tree would.
+      container.listen(currentUserProvider, (_, _) {});
+      await container.read(currentUserProvider.future);
+      final router = container.read(routerProvider);
+
+      // Straight to the URL, as a reload does -- no splash, no `extra`.
+      router.go('/admin/check-out/res-1');
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(routerConfig: router),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      final screen = tester.widget<CheckoutScreen>(find.byType(CheckoutScreen));
+      expect(screen.reservationId, 'res-1');
+      expect(screen.desk, isTrue);
     });
   });
 }

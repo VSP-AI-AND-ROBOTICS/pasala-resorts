@@ -1,3 +1,5 @@
+import 'payment_method.dart';
+
 enum SaleCategory { food, activity }
 
 SaleCategory saleCategoryFromDb(String raw) => switch (raw) {
@@ -24,7 +26,7 @@ class FoodSale {
     required this.quantity,
     required this.unitPrice,
     required this.amount,
-    this.paymentMethod,
+    this.paymentMethod = PaymentMethod.cash,
     this.notes,
   });
 
@@ -36,7 +38,10 @@ class FoodSale {
   final int quantity;
   final num unitPrice;
   final num amount;
-  final String? paymentMethod;
+  /// How the guest paid at the desk. Never [PaymentMethod.gateway]:
+  /// `food_activity_sales_not_gateway` (0048) refuses it, and the form
+  /// offers [PaymentMethod.desk] only.
+  final PaymentMethod paymentMethod;
   final String? notes;
 
   factory FoodSale.fromJson(Map<String, dynamic> json) => FoodSale(
@@ -48,7 +53,7 @@ class FoodSale {
         quantity: (json['quantity'] as num?)?.toInt() ?? 1,
         unitPrice: (json['unit_price'] as num?) ?? 0,
         amount: (json['amount'] as num?) ?? 0,
-        paymentMethod: json['payment_method'] as String?,
+        paymentMethod: PaymentMethod.fromWire(json['payment_method'] as String?),
         notes: json['notes'] as String?,
       );
 
@@ -62,7 +67,7 @@ class FoodSale {
         'quantity': quantity,
         'unit_price': unitPrice,
         'amount': amount,
-        'payment_method': paymentMethod,
+        'payment_method': paymentMethod.wire,
         'notes': notes,
       };
 }

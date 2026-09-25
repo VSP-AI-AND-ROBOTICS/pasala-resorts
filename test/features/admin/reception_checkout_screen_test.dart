@@ -5,8 +5,11 @@ import 'package:go_router/go_router.dart';
 import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/models/resort_membership.dart';
+import 'package:pasala/data/repositories/room_status_repository.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
 import 'package:pasala/features/admin/reception_checkout_screen.dart';
+
+import '../../support/fake_room_board_source.dart';
 
 const _resort =
     ResortMembership(propertyId: 'p1', resortName: 'Pasala', role: ResortRole.admin);
@@ -37,7 +40,7 @@ Widget _appFor(List<Reservation> guests) {
           path: '/admin/check-out',
           builder: (_, _) => const ReceptionCheckoutScreen()),
       GoRoute(
-          path: '/my-stay/checkout',
+          path: '/admin/check-out/:reservationId',
           builder: (_, _) => const Text('CHECKOUT SCREEN')),
     ],
   );
@@ -105,5 +108,89 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Guest'), findsOneWidget);
+  });
+
+  testWidgets('returning from checkout refetches the room board',
+      (tester) async {
+    final board = FakeRoomBoardSource();
+    final router = GoRouter(
+      initialLocation: '/admin/check-out',
+      routes: [
+        GoRoute(
+            path: '/admin/check-out',
+            builder: (_, _) => const ReceptionCheckoutScreen()),
+        GoRoute(
+            path: '/admin/check-out/:reservationId',
+            builder: (_, _) => const Text('CHECKOUT SCREEN')),
+      ],
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        checkedInProvider.overrideWith(
+            (ref, propertyId) async => [_checkedIn('r1', customerName: 'Ravi Kumar')]),
+        currentResortProvider.overrideWith(_FixedResort.new),
+        roomBoardSourceProvider.overrideWithValue(board),
+      ],
+      child: MaterialApp.router(
+        routerConfig: router,
+        // Stands in for an open Rooms tab, which keeps the board alive.
+        builder: (context, child) => Stack(children: [
+          child!,
+          Consumer(builder: (_, ref, _) {
+            ref.watch(roomBoardProvider('p1'));
+            return const SizedBox.shrink();
+          }),
+        ]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final before = board.boardCalls.length;
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Check Out'));
+    await tester.pumpAndSettle();
+    GoRouter.of(tester.element(find.text('CHECKOUT SCREEN'))).pop();
+    await tester.pumpAndSettle();
+
+    expect(board.boardCalls.length, greaterThan(before));
+  });
+
+  // The desk checkout is addressed by its URL alone -- a route `extra`
+  // does not survive a web refresh or back/forward.
+  testWidgets('Check Out opens the desk checkout for that booking by URL',
+      (tester) async {
+    String? location;
+    Object? extra;
+    final router = GoRouter(
+      initialLocation: '/admin/check-out',
+      routes: [
+        GoRoute(
+            path: '/admin/check-out',
+            builder: (_, _) => const ReceptionCheckoutScreen(),
+            routes: [
+              GoRoute(
+                  path: ':reservationId',
+                  builder: (_, state) {
+                    location = state.matchedLocation;
+                    extra = state.extra;
+                    return const Text('CHECKOUT SCREEN');
+                  }),
+            ]),
+      ],
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        checkedInProvider.overrideWith(
+            (ref, propertyId) async => [_checkedIn('r1', customerName: 'Ravi Kumar')]),
+        currentResortProvider.overrideWith(_FixedResort.new),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Check Out'));
+    await tester.pumpAndSettle();
+
+    expect(location, '/admin/check-out/r1');
+    expect(extra, isNull);
   });
 }

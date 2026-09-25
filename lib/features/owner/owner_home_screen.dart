@@ -21,7 +21,8 @@ import '../reports/providers.dart';
 /// first (revenue and net profit this month, from the same
 /// `dashboard_summary()` RPC `BusinessDashboardScreen` already reads) --
 /// the same "real data at the top, then the destination grid" shape as
-/// `AdminHomeScreen`. The 9 destination tiles below are unchanged.
+/// `AdminHomeScreen`. The destination tiles follow, including Rooms (the
+/// room status grid).
 class OwnerHomeScreen extends ConsumerWidget {
   const OwnerHomeScreen({super.key});
 
@@ -31,6 +32,12 @@ class OwnerHomeScreen extends ConsumerWidget {
       title: 'Business dashboard',
       subtitle: 'Revenue, occupancy, sales and expenses at a glance',
       path: '/owner/dashboard',
+    ),
+    (
+      icon: Icons.account_balance_outlined,
+      title: 'Finance',
+      subtitle: 'Collections, ledger, tax and settlements',
+      path: '/finance',
     ),
     (
       icon: Icons.trending_up_outlined,
@@ -52,6 +59,12 @@ class OwnerHomeScreen extends ConsumerWidget {
       title: 'Bookings',
       subtitle: 'Every reservation across every property',
       path: '/admin/bookings',
+    ),
+    (
+      icon: Icons.meeting_room_outlined,
+      title: 'Rooms',
+      subtitle: 'Room status, housekeeping and maintenance',
+      path: '/staff/rooms',
     ),
     (
       icon: Icons.restaurant_outlined,

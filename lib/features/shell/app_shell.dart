@@ -67,8 +67,28 @@ class AppShell extends ConsumerWidget {
   // (the staff-operations hub), not `/admin/dashboard` (the financial
   // summary) -- that route stays admin-only-reachable via `AdminMoreScreen`,
   // untouched by this change.
+  // Rooms (the room status grid) sits second: duty managers change room
+  // states and send housekeeping all day. Accountants get it too, read-only.
   static const _staffDestinations = [
     (path: '/staff', icon: Icons.task_alt_outlined, label: 'Today'),
+    (path: '/staff/rooms', icon: Icons.meeting_room_outlined, label: 'Rooms'),
+    (
+      path: '/staff/dashboard',
+      icon: Icons.dashboard_outlined,
+      label: 'Dashboard',
+    ),
+    (
+      path: '/admin/reports',
+      icon: Icons.summarize_outlined,
+      label: 'Reports',
+    ),
+  ];
+
+  // Accountants land on Finance (REQ-07) and keep Rooms (read-only),
+  // Dashboard and Reports. No Today: they have no shift tasks.
+  static const _accountantDestinations = [
+    (path: '/finance', icon: Icons.account_balance_outlined, label: 'Finance'),
+    (path: '/staff/rooms', icon: Icons.meeting_room_outlined, label: 'Rooms'),
     (
       path: '/staff/dashboard',
       icon: Icons.dashboard_outlined,
@@ -88,7 +108,8 @@ class AppShell extends ConsumerWidget {
     final destinations = switch (resort?.role) {
       ResortRole.owner => _ownerDestinations,
       ResortRole.admin => _adminDestinations,
-      ResortRole.staff || ResortRole.accountant => _staffDestinations,
+      ResortRole.staff => _staffDestinations,
+      ResortRole.accountant => _accountantDestinations,
       null => _customerDestinations,
     };
 

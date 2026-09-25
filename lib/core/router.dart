@@ -31,6 +31,7 @@ import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
 import '../features/auth/welcome_screen.dart';
 import '../features/booking/confirmation_screen.dart';
+import '../features/finance/finance_screen.dart';
 import '../features/browse/browse_screen.dart';
 import '../features/browse/customer_reviews_screen.dart';
 import '../features/browse/property_screen.dart';
@@ -57,6 +58,7 @@ import '../features/staff/leave_screen.dart';
 import '../features/staff/my_food_orders_screen.dart';
 import '../features/staff/my_maintenance_issues_screen.dart';
 import '../features/staff/my_service_requests_screen.dart';
+import '../features/staff/room_status_screen.dart';
 import '../features/staff/staff_dashboard_hub_screen.dart';
 import '../features/staff/staff_profile_screen.dart';
 import '../features/staff/time_slots_screen.dart';
@@ -115,7 +117,8 @@ String? redirectFor({
   // them to `/404` as if they held no memberships at all.
   if ((path.startsWith('/admin') ||
           path.startsWith('/staff') ||
-          path.startsWith('/owner')) &&
+          path.startsWith('/owner') ||
+          path.startsWith('/finance')) &&
       resort == null &&
       user.memberships.isNotEmpty) {
     return '/choose-resort';
@@ -132,7 +135,8 @@ String? redirectFor({
     // and `checkout_booking` (0037_stay_checkout.sql) are the same
     // staff-or-above grant too -- reception need not be an admin account to
     // check a guest in or settle their final bill -- so `/admin/check-in`
-    // and `/admin/check-out` join them here as well. Every other
+    // and `/admin/check-out` join them here as well, with the desk
+    // checkout of one booking at `/admin/check-out/:reservationId`. Every other
     // `/admin/*` route (properties, units, rates, blocking, the bookings
     // list) stays admin-only, matching the RLS/RPC surfaces that actually
     // write data.
@@ -141,7 +145,8 @@ String? redirectFor({
             path == '/admin/reports' ||
             path == '/admin/outbox' ||
             path == '/admin/check-in' ||
-            path == '/admin/check-out');
+            path == '/admin/check-out' ||
+            path.startsWith('/admin/check-out/'));
     final isAdminHere =
         resort != null && const {ResortRole.owner, ResortRole.admin}.contains(resort.role);
     if (!isAdminHere && !staffOrAboveOk) return '/404';
@@ -155,6 +160,15 @@ String? redirectFor({
     }
   }
   if (path.startsWith('/staff') && resort == null) return '/404';
+  // Finance (REQ-07): owner, admin and accountant at the current resort.
+  // report_collections, report_ledger, report_settlements and
+  // finance_summary assert the same roles in Postgres; plain staff keep
+  // their `/admin/reports` view and get /404 here.
+  if (path.startsWith('/finance') &&
+      !const {ResortRole.owner, ResortRole.admin, ResortRole.accountant}
+          .contains(resort?.role)) {
+    return '/404';
+  }
   // The Owner flow (Business Dashboard -> ... -> Settings) is a distinct,
   // more powerful surface than `/admin` -- Cancellation Policy and Booking
   // Rules write data (`refund_rules`, `properties.min_nights`/`max_nights`)
@@ -209,12 +223,10 @@ String landingPathFor(AppUser user, ResortMembership? resort) {
   return switch (resort.role) {
     ResortRole.owner => '/owner',
     ResortRole.admin => '/admin',
-    // Lands on the staff-operations hub, not `/admin/dashboard` (the
-    // financial summary `AdminHomeScreen` still links to for admin) --
-    // that route is no longer reachable from either role's own nav (see
-    // `AppShell._staffDestinations`), so landing there would strand them
-    // one tap short of the tabs they actually have.
-    ResortRole.accountant => '/staff/dashboard',
+    // Finance (REQ-07) is the accountant's own screen -- collections,
+    // ledger, tax and settlements -- and the first tab of their bar (see
+    // `AppShell._accountantDestinations`).
+    ResortRole.accountant => '/finance',
     ResortRole.staff => '/staff',
   };
 }
@@ -431,6 +443,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/owner/team',
             builder: (_, _) => const TeamScreen(),
           ),
+          // Finance (REQ-07). Owner, admin and accountant only (see
+          // redirectFor); the report functions enforce the same in Postgres.
+          GoRoute(
+            path: '/finance',
+            builder: (_, _) => const FinanceScreen(),
+          ),
           GoRoute(path: '/staff', builder: (_, _) => const TodayScreen()),
           GoRoute(
             path: '/staff/dashboard',
@@ -476,6 +494,14 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/staff/maintenance',
             builder: (_, _) => const StaffMaintenanceIssuesScreen(),
           ),
+          // Room status grid (REQ-06). Open to every role at the current
+          // resort through the `/staff/*` rule in redirectFor; the screen
+          // hides actions from accountants, and set_room_status /
+          // dispatch_housekeeping enforce the roles in Postgres.
+          GoRoute(
+            path: '/staff/rooms',
+            builder: (_, _) => const RoomStatusScreen(),
+          ),
           GoRoute(
             path: '/admin/check-in',
             builder: (_, _) => const ReceptionCheckinScreen(),
@@ -483,6 +509,19 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/check-out',
             builder: (_, _) => const ReceptionCheckoutScreen(),
+          ),
+          // Reception's desk checkout. The reservation id and desk mode
+          // both live in the URL so a web refresh or back/forward rebuilds
+          // it -- a route `extra` does not survive either.
+          GoRoute(
+            path: '/admin/check-out/:reservationId',
+            pageBuilder: (_, state) => fadeSlidePage(
+              CheckoutScreen(
+                reservationId: state.pathParameters['reservationId']!,
+                desk: true,
+              ),
+              state,
+            ),
           ),
           GoRoute(
             path: '/admin/kitchen-orders',
@@ -580,7 +619,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/my-stay/checkout',
             pageBuilder: (_, state) => fadeSlidePage(
-              CheckoutScreen(reservationId: state.extra! as String),
+              checkoutScreenFor(state.extra),
               state,
             ),
           ),

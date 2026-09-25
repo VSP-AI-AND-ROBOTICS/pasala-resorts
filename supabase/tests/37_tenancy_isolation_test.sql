@@ -1,5 +1,5 @@
 begin;
-select plan(72);
+select plan(77);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -361,6 +361,26 @@ set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000c","
 select throws_ok($$select public.check_out_attendance('aaaaaaaa-0000-4000-8000-000000000041')$$,
   'P0022', null, 'staff cannot check out at a suspended resort');
 
+-- Room status (0047): nothing at A reaches B's rooms. Fixture as the
+-- superuser with no authenticated caller.
+reset role;
+set local request.jwt.claims to '';
+insert into public.unit_room_status (unit_id, state)
+  values ('bbbbbbbb-0000-4000-8000-000000000011', 'dirty');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000c","role":"authenticated"}';
+select throws_ok($$select * from public.room_status_board('bbbbbbbb-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'A staff cannot read B''s room board');
+select throws_ok($$select public.set_room_status('bbbbbbbb-0000-4000-8000-000000000011', 'ready')$$,
+  'P0020', null, 'A staff cannot change a B room');
+select throws_ok($$select public.dispatch_housekeeping('bbbbbbbb-0000-4000-8000-000000000011',
+  'a0000000-0000-0000-0000-00000000000c')$$, 'P0020', null, 'A staff cannot send housekeeping to a B room');
+select throws_ok($$select * from public.list_dispatchable_staff('bbbbbbbb-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'A staff cannot list B''s housekeepers');
+set local request.jwt.claims to '{"sub":"a0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+select is((select count(*)::int from public.unit_room_status), 0,
+  'A owner reads none of B''s room rows');
+
 -- Catalog guards: fail the suite when a future table, policy or security
 -- definer function is added without resort scoping.
 reset role;
@@ -406,6 +426,22 @@ select is(
         'ical_export_public','ical_import_event','ical_poll_feed','ical_poll_all_feeds',
         'list_resort_members','add_resort_member','set_member_role','remove_resort_member',
         'platform_resorts','set_resort_status','create_resort',
+        -- 0049: subscriptions. The platform functions check
+        -- is_platform_admin(); my_resort_subscription asserts owner/admin
+        -- at the resort it is given.
+        'platform_summary','my_resort_subscription','set_resort_subscription',
+        'set_plan_price',
+        -- 0047: room status. Each asserts the caller's role at the resort
+        -- of the unit (or the resort) it is given.
+        'room_status_board','set_room_status','dispatch_housekeeping',
+        'list_dispatchable_staff',
+        -- 0048: finance reports. Each asserts owner/admin/accountant at the
+        -- resort it is given. (checkout_booking is already listed above.)
+        'report_collections','report_ledger','report_settlements','finance_summary',
+        -- 0047: tasks_housekeeping_done is a trigger function (not callable
+        -- as an RPC); it fires only on a task update that tasks_update RLS
+        -- and tasks_enforce_write already allowed.
+        'tasks_housekeeping_done',
         -- 0044: properties_guard_status checks is_platform_admin() directly
         -- before allowing a status change; reviews_set_author_name has no
         -- check of its own, but it only ever fires on a row the reviews_insert
