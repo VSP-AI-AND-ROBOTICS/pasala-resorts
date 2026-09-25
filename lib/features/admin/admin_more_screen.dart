@@ -34,7 +34,7 @@ class AdminMoreScreen extends StatelessWidget {
     (
       icon: Icons.outbox_outlined,
       title: 'Outbox',
-      subtitle: 'Queued booking notifications -- not yet sent to anyone',
+      subtitle: 'Booking emails and SMS, and whether each was sent',
       path: '/admin/outbox',
     ),
     (

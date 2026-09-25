@@ -9,12 +9,11 @@ import '../../data/models/notification_settings.dart';
 import '../../data/repositories/notification_settings_repository.dart';
 
 /// Notification settings -- per-channel enable/disable toggles
-/// (`0028_notification_settings.sql`). Every channel defaults to enabled;
-/// turning one off here makes `enqueue_outbox_message` skip it with an
-/// honest "disabled in settings" reason instead of queuing it. This does
-/// NOT mean any channel actually sends anything -- see `/admin/outbox`'s
-/// permanent "nothing has ever been sent" banner, which this screen does
-/// not change.
+/// (`0028_notification_settings.sql`). Every channel defaults to enabled.
+/// Turning one off skips that channel's messages, both when they are
+/// queued (`enqueue_outbox_message`) and when the sender claims them
+/// (`claim_outbox_batch`, 0056), so messages already queued are not sent
+/// either.
 class NotificationSettingsScreen extends ConsumerWidget {
   const NotificationSettingsScreen({super.key, required this.propertyId});
 
@@ -57,9 +56,9 @@ class NotificationSettingsScreen extends ConsumerWidget {
               child: const Padding(
                 padding: EdgeInsets.all(Spacing.md),
                 child: Text(
-                  'These toggles only decide whether a message is queued. No '
-                  'email, SMS, or WhatsApp provider is configured yet, so nothing '
-                  'sends regardless -- see the Outbox screen.',
+                  'Turn a channel off to stop sending it for this resort. '
+                  'Messages already queued for that channel are skipped too. '
+                  'The Outbox shows what was sent.',
                 ),
               ),
             ),

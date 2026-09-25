@@ -3,20 +3,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/current_resort.dart';
+import '../../core/errors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/failure_view.dart';
 import '../../core/widgets/section_header.dart';
 import '../../data/models/outbox_message.dart';
+import '../../data/models/resort_membership.dart';
+import '../../data/repositories/outbox_repository.dart';
+import 'delivery_status_panel.dart';
 import 'providers.dart';
 
 final _timestamp = DateFormat('d MMM yyyy, HH:mm');
-
-String _channelLabel(OutboxChannel channel) => switch (channel) {
-      OutboxChannel.email => 'Email',
-      OutboxChannel.sms => 'SMS',
-      OutboxChannel.whatsapp => 'WhatsApp',
-    };
+final _clockTime = DateFormat('HH:mm');
 
 IconData _channelIcon(OutboxChannel channel) => switch (channel) {
       OutboxChannel.email => Icons.mail_outline,
@@ -24,7 +24,7 @@ IconData _channelIcon(OutboxChannel channel) => switch (channel) {
       OutboxChannel.whatsapp => Icons.chat_outlined,
     };
 
-String _statusLabel(OutboxStatus status) => switch (status) {
+String outboxStatusLabel(OutboxStatus status) => switch (status) {
       OutboxStatus.pending => 'Pending',
       OutboxStatus.sent => 'Sent',
       OutboxStatus.failed => 'Failed',
@@ -32,9 +32,9 @@ String _statusLabel(OutboxStatus status) => switch (status) {
       OutboxStatus.dryRun => 'Dry run',
     };
 
-/// The order sections appear in (Task 9 of the P7 plan rewrites this
-/// screen around the delivery status panel).
-const _statusOrder = [
+/// Section order: what is still on its way, what did not go out, then what
+/// did.
+const outboxStatusOrder = [
   OutboxStatus.pending,
   OutboxStatus.failed,
   OutboxStatus.dryRun,
@@ -42,31 +42,87 @@ const _statusOrder = [
   OutboxStatus.sent,
 ];
 
-/// `/admin/outbox` -- every queued (or skipped) notification, grouped by
-/// status. Reachable by staff-or-above; RLS (`outbox_read`) is the real
-/// enforcement underneath.
-///
-/// The banner up top is not a status message that happens to be showing
-/// right now -- it is a permanent, structural fact about this phase of the
-/// product: there is no email/SMS/WhatsApp provider wired up, so nothing
-/// on this screen was ever delivered. It has no close button and is not
-/// gated behind any provider/flag, so no future configuration change can
-/// make it silently disappear -- the day a real sender ships, this banner
-/// is deleted in the same change, not hidden by a setting.
+/// The one extra line under a row's channel and template, or null. A row
+/// on its first attempt (no error yet) has none.
+String? attemptLine(OutboxMessage m) => switch (m.status) {
+      OutboxStatus.pending
+          when m.attempts > 0 && m.lastError != null && m.nextAttemptAt != null =>
+        'Attempt ${m.attempts} of $outboxMaxAttempts failed · next try '
+            '${_clockTime.format(m.nextAttemptAt!.toLocal())}',
+      OutboxStatus.failed =>
+        'Failed after ${m.attempts} attempt${m.attempts == 1 ? '' : 's'}',
+      OutboxStatus.sent when m.sentAt != null =>
+        'Sent ${_timestamp.format(m.sentAt!.toLocal())}',
+      _ => null,
+    };
+
+/// Only a failed or dry-run message can be sent again
+/// (`retry_outbox_message`, P0037 otherwise).
+bool canSendAgain(OutboxMessage m) =>
+    m.status == OutboxStatus.failed || m.status == OutboxStatus.dryRun;
+
+/// `/admin/outbox` -- every guest notification for the current resort,
+/// grouped by status, under a panel that says how each channel is being
+/// delivered and when the sender last ran. Reachable by staff and above
+/// (RLS `outbox_read` underneath); Send again is for owners and admins,
+/// which `retry_outbox_message` enforces too.
 class OutboxScreen extends ConsumerWidget {
-  const OutboxScreen({super.key});
+  const OutboxScreen({super.key, this.clock});
+
+  /// Injected so tests can pin "now" for the panel's "last checked" line;
+  /// null means the real clock.
+  final DateTime Function()? clock;
+
+  Future<void> _sendAgain(
+    BuildContext context,
+    WidgetRef ref,
+    String propertyId,
+    OutboxMessage message,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(outboxSourceProvider).retry(message.id);
+      ref.invalidate(outboxMessagesProvider(propertyId));
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Queued to send again.')),
+      );
+    } on BookingFailure catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(FailureView.messageFor(e))),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final propertyId = ref.watch(currentResortProvider)!.propertyId;
+    final resort = ref.watch(currentResortProvider)!;
+    final propertyId = resort.propertyId;
+    final canRetry =
+        const {ResortRole.owner, ResortRole.admin}.contains(resort.role);
     final messagesAsync = ref.watch(outboxMessagesProvider(propertyId));
+    final statusAsync = ref.watch(outboxDeliveryStatusProvider(propertyId));
+
+    void refresh() {
+      ref.invalidate(outboxDeliveryStatusProvider(propertyId));
+      ref.invalidate(outboxMessagesProvider(propertyId));
+    }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Outbox')),
+      appBar: AppBar(
+        title: const Text('Outbox'),
+        actions: [
+          IconButton(
+            key: const Key('outbox-refresh'),
+            tooltip: 'Refresh',
+            icon: const Icon(Icons.refresh),
+            onPressed: refresh,
+          ),
+        ],
+      ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _NoProviderBanner(),
+          DeliveryStatusPanel(status: statusAsync, now: (clock ?? DateTime.now)()),
           Expanded(
             child: AsyncView(
               value: messagesAsync,
@@ -78,44 +134,15 @@ class OutboxScreen extends ConsumerWidget {
                     'Messages appear here as bookings are confirmed or '
                     'cancelled.',
               ),
-              data: (messages) => _GroupedList(messages: messages),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Deliberately a plain, parameterless [StatelessWidget]: there is no
-/// property on it that could suppress or reword this banner, so it cannot
-/// be configured away -- see the class doc on [OutboxScreen].
-class _NoProviderBanner extends StatelessWidget {
-  const _NoProviderBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      key: const Key('no-provider-banner'),
-      width: double.infinity,
-      color: scheme.errorContainer,
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.md,
-        vertical: Spacing.sm,
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.warning_amber_outlined, color: scheme.onErrorContainer),
-          const SizedBox(width: Spacing.sm),
-          Expanded(
-            child: Text(
-              'No delivery provider is configured. Messages are queued but '
-              'not sent.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onErrorContainer,
-                    fontWeight: FontWeight.w600,
-                  ),
+              data: (messages) => RefreshIndicator(
+                onRefresh: () async => refresh(),
+                child: _GroupedList(
+                  messages: messages,
+                  onSendAgain: canRetry
+                      ? (m) => _sendAgain(context, ref, propertyId, m)
+                      : null,
+                ),
+              ),
             ),
           ),
         ],
@@ -125,9 +152,12 @@ class _NoProviderBanner extends StatelessWidget {
 }
 
 class _GroupedList extends StatelessWidget {
-  const _GroupedList({required this.messages});
+  const _GroupedList({required this.messages, required this.onSendAgain});
 
   final List<OutboxMessage> messages;
+
+  /// Null when the viewer may not send messages again.
+  final void Function(OutboxMessage message)? onSendAgain;
 
   @override
   Widget build(BuildContext context) {
@@ -136,11 +166,13 @@ class _GroupedList extends StatelessWidget {
       groups.putIfAbsent(message.status, () => []).add(message);
     }
     final sections = [
-      for (final status in _statusOrder)
+      for (final status in outboxStatusOrder)
         if (groups[status]?.isNotEmpty ?? false) status,
     ];
+    final send = onSendAgain;
 
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(bottom: Spacing.lg),
       itemCount: sections.length,
       itemBuilder: (context, i) {
@@ -149,14 +181,19 @@ class _GroupedList extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SectionHeader(title: '${_statusLabel(status)} (${rows.length})'),
+            SectionHeader(title: '${outboxStatusLabel(status)} (${rows.length})'),
             for (final message in rows)
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: Spacing.md,
                   vertical: Spacing.xs,
                 ),
-                child: _OutboxTile(message: message),
+                child: _OutboxTile(
+                  message: message,
+                  onSendAgain: send != null && canSendAgain(message)
+                      ? () => send(message)
+                      : null,
+                ),
               ),
           ],
         );
@@ -166,16 +203,23 @@ class _GroupedList extends StatelessWidget {
 }
 
 class _OutboxTile extends StatelessWidget {
-  const _OutboxTile({required this.message});
+  const _OutboxTile({required this.message, required this.onSendAgain});
 
   final OutboxMessage message;
+  final VoidCallback? onSendAgain;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final extra = attemptLine(message);
+    // A dry run is expected until keys are set -- not an error to alarm on.
+    final errorColor = message.status == OutboxStatus.dryRun
+        ? scheme.onSurfaceVariant
+        : scheme.error;
 
     return Card(
+      key: Key('outbox-row-${message.id}'),
       child: Padding(
         padding: const EdgeInsets.all(Spacing.md),
         child: Row(
@@ -190,15 +234,28 @@ class _OutboxTile extends StatelessWidget {
                   Text(message.recipient, style: textTheme.bodyLarge),
                   const SizedBox(height: Spacing.xs),
                   Text(
-                    '${_channelLabel(message.channel)} · ${message.template}',
+                    '${channelLabel(message.channel)} · ${message.template}',
                     style: textTheme.bodySmall
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
+                  if (extra != null) ...[
+                    const SizedBox(height: Spacing.xs),
+                    Text(extra, style: textTheme.bodySmall),
+                  ],
                   if (message.lastError != null) ...[
                     const SizedBox(height: Spacing.xs),
                     Text(
                       message.lastError!,
-                      style: textTheme.bodySmall?.copyWith(color: scheme.error),
+                      style: textTheme.bodySmall?.copyWith(color: errorColor),
+                    ),
+                  ],
+                  if (onSendAgain != null) ...[
+                    const SizedBox(height: Spacing.xs),
+                    TextButton.icon(
+                      key: Key('outbox-send-again-${message.id}'),
+                      onPressed: onSendAgain,
+                      icon: const Icon(Icons.replay),
+                      label: const Text('Send again'),
                     ),
                   ],
                 ],
