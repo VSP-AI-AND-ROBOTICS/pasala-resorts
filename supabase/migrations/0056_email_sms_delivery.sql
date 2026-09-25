@@ -39,17 +39,16 @@ alter table public.outbox_channel_status enable row level security;
 revoke all on public.outbox_channel_status from anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------
--- outbox_retry_delay (Task 3 replaces this stub)
+-- outbox_retry_delay: how long a row waits after its n-th failed attempt:
+-- 1, 2, 4, 8 minutes. Not security definer; it reads nothing.
 
 create function public.outbox_retry_delay(p_attempts int)
 returns interval
-language plpgsql
+language sql
 immutable
 set search_path = public, pg_temp
 as $$
-begin
-  raise exception using errcode = '0A000', message = 'not_implemented';
-end;
+  select make_interval(mins => power(2, greatest(coalesce(p_attempts, 1), 1) - 1)::int);
 $$;
 
 -- ---------------------------------------------------------------------
@@ -236,7 +235,11 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------
--- complete_outbox_message (Task 3 replaces this stub)
+-- complete_outbox_message: records one claimed row's result. The
+-- dispatcher only says what happened; this decides what it means. A
+-- retryable failure waits outbox_retry_delay(attempts), and the fifth
+-- attempt is final. Only a row in flight (pending, claimed at least once)
+-- can be completed.
 
 create function public.complete_outbox_message(
   p_id          uuid,
@@ -248,13 +251,57 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_row   public.outbox;
+  v_error text := left(nullif(btrim(coalesce(p_error, '')), ''), 1000);
 begin
-  raise exception using errcode = '0A000', message = 'not_implemented';
+  if p_outcome is null or p_outcome not in ('sent', 'dry_run', 'retry', 'failed') then
+    raise exception using errcode = '22023', message = 'unknown_outcome';
+  end if;
+
+  select * into v_row from public.outbox where id = p_id for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+  if v_row.status <> 'pending' or v_row.attempts = 0 then
+    raise exception using errcode = 'P0037', message = 'outbox_not_in_flight';
+  end if;
+
+  if p_outcome = 'sent' then
+    update public.outbox
+       set status = 'sent',
+           sent_at = now(),
+           provider_message_id = nullif(btrim(coalesce(p_provider_id, '')), ''),
+           last_error = null
+     where id = p_id;
+    return 'sent';
+  elsif p_outcome = 'dry_run' then
+    update public.outbox
+       set status = 'dry_run',
+           last_error = coalesce(v_error, 'Dry run: no provider key is set')
+     where id = p_id;
+    return 'dry_run';
+  elsif p_outcome = 'failed' or v_row.attempts >= 5 then
+    update public.outbox
+       set status = 'failed',
+           last_error = coalesce(v_error, 'delivery failed')
+     where id = p_id;
+    return 'failed';
+  else
+    update public.outbox
+       set next_attempt_at = now() + public.outbox_retry_delay(v_row.attempts),
+           last_error = coalesce(v_error, 'delivery failed')
+     where id = p_id;
+    return 'pending';
+  end if;
 end;
 $$;
 
 -- ---------------------------------------------------------------------
--- retry_outbox_message (Task 3 replaces this stub)
+-- retry_outbox_message: Send again, for a failed or dry-run message. The
+-- resort comes from the row, never from the client; owner/admin at an
+-- active resort only. The row starts over as a fresh, due pending row and
+-- the change is audited.
 
 create function public.retry_outbox_message(p_message uuid)
 returns void
@@ -262,8 +309,34 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_row public.outbox;
 begin
-  raise exception using errcode = '0A000', message = 'not_implemented';
+  select * into v_row from public.outbox where id = p_message;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'not_found';
+  end if;
+  perform public.assert_resort_role(v_row.property_id, true, 'owner', 'admin');
+
+  select * into v_row from public.outbox where id = p_message for update;
+  if v_row.status not in ('failed', 'dry_run') then
+    raise exception using errcode = 'P0037', message = 'not_retryable';
+  end if;
+
+  update public.outbox
+     set status = 'pending',
+         attempts = 0,
+         next_attempt_at = now(),
+         last_attempt_at = null,
+         last_error = null,
+         provider_message_id = null
+   where id = p_message;
+
+  insert into public.audit_log (property_id, actor_id, entity, entity_id, action, before, after)
+  values (v_row.property_id, auth.uid(), 'outbox', p_message, 'retry',
+          jsonb_build_object('status', v_row.status, 'attempts', v_row.attempts,
+                             'last_error', v_row.last_error),
+          jsonb_build_object('status', 'pending', 'attempts', 0));
 end;
 $$;
 

@@ -1,7 +1,7 @@
 -- P7: email and SMS delivery (0056_email_sms_delivery.sql). Sections are
 -- added task by task; each relies on the state the earlier ones leave.
 begin;
-select plan(37);
+select plan(66);
 
 -- === fixtures ===============================================================
 -- The seed's confirmed booking queued outbox rows of its own; clear them
@@ -215,6 +215,137 @@ select is(
   (select status::text from public.outbox
     where template = 'payment_success' and property_id = 'd7a00000-0000-4000-8000-000000000001'),
   'failed', 'a row at the attempt limit is failed');
+
+-- === Task 3: completing, backoff and Send again ================================
+select is(public.outbox_retry_delay(1), interval '1 minute', 'the first retry waits one minute');
+select is(public.outbox_retry_delay(2), interval '2 minutes', 'the second retry waits two');
+select is(public.outbox_retry_delay(4), interval '8 minutes', 'the fourth retry waits eight');
+select is(public.outbox_retry_delay(0), interval '1 minute', 'zero attempts counts as one');
+
+-- The rows this section works on, by name.
+select set_config('p7.a1', (select id::text from public.outbox where template = 'booking_confirmation'
+  and property_id = 'd7a00000-0000-4000-8000-000000000001'), true);
+select set_config('p7.a2', (select id::text from public.outbox where template = 'payment_success'
+  and property_id = 'd7a00000-0000-4000-8000-000000000001'), true);
+select set_config('p7.b1', (select id::text from public.outbox where template = 'booking_confirmation'
+  and property_id = 'd7b00000-0000-4000-8000-000000000001'), true);
+select set_config('p7.b2', (select id::text from public.outbox where template = 'payment_success'
+  and property_id = 'd7b00000-0000-4000-8000-000000000001'), true);
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+select throws_ok($$select public.complete_outbox_message(current_setting('p7.b1')::uuid, 'sent')$$,
+  '42501', null, 'a resort owner cannot complete outbox rows');
+reset role;
+set local request.jwt.claims to '';
+
+set local role service_role;
+select is(public.complete_outbox_message(current_setting('p7.b1')::uuid, 'sent', null, 're_b1')::text,
+  'sent', 'a delivered row is marked sent');
+select throws_ok($$select public.complete_outbox_message(current_setting('p7.b1')::uuid, 'sent')$$,
+  'P0037', null, 'a row that is no longer in flight cannot be completed again');
+select is(public.complete_outbox_message(current_setting('p7.b2')::uuid, 'retry', 'resend 503: busy')::text,
+  'pending', 'a retryable failure goes back to pending');
+select is(public.complete_outbox_message(current_setting('p7.a1')::uuid, 'dry_run',
+                                         'Dry run: RESEND_API_KEY is not set')::text,
+  'dry_run', 'a dry run is recorded as dry_run');
+select throws_ok($$select public.complete_outbox_message(current_setting('p7.a1')::uuid, 'bogus')$$,
+  '22023', null, 'an unknown outcome is refused');
+select throws_ok($$select public.complete_outbox_message('d7a00000-0000-4000-8000-0000000000ff', 'sent')$$,
+  'P0002', null, 'an unknown row is refused');
+reset role;
+
+select is(
+  (select sent_at is not null and provider_message_id = 're_b1' and last_error is null
+     from public.outbox where id = current_setting('p7.b1')::uuid),
+  true, 'a sent row keeps the provider id and the send time');
+select is(
+  (select status::text || ' / ' || attempts || ' / ' || last_error
+     from public.outbox where id = current_setting('p7.b2')::uuid),
+  'pending / 1 / resend 503: busy', 'a retried row keeps its attempt count and error');
+select is((select next_attempt_at from public.outbox where id = current_setting('p7.b2')::uuid),
+  now() + interval '1 minute', 'after the first attempt the row waits one minute');
+select is((select last_error from public.outbox where id = current_setting('p7.a1')::uuid),
+  'Dry run: RESEND_API_KEY is not set', 'the dry-run reason is kept');
+
+-- The fifth failed attempt is final.
+update public.outbox set attempts = 5, next_attempt_at = now() + interval '5 minutes'
+ where id = current_setting('p7.b2')::uuid;
+set local role service_role;
+select is(public.complete_outbox_message(current_setting('p7.b2')::uuid, 'retry',
+                                         'resend 503: still busy')::text,
+  'failed', 'the fifth failed attempt fails the row');
+reset role;
+
+-- A permanent failure is final at once.
+insert into public.outbox (id, reservation_id, channel, recipient, template, subject, body, attempts)
+values ('d7b00000-0000-4000-8000-000000000031', 'd7b00000-0000-4000-8000-000000000021', 'email',
+        'p7-bala@example.com', 'cancellation', 'Cancelled', 'Your booking was cancelled.', 1);
+set local role service_role;
+select is(public.complete_outbox_message('d7b00000-0000-4000-8000-000000000031', 'failed',
+                                         'resend 422: invalid to')::text,
+  'failed', 'a permanent failure is final at once');
+reset role;
+
+-- Nothing that is sent, failed, dry run or skipped is claimed again.
+update public.outbox set next_attempt_at = now() - interval '1 minute';
+set local role service_role;
+select is((select count(*)::int from public.claim_outbox_batch(10)), 0,
+  'sent, failed, dry-run and skipped rows are never claimed');
+reset role;
+
+-- Send again: owner or admin of the message's resort, failed or dry-run rows only.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000a3","role":"authenticated"}';
+select throws_ok($$select public.retry_outbox_message(current_setting('p7.a2')::uuid)$$,
+  'P0020', null, 'staff cannot send a message again');
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+select throws_ok($$select public.retry_outbox_message(current_setting('p7.a2')::uuid)$$,
+  'P0020', null, 'an accountant cannot send a message again');
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000b1","role":"authenticated"}';
+select throws_ok($$select public.retry_outbox_message(current_setting('p7.a2')::uuid)$$,
+  'P0020', null, 'another resort''s owner cannot send A''s message again');
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
+select lives_ok($$select public.retry_outbox_message(current_setting('p7.a2')::uuid)$$,
+  'an admin sends a failed message again');
+select throws_ok($$select public.retry_outbox_message(current_setting('p7.a2')::uuid)$$,
+  'P0037', null, 'a message already queued again cannot be retried twice');
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+select lives_ok($$select public.retry_outbox_message(current_setting('p7.a1')::uuid)$$,
+  'an owner sends a dry-run message again');
+select throws_ok($$select public.retry_outbox_message('d7a00000-0000-4000-8000-0000000000ff')$$,
+  'P0002', null, 'an unknown message is refused');
+reset role;
+set local request.jwt.claims to '';
+
+select is(
+  (select status::text || ' / ' || attempts || ' / ' || coalesce(last_error, '-')
+          || ' / ' || (next_attempt_at = now())::text
+     from public.outbox where id = current_setting('p7.a2')::uuid),
+  'pending / 0 / - / true', 'Send again resets the row to a fresh, due pending row');
+select is(
+  (select count(*)::int from public.audit_log
+    where entity = 'outbox' and action = 'retry'
+      and entity_id in (current_setting('p7.a1')::uuid, current_setting('p7.a2')::uuid)
+      and property_id = 'd7a00000-0000-4000-8000-000000000001'),
+  2, 'each Send again writes an audit row at the message''s resort');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000b1","role":"authenticated"}';
+select throws_ok($$select public.retry_outbox_message(current_setting('p7.b1')::uuid)$$,
+  'P0037', null, 'a sent message cannot be sent again');
+reset role;
+set local request.jwt.claims to '';
+
+-- A suspended resort's owner cannot send again (reads stay allowed).
+update public.properties set status = 'suspended' where id = 'd7b00000-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000b1","role":"authenticated"}';
+select throws_ok($$select public.retry_outbox_message(current_setting('p7.b2')::uuid)$$,
+  'P0022', null, 'no Send again at a suspended resort');
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'active' where id = 'd7b00000-0000-4000-8000-000000000001';
 
 select * from finish();
 rollback;
