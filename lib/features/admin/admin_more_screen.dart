@@ -32,6 +32,12 @@ class AdminMoreScreen extends StatelessWidget {
       path: '/finance',
     ),
     (
+      icon: Icons.local_offer_outlined,
+      title: 'Coupons',
+      subtitle: 'Discount codes guests enter when they book',
+      path: '/admin/coupons',
+    ),
+    (
       icon: Icons.outbox_outlined,
       title: 'Outbox',
       subtitle: 'Queued booking notifications -- not yet sent to anyone',

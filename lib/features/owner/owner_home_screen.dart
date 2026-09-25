@@ -67,6 +67,12 @@ class OwnerHomeScreen extends ConsumerWidget {
       path: '/staff/rooms',
     ),
     (
+      icon: Icons.local_offer_outlined,
+      title: 'Coupons',
+      subtitle: 'Discount codes guests enter when they book',
+      path: '/admin/coupons',
+    ),
+    (
       icon: Icons.restaurant_outlined,
       title: 'Food & activity sales',
       subtitle: 'Log and review on-site sales',
