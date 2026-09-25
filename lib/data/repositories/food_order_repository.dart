@@ -108,6 +108,9 @@ final foodItemsProvider = FutureProvider.family<List<FoodItem>, String>(
 final myFoodOrdersProvider = FutureProvider.family<List<FoodOrder>, String>(
   (ref, reservationId) =>
       ref.watch(foodOrderRepositoryProvider).myOrders(reservationId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 typedef AllFoodOrdersFilter = ({String propertyId, FoodOrderStatus? status});
@@ -117,4 +120,7 @@ final allFoodOrdersProvider =
   (ref, filter) => ref
       .watch(foodOrderRepositoryProvider)
       .allOrders(propertyId: filter.propertyId, status: filter.status),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

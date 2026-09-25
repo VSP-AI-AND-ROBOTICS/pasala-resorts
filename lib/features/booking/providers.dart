@@ -10,10 +10,16 @@ import '../../data/repositories/catalog_repository.dart';
 /// property-scoped `unitsProvider` in `features/browse/providers.dart`.
 final unitByIdProvider = FutureProvider.family<Unit, String>(
   (ref, unitId) => ref.watch(catalogRepositoryProvider).unit(unitId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 /// A single reservation by id, used by `ConfirmationScreen` after
 /// `confirm_booking` redirects to `/booking/:id`.
 final reservationProvider = FutureProvider.family<Reservation, String>(
   (ref, id) => ref.watch(bookingRepositoryProvider).reservation(id),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

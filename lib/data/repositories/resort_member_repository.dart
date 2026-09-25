@@ -123,4 +123,7 @@ final resortMemberSourceProvider = Provider<ResortMemberSource>(
 final resortMembersProvider =
     FutureProvider.family<List<ResortMember>, String>(
   (ref, propertyId) => ref.watch(resortMemberSourceProvider).list(propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

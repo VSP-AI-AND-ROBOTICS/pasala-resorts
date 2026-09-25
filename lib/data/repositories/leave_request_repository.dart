@@ -108,4 +108,7 @@ final leaveRequestsProvider =
         staffId: filter.staffId,
         status: filter.status,
       ),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

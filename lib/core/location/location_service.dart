@@ -34,6 +34,11 @@ final locationServiceProvider = Provider<LocationService>((ref) {
 /// with `ref.invalidate(currentPlaceProvider)` rather than a fresh
 /// subscription, so the in-flight request survives the badge being briefly
 /// unmounted (e.g. a scroll that rebuilds the hero).
-final currentPlaceProvider = FutureProvider<PlaceLabel?>((ref) {
-  return ref.watch(locationServiceProvider).currentPlace();
-});
+final currentPlaceProvider = FutureProvider<PlaceLabel?>(
+  (ref) {
+    return ref.watch(locationServiceProvider).currentPlace();
+  },
+  // The "Set location" chip is this provider's own Retry button; don't also
+  // auto-retry (Riverpod 3 retries non-Error throws by default).
+  retry: (retryCount, error) => null,
+);

@@ -7,6 +7,9 @@ import '../../data/repositories/report_repository.dart';
 /// show another resort's cached dashboard figures.
 final dashboardSummaryProvider = FutureProvider.family<DashboardSummary, String>(
   (ref, propertyId) => ref.watch(reportRepositoryProvider).dashboard(propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 /// The two report kinds [ReportsScreen] can show, backing its
@@ -24,6 +27,9 @@ final revenueReportProvider =
   (ref, filter) => ref
       .watch(reportRepositoryProvider)
       .revenue(filter.from, filter.to, filter.propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 final occupancyReportProvider =
@@ -31,4 +37,7 @@ final occupancyReportProvider =
   (ref, filter) => ref
       .watch(reportRepositoryProvider)
       .occupancy(filter.from, filter.to, filter.propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

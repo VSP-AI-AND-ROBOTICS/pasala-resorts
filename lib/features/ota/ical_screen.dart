@@ -18,6 +18,9 @@ final _timestamp = DateFormat('d MMM yyyy, HH:mm');
 /// same convention as every other admin-only list in this app.
 final icalFeedsProvider = FutureProvider.family<List<IcalFeed>, String>(
   (ref, unitId) => ref.watch(icalSourceProvider).feeds(unitId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 /// The unit's current export token, from `ical_export_tokens` (also
@@ -25,6 +28,9 @@ final icalFeedsProvider = FutureProvider.family<List<IcalFeed>, String>(
 /// column on `units`).
 final icalExportTokenProvider = FutureProvider.family<String, String>(
   (ref, unitId) => ref.watch(icalSourceProvider).exportToken(unitId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 String _syncMessage(IcalSyncResult result) => switch (result.status) {

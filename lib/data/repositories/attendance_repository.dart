@@ -98,4 +98,7 @@ final attendanceRecordsProvider =
         staffId: filter.staffId,
         date: filter.date,
       ),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

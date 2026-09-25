@@ -100,6 +100,9 @@ final roomBoardSourceProvider = Provider<RoomBoardSource>(
 final roomBoardProvider = FutureProvider.autoDispose
     .family<List<RoomBoardEntry>, String>(
       (ref, propertyId) => ref.watch(roomBoardSourceProvider).board(propertyId),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod
+      // 3 retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );
 
 /// The resort's `staff` members, for the Send housekeeping picker.

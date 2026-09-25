@@ -12,6 +12,9 @@ import '../reports/providers.dart' show ReportFilter;
 final financeSummaryProvider = FutureProvider.autoDispose
     .family<FinanceSummary, String>(
       (ref, propertyId) => ref.watch(financeSourceProvider).summary(propertyId),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod
+      // 3 retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );
 
 final collectionsProvider = FutureProvider.autoDispose
@@ -19,12 +22,18 @@ final collectionsProvider = FutureProvider.autoDispose
       (ref, f) => ref
           .watch(financeSourceProvider)
           .collections(f.from, f.to, f.propertyId),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod
+      // 3 retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );
 
 final ledgerProvider = FutureProvider.autoDispose
     .family<List<LedgerRow>, ReportFilter>(
       (ref, f) =>
           ref.watch(financeSourceProvider).ledger(f.from, f.to, f.propertyId),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod
+      // 3 retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );
 
 final settlementsProvider = FutureProvider.autoDispose
@@ -32,6 +41,9 @@ final settlementsProvider = FutureProvider.autoDispose
       (ref, f) => ref
           .watch(financeSourceProvider)
           .settlements(f.from, f.to, f.propertyId),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod
+      // 3 retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );
 
 /// Call after anything that moves money (a checkout, a walk-in sale), so an

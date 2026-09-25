@@ -10,4 +10,7 @@ import '../../data/repositories/outbox_repository.dart';
 /// queue. Backs [OutboxScreen].
 final outboxMessagesProvider = FutureProvider.family<List<OutboxMessage>, String>(
   (ref, propertyId) => ref.watch(outboxSourceProvider).messages(propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
