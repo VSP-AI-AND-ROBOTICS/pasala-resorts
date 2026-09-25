@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { resortA } from '../fixtures/world.ts';
-import { goTo, landingPath, login } from '../support/index.ts';
+import { goTo, landingPath, login, useBottomNav } from '../support/index.ts';
 import {
   deskGuest,
   setupAccountantFixtures,
@@ -24,21 +24,13 @@ import {
 // so every check here reads the whole semantics tree as an array of lines
 // and matches within one line, rather than chaining locators.
 //
-// Every test narrows the viewport first: the accountant's bottom
+// Every test calls useBottomNav first (a no-op on the phone project): the accountant's bottom
 // navigation bar (Finance/Rooms/Dashboard/Reports) and the Card layout of
 // Collections/Ledger/Settlements (as opposed to their wide-screen
 // DataTable, whose cells really are separate nodes) only render below the
-// 840px breakpoint -- see nav.ts's clickTab.
+// 840px breakpoint -- see nav.ts's useBottomNav.
 
 const accountant = resortA.team.accountant;
-
-async function narrow(page: Page): Promise<void> {
-  // Width only, like nav.ts's own clickTab -- widening the height too
-  // (tried during development) left a full-height semantics node
-  // covering the screen and intercepting every tap.
-  const size = page.viewportSize();
-  await page.setViewportSize({ width: 400, height: size?.height ?? 800 });
-}
 
 /**
  * The semantics tree's whole visible text, one entry per merged node, in
@@ -91,7 +83,7 @@ test.describe('Accountant (Resort A)', () => {
     expect(await login(page, accountant)).toBe(landingPath.accountant);
     await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
 
-    await narrow(page);
+    await useBottomNav(page);
     for (const label of ['Finance', 'Rooms', 'Dashboard', 'Reports']) {
       await expect(page.getByRole('tab', { name: label, exact: true })).toBeVisible();
     }
@@ -104,7 +96,7 @@ test.describe('Accountant (Resort A)', () => {
 
   test('Today tab shows the online vs. front-desk collection split', async ({ page }) => {
     await login(page, accountant);
-    await narrow(page);
+    await useBottomNav(page);
 
     // financeSummaryProvider fetches after the first frame, so the figures
     // can still say "Still loading" for a moment after landing.
@@ -131,7 +123,7 @@ test.describe('Accountant (Resort A)', () => {
 
   test('Collections and Ledger render real data for the month', async ({ page }) => {
     await login(page, accountant);
-    await narrow(page);
+    await useBottomNav(page);
 
     let lines = await switchFinanceTab(
       page,
@@ -161,7 +153,7 @@ test.describe('Accountant (Resort A)', () => {
 
   test('Settlements shows the checked-out booking, advance vs. desk balance', async ({ page }) => {
     await login(page, accountant);
-    await narrow(page);
+    await useBottomNav(page);
 
     const lines = await switchFinanceTab(
       page,
@@ -200,7 +192,7 @@ test.describe('Accountant (Resort A)', () => {
 
   test('the room status grid is read-only for an accountant', async ({ page }) => {
     await login(page, accountant);
-    await narrow(page);
+    await useBottomNav(page);
 
     await goTo(page, '/staff/rooms');
 

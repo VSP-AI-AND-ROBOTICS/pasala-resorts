@@ -8,6 +8,8 @@ import {
   landingPath,
   login,
   logout,
+  reveal,
+  revealAndClick,
 } from '../support/index.ts';
 
 // Staff / Incharge (Resort A). Resort A has three units: Garden Cottage
@@ -62,9 +64,9 @@ test.describe('Staff / Incharge (Resort A)', () => {
     await expect(page.getByRole('checkbox', { name: 'Maintenance (0)', exact: true })).toBeVisible();
 
     // One tile per unit, named by the room.
-    await expect(page.getByRole('button', { name: new RegExp(`^${gardenCottage.name}`) })).toBeVisible();
-    await expect(page.getByRole('button', { name: new RegExp(`^${lakeVilla.name}`) })).toBeVisible();
-    await expect(page.getByRole('button', { name: new RegExp(`^${treeHouse.name}`) })).toBeVisible();
+    for (const unit of [gardenCottage, lakeVilla, treeHouse]) {
+      await reveal(page, page.getByRole('button', { name: new RegExp(`^${unit.name}`) }));
+    }
 
     await logout(page);
   });
@@ -73,7 +75,7 @@ test.describe('Staff / Incharge (Resort A)', () => {
     await login(page, staff);
     await goTo(page, '/staff/rooms');
 
-    await page.getByRole('button', { name: new RegExp(`^${treeHouse.name}`) }).click();
+    await revealAndClick(page, page.getByRole('button', { name: new RegExp(`^${treeHouse.name}`) }));
     // The sheet's ListTile subtitle ("Clean and ready" / "Out of order, with
     // a reason") joins the title in the accessible name.
     await page.getByRole('button', { name: /^Maintenance/ }).click();
@@ -100,7 +102,7 @@ test.describe('Staff / Incharge (Resort A)', () => {
 
     // Clean up: put Tree House back to Available so the fixture world is
     // unchanged for the next run.
-    await page.getByRole('button', { name: new RegExp(`^${treeHouse.name}`) }).click();
+    await revealAndClick(page, page.getByRole('button', { name: new RegExp(`^${treeHouse.name}`) }));
     await page.getByRole('button', { name: /^Available/ }).click();
     await expect(page.getByText(`${treeHouse.name} updated`, { exact: true }).last()).toBeVisible();
     await expect(page.getByRole('checkbox', { name: 'Available (2)', exact: true })).toBeVisible();
@@ -117,7 +119,7 @@ test.describe('Staff / Incharge (Resort A)', () => {
 
     // Send housekeeping to Garden Cottage; Sam StaffA is the only
     // dispatchable staff member at Resort A, so he dispatches to himself.
-    await page.getByRole('button', { name: new RegExp(`^${gardenCottage.name}`) }).click();
+    await revealAndClick(page, page.getByRole('button', { name: new RegExp(`^${gardenCottage.name}`) }));
     await page.getByRole('button', { name: 'Send housekeeping', exact: true }).click();
 
     await expect(page.getByText(`Send housekeeping to ${gardenCottage.name}`, { exact: true })).toBeVisible();

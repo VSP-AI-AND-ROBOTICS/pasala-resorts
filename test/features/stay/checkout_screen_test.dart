@@ -104,6 +104,10 @@ Future<void> _pump(
           builder: (_, state) => CheckoutScreen(
               reservationId: state.pathParameters['reservationId']!, desk: true)),
       GoRoute(
+          path: '/admin/check-out',
+          builder: (_, state) =>
+              Text('CHECK-OUT LIST ${state.uri.queryParameters['checkedOut']}')),
+      GoRoute(
           path: '/my-stay/invoice/:id',
           builder: (_, state) => Text('INVOICE ${state.pathParameters['id']}')),
     ],
@@ -166,7 +170,7 @@ void main() {
         (reservationId: 'r1', paymentRef: 'UTR123', amount: 2000, method: PaymentMethod.upi),
       ]);
       expect(gateway.charges, isEmpty);
-      expect(find.text('INVOICE r1'), findsOneWidget);
+      expect(find.text('CHECK-OUT LIST r1'), findsOneWidget);
     });
 
     testWidgets('a blank reference is sent as none', (tester) async {
@@ -231,8 +235,8 @@ void main() {
 
     // The desk checkout used to be pushed from the check-out list, which
     // refetched these on return; it is now reached by URL (so a reload
-    // keeps it), and a successful checkout goes on to the invoice, so the
-    // screen refetches what checkout_booking changed itself.
+    // keeps it), and a successful checkout goes back to the list by URL
+    // too, so the screen refetches what checkout_booking changed itself.
     testWidgets(
         'a desk checkout refetches the room board, the check-out queue and '
         'the bookings list', (tester) async {
@@ -268,10 +272,21 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
       await tester.pumpAndSettle();
 
-      expect(find.text('INVOICE r1'), findsOneWidget);
+      expect(find.text('CHECK-OUT LIST r1'), findsOneWidget);
       expect(board.boardCalls.length, greaterThan(boardBefore));
       expect(checkedInCalls, greaterThan(checkedInBefore));
       expect(bookingsCalls, greaterThan(bookingsBefore));
+    });
+
+    testWidgets('a desk checkout lands back on the check-out list, never the guest invoice',
+        (tester) async {
+      await _pump(tester, extra: _desk, stay: _FakeStayRepository());
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHECK-OUT LIST r1'), findsOneWidget);
+      expect(find.textContaining('INVOICE'), findsNothing);
     });
   });
 

@@ -296,7 +296,12 @@ work as-is once `supabase start` has run — no manual key copying needed for
 ## End-to-end tests (Playwright)
 
 `e2e/` holds a Playwright suite (Chromium) that drives the real web build
-against the local Supabase stack. Flutter web paints to a canvas, so the
+against the local Supabase stack. Every spec runs twice: in the `desktop`
+project (1280x800, navigation rail) and in the `phone` project (a Pixel 7:
+412x839, touch, Android Chrome, bottom navigation bar). Specs call
+`reveal()` (`e2e/support/nav.ts`) before touching anything that can sit
+below a phone's fold, because Flutter builds lazy lists only near the
+viewport. Flutter web paints to a canvas, so the
 tests go through Flutter's semantics DOM (`flt-semantics` elements with
 ARIA roles and labels). The E2E build turns semantics on at startup via
 `--dart-define=E2E=true` (`lib/core/e2e_semantics.dart`); a normal build is
@@ -308,7 +313,9 @@ cd e2e
 npm install                          # first time only
 npx playwright install chromium      # first time only
 ./build-app.sh                       # flutter build web (E2E) into ../build/web
-npx playwright test                  # serves build/web on :8790 and runs every spec
+npx playwright test                  # serves build/web on :8790 and runs every spec, desktop then phone
+npx playwright test --project=desktop            # 1280x800 only
+npx playwright test --project=phone              # Pixel 7 only
 npx playwright test tests/smoke.spec.ts          # one spec
 npx playwright test -g "owner of Resort A"       # one test by title
 npx playwright show-report           # HTML report of the last run

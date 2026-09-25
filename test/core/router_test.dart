@@ -8,9 +8,11 @@ import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/core/router.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/current_charges.dart';
+import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
+import 'package:pasala/features/admin/reception_checkout_screen.dart';
 import 'package:pasala/features/stay/checkout_screen.dart';
 import 'package:pasala/core/supabase_client.dart';
 import 'package:pasala/core/widgets/failure_view.dart';
@@ -553,6 +555,35 @@ void main() {
       final screen = tester.widget<CheckoutScreen>(find.byType(CheckoutScreen));
       expect(screen.reservationId, 'res-1');
       expect(screen.desk, isTrue);
+    });
+
+    // The success banner after a desk checkout lives in the URL's query,
+    // so a reload (or the URL alone) rebuilds it.
+    testWidgets('builds the check-out list with its banner from the URL alone',
+        (tester) async {
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
+        currentResortProvider.overrideWith(_StaffResort.new),
+        checkedInProvider
+            .overrideWith((ref, propertyId) async => const <Reservation>[]),
+      ]);
+      addTearDown(container.dispose);
+      container.listen(currentUserProvider, (_, _) {});
+      await container.read(currentUserProvider.future);
+      final router = container.read(routerProvider);
+
+      router.go('/admin/check-out?checkedOut=res-1');
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(routerConfig: router),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      final screen = tester.widget<ReceptionCheckoutScreen>(
+          find.byType(ReceptionCheckoutScreen));
+      expect(screen.checkedOutId, 'res-1');
+      expect(find.text('Guest checked out'), findsOneWidget);
     });
   });
 
