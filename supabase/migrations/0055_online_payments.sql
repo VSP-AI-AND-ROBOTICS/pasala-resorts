@@ -113,8 +113,92 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_uid      uuid := auth.uid();
+  v_row      public.reservations;
+  v_property public.properties;
+  v_profile  public.profiles;
+  v_email    text;
+  v_total    numeric;
+  v_min      numeric;
+  v_balance  numeric;
 begin
-  raise exception using errcode = '0A000', message = 'not implemented';
+  if v_uid is null then
+    raise exception 'authentication required' using errcode = 'P0008';
+  end if;
+
+  select * into v_row from public.reservations where id = p_reservation;
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  -- Only the guest pays online for their own booking (spec decision 14).
+  if v_row.customer_id is distinct from v_uid then
+    raise exception 'only the booking''s guest can pay online' using errcode = 'P0008';
+  end if;
+
+  if p_amount is null or p_amount <= 0 or p_amount <> round(p_amount, 2) then
+    raise exception 'payment amount % is not valid', p_amount using errcode = 'P0009';
+  end if;
+
+  select * into v_property from public.properties where id = v_row.property_id;
+
+  if p_kind = 'advance' then
+    -- The same checks, in the same order, as confirm_booking (0045).
+    if v_property.status is distinct from 'active' then
+      raise exception using errcode = 'P0022', message = 'resort_suspended';
+    end if;
+    if v_row.status <> 'hold' then
+      raise exception 'reservation is %', v_row.status using errcode = 'P0009';
+    end if;
+    if v_row.hold_expires_at < now() then
+      raise exception 'hold expired' using errcode = 'P0006';
+    end if;
+    if v_row.quote is null then
+      raise exception 'reservation has no quote' using errcode = 'P0009';
+    end if;
+    v_total := (v_row.quote ->> 'total')::numeric;
+    v_min   := round(v_total * coalesce(v_property.advance_pct, 100) / 100, 2);
+    if p_amount < v_min or p_amount > v_total then
+      raise exception 'payment amount % is outside the accepted range % to %',
+        p_amount, v_min, v_total
+        using errcode = 'P0009';
+    end if;
+  elsif p_kind = 'balance' then
+    -- The same rule as checkout_booking (0048): exactly what is due.
+    if v_row.status <> 'checked_in' then
+      raise exception 'reservation is %', v_row.status using errcode = 'P0009';
+    end if;
+    v_balance := (public.current_charges(p_reservation) ->> 'balance')::numeric;
+    if p_amount is distinct from v_balance then
+      raise exception 'payment amount % does not match balance due %', p_amount, v_balance
+        using errcode = 'P0009';
+    end if;
+  else
+    raise exception 'unknown payment kind' using errcode = 'P0009';
+  end if;
+
+  select * into v_profile from public.profiles where id = v_uid;
+  select email into v_email from auth.users where id = v_uid;
+
+  return jsonb_build_object(
+    'reservation_id', v_row.id,
+    'property_id',    v_row.property_id,
+    'property_name',  v_property.name,
+    'customer_id',    v_uid,
+    'kind',           p_kind,
+    'amount',         round(p_amount, 2),
+    'amount_paise',   (round(p_amount, 2) * 100)::bigint,
+    'currency',       'INR',
+    'receipt',        v_row.id::text,
+    'description',    v_property.name || case p_kind
+                        when 'advance' then ': booking advance'
+                        else ': stay balance' end,
+    'prefill',        jsonb_build_object(
+                        'name',    v_profile.full_name,
+                        'email',   v_email,
+                        'contact', v_profile.phone)
+  );
 end;
 $$;
 revoke execute on function public.payment_order_quote(uuid, public.payment_kind, numeric) from public, anon;
@@ -132,8 +216,41 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_row   public.reservations;
+  v_order public.payment_orders;
 begin
-  raise exception using errcode = '0A000', message = 'not implemented';
+  if p_razorpay_order_id is null or btrim(p_razorpay_order_id) = '' then
+    raise exception 'a Razorpay order id is required' using errcode = 'P0009';
+  end if;
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'payment amount % is not valid', p_amount using errcode = 'P0009';
+  end if;
+
+  select * into v_row from public.reservations where id = p_reservation;
+  if not found then
+    raise exception 'reservation not found' using errcode = 'P0002';
+  end if;
+
+  -- payments-create-order quoted as this guest a moment ago; check again.
+  if p_customer is null or v_row.customer_id is distinct from p_customer then
+    raise exception 'only the booking''s guest can pay online' using errcode = 'P0008';
+  end if;
+
+  if p_kind is null
+     or (p_kind = 'advance' and v_row.status <> 'hold')
+     or (p_kind = 'balance' and v_row.status <> 'checked_in') then
+    raise exception 'reservation is %', v_row.status using errcode = 'P0009';
+  end if;
+
+  -- The hold is not extended (spec decision 9). property_id comes from
+  -- the reservation (payment_orders_fill_property).
+  insert into public.payment_orders
+    (reservation_id, customer_id, kind, amount, razorpay_order_id)
+  values (p_reservation, p_customer, p_kind, p_amount, btrim(p_razorpay_order_id))
+  returning * into v_order;
+
+  return v_order;
 end;
 $$;
 revoke execute on function public.payment_order_open(uuid, uuid, public.payment_kind, numeric, text) from public, anon, authenticated;

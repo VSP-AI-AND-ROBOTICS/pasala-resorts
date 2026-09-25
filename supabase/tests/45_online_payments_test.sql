@@ -15,7 +15,7 @@
 --   R7 ...37  A, hold, Gita, total 1000, expires in 10 minutes
 -- and one Razorpay order, order_fixture_r1 (R1, advance 5000).
 begin;
-select plan(17);
+select plan(49);
 
 insert into auth.users (id, email) values
   ('a6000000-0000-0000-0000-000000000001','p6-a-owner@example.com'),
@@ -154,6 +154,106 @@ select is((select count(*)::int from public.payment_orders), 0,
   'another resort''s owner reads none of them');
 reset role;
 set local request.jwt.claims to '';
+
+-- === Task 2: quoting and opening an order ====================================
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000004","role":"authenticated"}';
+
+select is(public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 5000) ->> 'amount_paise',
+  '500000', 'a 50% advance is quoted in paise');
+select is(public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 5000) ->> 'customer_id',
+  'a6000000-0000-0000-0000-000000000004', 'the quote names the paying guest');
+select is(public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 5000) ->> 'receipt',
+  'a6100000-0000-4000-8000-000000000031', 'the receipt is the reservation id');
+select is(public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 5000) ->> 'description',
+  'Online A: booking advance', 'an advance is described with the resort''s name');
+select is(public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 5000) -> 'prefill',
+  jsonb_build_object('name', 'Gita Guest', 'email', 'p6-gita@example.com', 'contact', '+919800000001'),
+  'the payment window is prefilled from the guest''s profile');
+select lives_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 10000)$$,
+  'paying the full total is accepted');
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 4999.99)$$,
+  'P0009', null, 'less than the advance is refused');
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 10000.01)$$,
+  'P0009', null, 'more than the total is refused');
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', null)$$,
+  'P0009', null, 'a missing amount is refused');
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 5000.005)$$,
+  'P0009', null, 'fractions of a paisa are refused');
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000033', 'advance', 4000)$$,
+  'P0006', null, 'an expired hold cannot be paid for');
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000032', 'advance', 3000)$$,
+  'P0009', null, 'a checked-in stay takes no advance');
+select is(public.payment_order_quote('a6100000-0000-4000-8000-000000000032', 'balance', 3000) ->> 'kind',
+  'balance', 'the balance of a checked-in stay is quoted');
+select is(public.payment_order_quote('a6100000-0000-4000-8000-000000000032', 'balance', 3000) ->> 'description',
+  'Online A: stay balance', 'a balance is described with the resort''s name');
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000032', 'balance', 2999)$$,
+  'P0009', null, 'a balance must match what is due');
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'balance', 5000)$$,
+  'P0009', null, 'a hold has no balance to pay');
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-0000000000ff', 'advance', 1)$$,
+  'P0002', null, 'an unknown booking is not found');
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 5000)$$,
+  'P0008', null, 'another guest cannot pay for Gita''s hold');
+set local request.jwt.claims to '';
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000031', 'advance', 5000)$$,
+  'P0008', null, 'a caller with no identity is refused');
+
+-- Resort B is suspended for one assertion.
+reset role;
+update public.properties set status = 'suspended' where id = 'a6100000-0000-4000-8000-000000000002';
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000005","role":"authenticated"}';
+select throws_ok($$select public.payment_order_quote('a6100000-0000-4000-8000-000000000034', 'advance', 2000)$$,
+  'P0022', null, 'a suspended resort takes no advance');
+reset role;
+set local request.jwt.claims to '';
+update public.properties set status = 'active' where id = 'a6100000-0000-4000-8000-000000000002';
+
+-- Opening orders, as the Edge Functions do.
+set local role service_role;
+set local request.jwt.claims to '{"role":"service_role"}';
+select is((select o.status::text from public.payment_order_open('a6100000-0000-4000-8000-000000000031',
+            'a6000000-0000-0000-0000-000000000004', 'advance', 5000, 'order_A1') o),
+  'created', 'the service role opens an order');
+select throws_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000031',
+  'a6000000-0000-0000-0000-000000000004', 'advance', 5000, 'order_A1')$$,
+  '23505', null, 'a Razorpay order id is recorded once');
+select throws_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000031',
+  'a6000000-0000-0000-0000-000000000005', 'advance', 5000, 'order_X1')$$,
+  'P0008', null, 'an order is only for the booking''s own guest');
+select throws_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000031',
+  'a6000000-0000-0000-0000-000000000004', 'balance', 5000, 'order_X2')$$,
+  'P0009', null, 'a hold takes no balance order');
+select throws_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000031',
+  'a6000000-0000-0000-0000-000000000004', 'advance', 0, 'order_X3')$$,
+  'P0009', null, 'an order needs a positive amount');
+select throws_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000031',
+  'a6000000-0000-0000-0000-000000000004', 'advance', 5000, '  ')$$,
+  'P0009', null, 'an order needs a Razorpay order id');
+select lives_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000032',
+  'a6000000-0000-0000-0000-000000000004', 'balance', 3000, 'order_B1')$$,
+  'a balance order for the checked-in stay');
+select lives_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000033',
+  'a6000000-0000-0000-0000-000000000004', 'advance', 4000, 'order_C1')$$,
+  'an order for a hold that has just expired but is not swept yet');
+select lives_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000034',
+  'a6000000-0000-0000-0000-000000000005', 'advance', 2000, 'order_D1')$$,
+  'an order at resort B');
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"a6000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select throws_ok($$select public.payment_order_open('a6100000-0000-4000-8000-000000000031',
+  'a6000000-0000-0000-0000-000000000004', 'advance', 5000, 'order_X4')$$,
+  '42501', null, 'a guest cannot open orders directly');
+reset role;
+set local request.jwt.claims to '';
+select is((select property_id from public.payment_orders where razorpay_order_id = 'order_A1'),
+  'a6100000-0000-4000-8000-000000000001'::uuid, 'the order takes the reservation''s resort');
+select is((select hold_expires_at from public.reservations where id = 'a6100000-0000-4000-8000-000000000031'),
+  now() + interval '10 minutes', 'opening an order does not extend the hold');
 
 select * from finish();
 rollback;
