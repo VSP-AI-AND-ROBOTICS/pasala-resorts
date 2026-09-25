@@ -23,7 +23,7 @@
 -- Users: Gita (guest), Lakeview's owner, Lakeview's staff member, and
 -- Closed Camp's owner.
 begin;
-select plan(10);
+select plan(43);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters
 -- it). Used by later sections.
@@ -185,6 +185,101 @@ select throws_ok($$update public.properties set lat = 15, lng = 181 where slug =
 select lives_ok($$update public.properties set lat = 15.5449, lng = 73.7553 where slug = 'p11-coastal'$$,
   'a valid pair is accepted');
 update public.properties set lat = null, lng = null where slug = 'p11-coastal';
+
+-- === Task 2: which resorts match, and what each card carries =============
+-- Run as anon: guests browse signed out.
+set local role anon;
+set local request.jwt.claims to '{"role":"anon"}';
+
+select is(pg_temp.found_set(),
+  array['Coastal Nest','Day Only Park','Hilltop Farm','Lakeview Retreat'],
+  'anon sees every active resort, and no suspended or inactive one');
+select is(pg_temp.found_set('closed'), '{}'::text[],
+  'a suspended resort never matches, even by its own name');
+select is(pg_temp.found_set('hidden'), '{}'::text[],
+  'an inactive resort never matches, even by its own name');
+select is(pg_temp.found_set('LAKE'), array['Lakeview Retreat'],
+  'names match case-insensitively');
+select is(pg_temp.found_set('hyderabad'), array['Day Only Park','Lakeview Retreat'],
+  'the city inside the address matches');
+select is(pg_temp.found_set('organic'), array['Hilltop Farm'],
+  'the description matches');
+select is(pg_temp.found_set('bonfire'), array['Hilltop Farm'],
+  'an amenity matches');
+select is(pg_temp.found_set('  pool   goa '), array['Coastal Nest'],
+  'every word must match, each in any field');
+select is(pg_temp.found_set('%'), array['Hilltop Farm'],
+  'a typed % matches a literal percent sign only');
+select is(pg_temp.found_set('_'), '{}'::text[],
+  'a typed _ matches a literal underscore only');
+select is(pg_temp.found_set('   '),
+  array['Coastal Nest','Day Only Park','Hilltop Farm','Lakeview Retreat'],
+  'a blank query matches everything');
+select is(pg_temp.found_set(p_amenities => array['pool']),
+  array['Coastal Nest','Lakeview Retreat'],
+  'amenities match case-insensitively');
+select is(pg_temp.found_set(p_amenities => array['Pool','Wi-Fi']),
+  array['Lakeview Retreat'], 'every requested amenity must be present');
+select is(pg_temp.found_set(p_amenities => array['Sauna']), '{}'::text[],
+  'an amenity nobody has matches nothing');
+select is(pg_temp.found_set(p_amenities => array['', '  ']),
+  array['Coastal Nest','Day Only Park','Hilltop Farm','Lakeview Retreat'],
+  'blank amenities are ignored');
+select is(pg_temp.found_set('hyderabad', p_amenities => array['pool']),
+  array['Lakeview Retreat'], 'the query and the amenity filter combine');
+
+select is((select s.min_price from public.search_resorts('lakeview') s
+            where s.slug = 'p11-lakeview'),
+  4000.00::numeric,
+  'min_price ignores slot rates, inactive units and expired overrides');
+select is((select s.avg_rating from public.search_resorts() s
+            where s.slug = 'p11-lakeview'),
+  4.5::numeric, 'avg_rating averages overall_rating');
+select is((select s.review_count from public.search_resorts() s
+            where s.slug = 'p11-lakeview'),
+  2, 'review_count counts the reviews');
+select ok((select s.avg_rating = 5.0 and s.review_count = 1
+             from public.search_resorts() s where s.slug = 'p11-coastal'),
+  'a single review is its own average');
+select is((select s.min_price from public.search_resorts() s
+            where s.slug = 'p11-dayonly'),
+  null::numeric, 'a day-use-only resort has no nightly price');
+select ok((select s.avg_rating is null and s.review_count = 0
+             from public.search_resorts() s where s.slug = 'p11-hilltop'),
+  'a resort without reviews has no rating and a count of 0');
+select is((select s.address from public.search_resorts() s
+            where s.slug = 'p11-lakeview'),
+  'Gandipet Road, Hyderabad, Telangana', 'rows carry the Property fields');
+
+select ok((select bool_and(s.distance_km is null) from public.search_resorts() s
+            where s.slug like 'p11-%'),
+  'without a position no distance is computed');
+select is((select s.distance_km from public.search_resorts(null, 17.3850, 78.4867) s
+            where s.slug = 'p11-lakeview'),
+  0.0::numeric, 'a resort at the search origin is 0 km away');
+select ok((select s.distance_km between 440 and 470
+             from public.search_resorts(null, 17.39, 78.49) s
+            where s.slug = 'p11-hilltop'),
+  'Hyderabad to Nandi Hills is about 455 km');
+select is((select s.distance_km from public.search_resorts(null, 17.39, 78.49) s
+            where s.slug = 'p11-coastal'),
+  null::numeric, 'a resort without coordinates has no distance');
+
+select throws_ok($$select * from public.search_resorts(null, null, null, 'cheapest', null)$$,
+  'P0041', 'invalid_search', 'an unknown sort is refused');
+select throws_ok($$select * from public.search_resorts(null, 17.39, null)$$,
+  'P0041', 'invalid_search', 'a latitude without a longitude is refused');
+select throws_ok($$select * from public.search_resorts(null, 91, 0)$$,
+  'P0041', 'invalid_search', 'an out-of-range latitude is refused');
+select throws_ok(format('select * from public.search_resorts(%L)', repeat('a', 101)),
+  'P0041', 'invalid_search', 'a query over 100 characters is refused');
+select lives_ok(format('select * from public.search_resorts(%L)', repeat('a', 100)),
+  'a 100-character query is fine');
+select lives_ok($$select * from public.search_resorts(null, null, null, null, null)$$,
+  'a null sort means recommended');
+
+reset role;
+set local request.jwt.claims to '';
 
 select * from finish();
 rollback;
