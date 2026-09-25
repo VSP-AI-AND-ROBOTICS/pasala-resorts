@@ -341,7 +341,8 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------
--- record_outbox_dispatch_run (Task 4 replaces this stub)
+-- record_outbox_dispatch_run: the dispatcher's heartbeat, one row per
+-- channel it handles (email, sms). Anything else in p_channels is ignored.
 
 create function public.record_outbox_dispatch_run(p_channels jsonb)
 returns void
@@ -350,12 +351,26 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  raise exception using errcode = '0A000', message = 'not_implemented';
+  insert into public.outbox_channel_status as s (channel, mode, provider, detail, last_run_at)
+  select (c ->> 'channel')::public.outbox_channel,
+         c ->> 'mode',
+         coalesce(nullif(c ->> 'provider', ''), 'unknown'),
+         nullif(c ->> 'detail', ''),
+         now()
+    from jsonb_array_elements(coalesce(p_channels, '[]'::jsonb)) as c
+   where c ->> 'channel' in ('email', 'sms')
+  on conflict (channel) do update
+     set mode        = excluded.mode,
+         provider    = excluded.provider,
+         detail      = excluded.detail,
+         last_run_at = excluded.last_run_at;
 end;
 $$;
 
 -- ---------------------------------------------------------------------
--- outbox_delivery_status (Task 4 replaces this stub)
+-- outbox_delivery_status: each channel's delivery mode for the Outbox
+-- screen. Deployment-wide facts, shown only to members of the resort asked
+-- about. WhatsApp has no sender; a channel never reported is not_running.
 
 create function public.outbox_delivery_status(p_property uuid)
 returns table (channel public.outbox_channel, mode text, provider text,
@@ -366,12 +381,25 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  raise exception using errcode = '0A000', message = 'not_implemented';
+  perform public.assert_resort_role(p_property, false, 'owner', 'admin', 'staff', 'accountant');
+
+  return query
+  select c.ch,
+         case when c.ch = 'whatsapp' then 'unavailable'
+              else coalesce(s.mode, 'not_running') end,
+         case when c.ch = 'whatsapp' then null else s.provider end,
+         case when c.ch = 'whatsapp' then null else s.detail end,
+         case when c.ch = 'whatsapp' then null else s.last_run_at end
+    from unnest(enum_range(null::public.outbox_channel)) as c(ch)
+    left join public.outbox_channel_status s on s.channel = c.ch
+   order by c.ch;
 end;
 $$;
 
 -- ---------------------------------------------------------------------
--- outbox_dispatch_post (Task 4 replaces this stub)
+-- outbox_dispatch_post: the POST the cron tick makes. Kept apart from the
+-- tick so tests can check it without writing Vault secrets. Not security
+-- definer: only the tick (running as its owner) and superusers call it.
 
 create function public.outbox_dispatch_post(p_url text, p_key text)
 returns text
@@ -379,12 +407,27 @@ language plpgsql
 set search_path = public, pg_temp
 as $$
 begin
-  raise exception using errcode = '0A000', message = 'not_implemented';
+  if coalesce(btrim(p_url), '') = '' or coalesce(btrim(p_key), '') = '' then
+    return 'not_configured';
+  end if;
+
+  perform net.http_post(
+    url                  := btrim(p_url),
+    body                 := '{}'::jsonb,
+    headers              := jsonb_build_object(
+                              'Content-Type', 'application/json',
+                              'Authorization', 'Bearer ' || btrim(p_key)),
+    timeout_milliseconds := 30000);
+  return 'requested';
 end;
 $$;
 
 -- ---------------------------------------------------------------------
--- outbox_dispatch_tick (Task 4 replaces this stub)
+-- outbox_dispatch_tick: what pg_cron runs every minute. Reads the function
+-- URL and the service role key from Vault (docs/email-and-sms-delivery.md
+-- says how to set them); without them it sends nothing. Vault is read with
+-- dynamic SQL, so a database without the vault extension still answers
+-- not_configured instead of failing.
 
 create function public.outbox_dispatch_tick()
 returns text
@@ -392,8 +435,20 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_url text;
+  v_key text;
 begin
-  raise exception using errcode = '0A000', message = 'not_implemented';
+  if to_regclass('vault.decrypted_secrets') is null then
+    return 'not_configured';
+  end if;
+
+  execute 'select decrypted_secret from vault.decrypted_secrets where name = $1 limit 1'
+     into v_url using 'outbox_dispatch_url';
+  execute 'select decrypted_secret from vault.decrypted_secrets where name = $1 limit 1'
+     into v_key using 'outbox_dispatch_key';
+
+  return public.outbox_dispatch_post(v_url, v_key);
 end;
 $$;
 
@@ -416,3 +471,12 @@ grant  execute on function public.retry_outbox_message(uuid) to authenticated;
 revoke execute on function public.outbox_template_context(uuid) from public, anon, authenticated, service_role;
 revoke execute on function public.outbox_dispatch_post(text, text) from public, anon, authenticated, service_role;
 revoke execute on function public.outbox_dispatch_tick() from public, anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- Every minute. Without the two Vault secrets the tick answers
+-- 'not_configured' and sends nothing, so a fresh `supabase db reset`
+-- never calls out.
+
+select cron.schedule(
+  'outbox-dispatch', '* * * * *',
+  $$select public.outbox_dispatch_tick()$$);

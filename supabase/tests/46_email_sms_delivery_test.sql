@@ -1,7 +1,7 @@
 -- P7: email and SMS delivery (0056_email_sms_delivery.sql). Sections are
 -- added task by task; each relies on the state the earlier ones leave.
 begin;
-select plan(66);
+select plan(84);
 
 -- === fixtures ===============================================================
 -- The seed's confirmed booking queued outbox rows of its own; clear them
@@ -346,6 +346,86 @@ select throws_ok($$select public.retry_outbox_message(current_setting('p7.b2')::
 reset role;
 set local request.jwt.claims to '';
 update public.properties set status = 'active' where id = 'd7b00000-0000-4000-8000-000000000001';
+
+-- === Task 4: delivery status, heartbeat and the cron tick ======================
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000a3","role":"authenticated"}';
+select is(
+  (select array_agg(channel::text || ':' || mode order by channel)
+     from public.outbox_delivery_status('d7a00000-0000-4000-8000-000000000001')),
+  array['email:not_running','sms:not_running','whatsapp:unavailable'],
+  'before any run every channel is waiting and whatsapp is unavailable');
+select throws_ok($$select * from public.outbox_delivery_status('d7b00000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'A staff cannot read B''s delivery status');
+select throws_ok($$select public.record_outbox_dispatch_run('[]'::jsonb)$$,
+  '42501', null, 'staff cannot record a dispatcher run');
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
+select throws_ok($$select * from public.outbox_delivery_status('d7a00000-0000-4000-8000-000000000001')$$,
+  'P0020', null, 'a guest cannot read delivery status');
+reset role;
+set local request.jwt.claims to '';
+set local role anon;
+select throws_ok($$select * from public.outbox_delivery_status('d7a00000-0000-4000-8000-000000000001')$$,
+  '42501', null, 'anon cannot read delivery status');
+reset role;
+
+set local role service_role;
+select lives_ok($$select public.record_outbox_dispatch_run('[
+    {"channel":"email","mode":"live","provider":"resend","detail":null},
+    {"channel":"sms","mode":"dry_run","provider":"msg91","detail":"MSG91_AUTH_KEY is not set"},
+    {"channel":"whatsapp","mode":"live","provider":"meta","detail":null}]'::jsonb)$$,
+  'the dispatcher records its run');
+select throws_ok($$select public.record_outbox_dispatch_run(
+    '[{"channel":"email","mode":"bogus","provider":"resend"}]'::jsonb)$$,
+  '23514', null, 'an unknown mode is refused');
+reset role;
+select is((select count(*)::int from public.outbox_channel_status), 2,
+  'only email and sms are recorded');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+select is(
+  (select array_agg(channel::text || ':' || mode || ':' || coalesce(provider, '-')
+                    || ':' || coalesce(detail, '-') order by channel)
+     from public.outbox_delivery_status('d7a00000-0000-4000-8000-000000000001')),
+  array['email:live:resend:-',
+        'sms:dry_run:msg91:MSG91_AUTH_KEY is not set',
+        'whatsapp:unavailable:-:-'],
+  'after a run every member sees each channel''s mode');
+select is(
+  (select last_run_at from public.outbox_delivery_status('d7a00000-0000-4000-8000-000000000001')
+    where channel = 'email'),
+  now(), 'the run time is recorded');
+reset role;
+set local request.jwt.claims to '';
+
+-- The POST the cron tick makes (tested without touching Vault).
+select is(public.outbox_dispatch_post(null, 'k'), 'not_configured',
+  'no URL: nothing is requested');
+select is(public.outbox_dispatch_post('http://outbox.test/functions/v1/outbox-dispatch', '  '),
+  'not_configured', 'a blank key: nothing is requested');
+select is(public.outbox_dispatch_post('http://outbox.test/functions/v1/outbox-dispatch',
+                                      'test-service-key'),
+  'requested', 'with a URL and a key the function is called');
+select is(
+  (select count(*)::int from net.http_request_queue
+    where url = 'http://outbox.test/functions/v1/outbox-dispatch'
+      and method = 'POST'
+      and headers ->> 'Authorization' = 'Bearer test-service-key'),
+  1, 'one POST is queued, carrying the service key');
+select ok(public.outbox_dispatch_tick() in ('not_configured', 'requested'),
+  'the tick runs and answers not_configured or requested');
+select is((select schedule from cron.job where jobname = 'outbox-dispatch'), '* * * * *',
+  'pg_cron runs the tick every minute');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+select throws_ok($$select public.outbox_dispatch_tick()$$,
+  '42501', null, 'clients cannot fire the tick');
+select throws_ok($$select public.outbox_dispatch_post('http://x', 'k')$$,
+  '42501', null, 'clients cannot make the dispatcher POST');
+reset role;
+set local request.jwt.claims to '';
 
 select * from finish();
 rollback;
