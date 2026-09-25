@@ -17,7 +17,7 @@ the security/money fixes and the new tests that came with them — see
 
 Everything below runs against the local Supabase stack right now, with real
 server-side logic (Postgres RPC, RLS, triggers) behind it — not mocked
-business logic, only a mocked payment and unsent notifications (see below).
+business logic, only unsent notifications and, until Razorpay secrets are set, a mocked payment (see below).
 
 - **Browsing and booking.** Multi-property, multi-unit catalog; server-only
   pricing (base + weekend + seasonal override rate rules); a real-time
@@ -69,17 +69,18 @@ business logic, only a mocked payment and unsent notifications (see below).
 
 ## What is stubbed, and why
 
-- **Payment is a mock.** `MockGateway` is the only payment path any build
-  from this repo can take. No money has ever moved through this app, in any
-  environment, at any point in either phase. A `RazorpayGateway` class
-  exists (`lib/features/booking/razorpay_gateway.dart`), written against
-  Razorpay's real Orders API, but it is inert by construction: there is no
-  Razorpay merchant account to authenticate against, and no native checkout
-  SDK wired into the app to actually collect a card/UPI/netbanking payment
-  even if there were. Calling it today creates a real Razorpay order (if
-  given real keys) and then deliberately throws rather than pretending that
-  order is a captured charge. Nothing in this repo's build configuration
-  ever supplies the keys that would select it.
+- **Payment is a mock until Razorpay secrets are set.** Without the
+  `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` Edge Function secrets, `MockGateway`
+  makes up a reference and charges nothing, exactly as before. Every
+  environment this repo has run in is in that state. The real path (P6)
+  exists and is tested against fixtures:
+  - `payments-create-order`, `payments-verify` and `payments-webhook` create,
+    verify and settle Razorpay orders on the server;
+  - the app opens Checkout.js or the native SDK with only the public key id;
+  - the database refuses a guest's mock confirmation while the secrets are
+    set (P0036).
+
+  It has never been run against a real Razorpay account.
 - **Email and SMS are sent by the `outbox-dispatch` Edge Function** once
   a Resend key (email) and an MSG91 key and DLT templates (SMS) are set.
   Until then every message is recorded as a dry run and nothing is sent.
@@ -95,8 +96,9 @@ risk, as the current fact.
 
 1. **A Razorpay or PhonePe merchant account, with KYC completed.**
    Consequence while missing: **no booking can ever be paid for with real
-   money.** Every booking made against a deployed build still runs through
-   `MockGateway`, which fabricates a success reference and charges nothing.
+   money.** Until the account's keys are set as Edge Function secrets
+   (README, "Online payments (Razorpay)"), every booking runs through
+   `MockGateway`, which makes up a success reference and charges nothing.
    Anyone using the app is not paying, and the business is not getting
    paid, regardless of what the UI says.
 

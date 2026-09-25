@@ -157,19 +157,57 @@ export formats (`supabase/tests/48_ota_sync_test.sql`).
 **Linking a real listing is the one step left to verify by hand** — see
 [Linking a real Airbnb or Booking.com listing](#linking-a-real-airbnb-or-bookingcom-listing).
 
-**Payments (phase 2 seam, still stubbed)**
+**Online payments (Razorpay)**
 
-- `MockGateway` is, and remains, the default `PaymentGateway` in every build
-  this repo produces — no real money moves anywhere in this app today.
-- `RazorpayGateway` (`lib/features/booking/razorpay_gateway.dart`) exists as
-  a written adapter against Razorpay's real Orders API shape, but it is
-  inert: there is no merchant account to test it against, and no native
-  checkout SDK integrated into the app, so `charge()` fails loudly
-  (`UnimplementedError`) after creating an order rather than pretending a
-  created order is a captured payment. `paymentGatewayProvider` only
-  selects it when `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` are supplied via
-  `--dart-define`; nothing in this repo's build configuration ever supplies
-  them.
+- Guests pay the booking advance and their checkout balance through
+  Razorpay: Checkout.js on the web, `razorpay_flutter` on Android and iOS.
+  The app holds only the public key id. Three Edge Functions hold the
+  secrets and do the work:
+  - `payments-create-order` checks the amount (the advance rule or the
+    balance due) as the signed-in guest and creates the Razorpay order;
+  - `payments-verify` checks Checkout's signature and confirms the booking
+    (or checks the guest out) on the server;
+  - `payments-webhook` handles `payment.captured`, `payment.failed` and
+    `refund.processed`, once each.
+
+  A payment that cannot be applied (the hold was released, the booking
+  was already paid, the balance changed) is refunded automatically.
+- **Without secrets nothing changes.** The functions answer
+  `{"configured": false}`, and the app pays through `MockGateway` as before.
+  With secrets set, the database refuses a guest's mock confirmation
+  (P0036), so a live deployment cannot be booked for free.
+
+To switch it on (test keys first):
+
+```bash
+supabase secrets set RAZORPAY_KEY_ID=rzp_test_xxx RAZORPAY_KEY_SECRET=xxx RAZORPAY_WEBHOOK_SECRET=xxx
+supabase functions deploy payments-create-order payments-verify payments-webhook
+# Switch the database to live now rather than at the first payment:
+curl -X POST "https://<project-ref>.supabase.co/functions/v1/payments-create-order" \
+  -H "Authorization: Bearer <anon key>" -H "Content-Type: application/json" \
+  -d '{"probe": true}'     # → {"configured":true,"key_id":"rzp_test_xxx"}
+```
+
+In the Razorpay Dashboard (Account & Settings → Webhooks), add the URL
+`https://<project-ref>.supabase.co/functions/v1/payments-webhook`. Give it
+the same secret as `RAZORPAY_WEBHOOK_SECRET`, and the events
+`payment.captured`, `payment.failed` and `refund.processed`. Leave
+automatic capture on (the default).
+
+To switch it off, run
+`supabase secrets unset RAZORPAY_KEY_ID RAZORPAY_KEY_SECRET RAZORPAY_WEBHOOK_SECRET`
+and then the probe again. Refunds for cancelled bookings are still made by
+hand in the Razorpay Dashboard.
+
+To run it locally, put the three variables in `supabase/functions/.env`
+(gitignored) and run
+`supabase functions serve --env-file supabase/functions/.env`. Razorpay can
+reach a local webhook only through a tunnel. Never put the key secret in
+`--dart-define`, the database or git.
+
+**Not yet verified against a real Razorpay account.** The functions are
+tested with signature fixtures and a mocked Razorpay API only. See
+`docs/STATUS.md`.
 
 ## What is still out of scope
 
@@ -293,6 +331,7 @@ the only seeded resort; all four staff accounts are `resort_members` of it
 | `make db-reset` | `supabase db reset` — reapply migrations and reload seed data |
 | `make db-test` | `supabase test db` — run the pgTAP suite |
 | `make test` | `flutter test` — run the Flutter test suite |
+| `make functions-test` | `deno test supabase/functions/` — run the Edge Function tests |
 | `make run-web` | Run the app in Chrome against the local Supabase stack |
 | `make run-android` | Run the app on a connected Android emulator |
 | `make run-ios` | Run the app on a connected iOS simulator |
@@ -536,10 +575,10 @@ task-by-task record.
 
 **From phase 2:**
 
-- **Payment is still a mock gateway.** See "Payments" above — `MockGateway`
-  is the default in every build this repo produces; `RazorpayGateway` exists
-  but is inert without a merchant account and a checkout SDK this app does
-  not integrate.
+- **Online payments are off until Razorpay secrets are set, and have not been
+  run against a real Razorpay account.** See "Online payments (Razorpay)"
+  above. Refunds for cancelled bookings are made by hand in the Razorpay
+  Dashboard.
 - **Email and SMS go out only once provider keys are set.** Until then the
   sender runs as a dry run and the Outbox screen says so per channel.
   WhatsApp is never sent. See `docs/email-and-sms-delivery.md`.
