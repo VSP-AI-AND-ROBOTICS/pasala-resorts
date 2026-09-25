@@ -34,12 +34,18 @@ class ResortSwitcher extends ConsumerWidget {
       tooltip: 'Switch resort',
       icon: const Icon(Icons.swap_horiz),
       onSelected: (membership) async {
-        await ref
+        // `select` sets the new resort before it awaits the write to
+        // `shared_preferences`, and the router re-checks the current page
+        // against it at once -- e.g. `/owner` for a resort where the user
+        // is admin becomes `/404`, outside the shell, which unmounts this
+        // switcher. So navigate in the same turn, with the router taken
+        // up front, instead of after the write behind a `mounted` check.
+        final router = GoRouter.of(context);
+        final saving = ref
             .read(currentResortProvider.notifier)
             .select(membership.propertyId);
-        if (context.mounted) {
-          context.go(landingPathFor(user, membership));
-        }
+        router.go(landingPathFor(user, membership));
+        await saving;
       },
       itemBuilder: (context) => [
         for (final membership in memberships)

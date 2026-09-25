@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../current_resort.dart';
 import '../errors.dart';
@@ -19,9 +20,9 @@ import '../errors.dart';
 ///
 /// A [NotAMember] failure gets one extra bit of behaviour on top of just
 /// showing its message: the current resort was a stale, since-revoked pick
-/// (Review Focus #4), so once the message is on screen this also forgets it
-/// and re-fetches the user, via [handleResortAccessLost] -- the router then
-/// re-runs `landingPathFor` against the refreshed memberships. Scheduled for
+/// (Review Focus #4), so once the message is on screen this also forgets it,
+/// re-fetches the user and sends them to `landingPathFor` the refreshed
+/// memberships, via [handleResortAccessLost]. Scheduled for
 /// after the first frame (not run inline in `build`) since it changes
 /// provider state, which must never happen while the widget tree is still
 /// being built.
@@ -52,7 +53,12 @@ class _FailureViewState extends State<FailureView> {
     if (widget.error is NotAMember) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        unawaited(handleResortAccessLost(ProviderScope.containerOf(context)));
+        // Both taken now: clearing the pick unmounts the resort page this
+        // view sits on before the re-fetch completes.
+        unawaited(handleResortAccessLost(
+          ProviderScope.containerOf(context),
+          router: GoRouter.maybeOf(context),
+        ));
       });
     }
   }

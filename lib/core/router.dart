@@ -108,7 +108,11 @@ String? redirectFor({
 
   if (path == '/platform') return user.isPlatformAdmin ? null : '/404';
   if (path == '/choose-resort') {
-    return user.memberships.length >= 2 ? null : '/404';
+    if (user.memberships.length < 2) return '/404';
+    // The chooser never navigates itself: picking a resort (or a
+    // remembered pick that loads after the user) only sets
+    // `currentResortProvider`, and this re-check moves the user on.
+    return resort == null ? null : landingPathFor(user, resort);
   }
 
   // A user with 2+ memberships who hasn't picked one yet has no role to
@@ -231,6 +235,70 @@ String landingPathFor(AppUser user, ResortMembership? resort) {
   };
 }
 
+/// Wraps the ShellRoute's page navigator ([child]) so no page in it is
+/// built against a user or resort it no longer belongs to.
+///
+/// When the user or resort changes, the router re-checks the current page
+/// and navigates -- but a page being left stays mounted through its exit
+/// transition and is rebuilt, because it watches the resort. Many resort
+/// screens read `ref.watch(currentResortProvider)!`, which throws once the
+/// resort is gone (sign-out, lost access). When the router was rebuilt on
+/// every change, the old navigator was simply thrown away; this does the
+/// same:
+///
+/// * while [redirectFor] refuses the shell's current [path] (the whole
+///   shell is on its way out, e.g. to `/login`), it builds nothing;
+/// * when the signed-in user or the resort (id or role) changes, it builds
+///   nothing for one frame, which disposes the navigator with any page
+///   still animating out, then builds a fresh one holding only the
+///   current page.
+class _ShellPagesGuard extends ConsumerStatefulWidget {
+  const _ShellPagesGuard({required this.path, required this.child});
+
+  final String path;
+  final Widget child;
+
+  @override
+  ConsumerState<_ShellPagesGuard> createState() => _ShellPagesGuardState();
+}
+
+class _ShellPagesGuardState extends ConsumerState<_ShellPagesGuard> {
+  /// The user/resort the navigator's pages were built for; null until the
+  /// first build that shows them.
+  (String?, String?, ResortRole?)? _shownFor;
+  (String?, String?, ResortRole?)? _latest;
+  bool _swapScheduled = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = ref.watch(currentUserProvider);
+    final resort = ref.watch(currentResortProvider);
+    if (auth.isLoading && !auth.hasValue) return widget.child;
+    final user = auth.value;
+    final refused = redirectFor(
+          user: user,
+          resort: resort,
+          path: widget.path,
+          onPreAuthScreen: false,
+        ) !=
+        null;
+    if (refused) return const SizedBox.shrink();
+
+    final identity = (user?.id, resort?.propertyId, resort?.role);
+    _latest = identity;
+    _shownFor ??= identity;
+    if (identity == _shownFor) return widget.child;
+    if (!_swapScheduled) {
+      _swapScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _swapScheduled = false;
+        if (mounted) setState(() => _shownFor = _latest);
+      });
+    }
+    return const SizedBox.shrink();
+  }
+}
+
 /// A fade + slight upward slide, used for every customer-facing route so
 /// navigation reads as one continuous surface rather than a hard cut.
 /// Admin/staff routes keep GoRouter's default transition — this is a
@@ -269,6 +337,22 @@ Page<void> fadeSlidePage(Widget child, GoRouterState state) =>
 /// the app waits on `/splash`, and restored once a signed-in user is known
 /// (then checked by [redirectFor] like any other navigation). If the
 /// session turns out to be signed out, the held location is dropped.
+///
+/// Because nothing rebuilds the router any more, every flow that changes
+/// the user or resort must still end on the right page: `/choose-resort`
+/// moves on once a resort is picked (see [redirectFor]), the resort
+/// switcher and `handleResortAccessLost` navigate to [landingPathFor]
+/// themselves, and sign-out goes to `/login` (the redirect, and each
+/// sign-out button). A page being left is never rebuilt against the new
+/// user or resort: see [_ShellPagesGuard].
+///
+/// A held location that needs a resort can still end up on
+/// `/choose-resort` on a cold start: a 2+-resort user whose remembered
+/// pick loads from `shared_preferences` after the user fetch is sent
+/// there first, and when the pick lands they move on to their landing
+/// page, not the held location. Harmless (they are still signed in to the
+/// right resort), and rare -- the preferences read is local and usually
+/// wins the race against the network.
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<int>(0);
   ref.listen(currentUserProvider, (_, _) => refresh.value++);
@@ -337,7 +421,9 @@ final routerProvider = Provider<GoRouter>((ref) {
             fadeSlidePage(const PlatformScreen(), state),
       ),
       ShellRoute(
-        builder: (_, _, child) => AppShell(child: child),
+        builder: (_, state, child) => AppShell(
+          child: _ShellPagesGuard(path: state.uri.path, child: child),
+        ),
         routes: [
           GoRoute(
             path: '/',
