@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/location/location_service.dart';
+import '../../core/location/position_service.dart';
 import '../../core/theme/tokens.dart';
 
 /// Shows the guest's approximate location ("City, Country") in the browse
@@ -23,13 +24,19 @@ class LocationBadge extends ConsumerWidget {
 
     return place.when(
       loading: () => const _LocatingIndicator(),
-      error: (_, _) => _SetLocationChip(
-        onTap: () => ref.invalidate(currentPlaceProvider),
-      ),
+      error: (_, _) => _SetLocationChip(onTap: () => _retry(ref)),
       data: (label) => label == null
-          ? _SetLocationChip(onTap: () => ref.invalidate(currentPlaceProvider))
+          ? _SetLocationChip(onTap: () => _retry(ref))
           : _PlaceLabelText(text: '${label.locality}, ${label.country}'),
     );
+  }
+
+  /// "Set location" asks again for both the badge's place and the
+  /// position behind the browse screen's Distance sort, so granting the
+  /// permission here enables both.
+  static void _retry(WidgetRef ref) {
+    ref.invalidate(currentPlaceProvider);
+    ref.invalidate(currentPositionProvider);
   }
 }
 
