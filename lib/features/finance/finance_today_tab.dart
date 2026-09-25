@@ -9,8 +9,8 @@ import 'finance_tables.dart';
 import 'providers.dart';
 
 /// The Today tab: money in and out today in the resort's own timezone,
-/// room tax, and what the guests in house still owe. Everything comes from
-/// one `finance_summary` call.
+/// room, food & drink and spa tax, and what the guests in house still owe.
+/// Everything comes from one `finance_summary` call.
 class FinanceTodayTab extends ConsumerWidget {
   const FinanceTodayTab({super.key, required this.propertyId});
 
@@ -70,6 +70,18 @@ class FinanceTodayTab extends ConsumerWidget {
                   icon: Icons.receipt_long_outlined,
                   label: 'Room tax',
                   value: formatMoney(s.roomTax),
+                ),
+                _FigureCard(
+                  key: const Key('today-food-tax'),
+                  icon: Icons.restaurant_outlined,
+                  label: 'F&B tax',
+                  value: formatMoney(s.foodTax),
+                ),
+                _FigureCard(
+                  key: const Key('today-spa-tax'),
+                  icon: Icons.spa_outlined,
+                  label: 'Spa tax',
+                  value: formatMoney(s.spaTax),
                 ),
                 _FigureCard(
                   key: const Key('today-in-house'),

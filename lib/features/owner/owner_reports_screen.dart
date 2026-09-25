@@ -250,7 +250,7 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
           _ReportTile(
             icon: Icons.account_balance_outlined,
             title: 'Ledger',
-            subtitle: 'Revenue by category with room tax',
+            subtitle: 'Revenue and tax by category',
             color: scheme.tertiary,
             onExport: () => export(_OwnerReportKind.ledger),
           ),
