@@ -59,6 +59,24 @@ Deno.test("a live email goes out with the resort name and the row id as idempote
   }]);
 });
 
+Deno.test("a listing email (P10) has no reservation and no variables, and still goes out", async () => {
+  const email = new FakeEmailSender();
+  email.results = [{ ok: true, providerId: "re_456" }];
+  const { deps } = depsFor(liveConfig, undefined, email, new FakeSmsSender());
+  const row = emailRow({
+    reservation_id: null,
+    template: "listing_submitted",
+    recipient: "lina@example.com",
+    subject: "We have your listing for Lina's Lakeside",
+    body: "Thanks, Lina. We will review it soon.",
+    vars: {},
+  });
+
+  assertEquals(await deliver(row, deps), { kind: "sent", providerId: "re_456" });
+  assertEquals(email.sent[0].fromName, "");
+  assertEquals(email.sent[0].to, "lina@example.com");
+});
+
 Deno.test("provider failures become retry or failed", async () => {
   const email = new FakeEmailSender();
   email.results = [

@@ -9,7 +9,8 @@ export type Channel = "email" | "sms" | "whatsapp";
 export interface ClaimedMessage {
   id: string;
   property_id: string;
-  reservation_id: string;
+  /** Null for a message about the resort itself (P10 listing emails). */
+  reservation_id: string | null;
   channel: Channel;
   recipient: string;
   template: string;
