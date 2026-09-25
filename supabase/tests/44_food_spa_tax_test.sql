@@ -10,7 +10,7 @@
 -- nothing paid); R2 is her booking of Cottage 2 arriving at 14:00 today
 -- (2,000 of room at 12% = 240 tax, total 2,240).
 begin;
-select plan(20);
+select plan(55);
 
 -- Rows a statement changed, run as the current role (0 when RLS filters it).
 create function pg_temp.rows_affected(p_sql text) returns int
@@ -113,6 +113,159 @@ select ok(has_function_privilege('authenticated','public.inclusive_tax(numeric, 
   'authenticated may call inclusive_tax');
 select ok(not has_function_privilege('anon','public.inclusive_tax(numeric, numeric)','execute'),
   'anon may not call inclusive_tax');
+
+-- ---------------------------------------------------------------------
+-- Task 2: rates, inclusive_tax, and tax stored on every sale.
+--
+-- Rates over the section: fnb 5 -> (orders O1) -> 12 -> (O2, walk-ins)
+-- -> 5 while W1 is corrected -> 12; spa 18 throughout.
+
+set local role authenticated;
+
+-- Olga (owner) sets food & drink to 5% and spa & activities to 18%.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select is(pg_temp.rows_affected($$update public.properties set fnb_tax_pct = 5, spa_tax_pct = 18
+  where id = '44444444-0000-4000-8000-000000000001'$$), 1,
+  'the owner sets the food and spa rates');
+
+-- Sita (staff) cannot.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select is(pg_temp.rows_affected($$update public.properties set fnb_tax_pct = 0
+  where id = '44444444-0000-4000-8000-000000000001'$$), 0,
+  'staff cannot change the rates');
+select is((select fnb_tax_pct::text || '/' || spa_tax_pct::text from public.properties
+            where id = '44444444-0000-4000-8000-000000000001'),
+  '5.00/18.00', 'the rates are 5% and 18%');
+
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select throws_ok($$update public.properties set fnb_tax_pct = 28.01
+  where id = '44444444-0000-4000-8000-000000000001'$$,
+  'P0035', 'tax_rate_out_of_range', 'a food rate above 28 is refused');
+select throws_ok($$update public.properties set spa_tax_pct = -1
+  where id = '44444444-0000-4000-8000-000000000001'$$,
+  'P0035', 'tax_rate_out_of_range', 'a negative spa rate is refused');
+select lives_ok($$update public.properties set fnb_tax_pct = 28
+  where id = '44444444-0000-4000-8000-000000000001'$$, 'a rate of exactly 28 is allowed');
+update public.properties set fnb_tax_pct = 5 where id = '44444444-0000-4000-8000-000000000001';
+
+select is(public.inclusive_tax(105, 5), 5.00, '105 at 5% includes 5.00 of tax');
+select is(public.inclusive_tax(200, 18), 30.51, '200 at 18% includes 30.51 (30.508 rounded)');
+select is(public.inclusive_tax(1, 5), 0.05, '1 at 5% includes 0.05 (0.0476 rounded)');
+select is(public.inclusive_tax(999, 0), 0.00, 'a 0% rate means no tax');
+
+-- O1: Gita orders two thalis and a lassi, 525 at 5%.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select lives_ok($$select public.place_food_order('44444444-0000-4000-8000-000000000051',
+  '[{"food_item_id":"44444444-0000-4000-8000-000000000031","quantity":2},
+    {"food_item_id":"44444444-0000-4000-8000-000000000032","quantity":1}]'::jsonb)$$,
+  'Gita orders two thalis and a lassi (525)');
+select is((select tax_pct::text || '/' || tax_amount::text from public.food_orders
+            where reservation_id = '44444444-0000-4000-8000-000000000051' and total = 525),
+  '5.00/25.00', 'the order records 5% and 25.00 of tax');
+select is((select string_agg(i.tax_pct::text || '/' || i.tax_amount::text, ',' order by i.line_total)
+             from public.food_order_items i
+             join public.food_orders o on o.id = i.order_id
+            where o.reservation_id = '44444444-0000-4000-8000-000000000051' and o.total = 525),
+  '5.00/5.00,5.00/20.00', 'each item records its tax at the order''s rate');
+
+-- The kitchen (Sita) accepts O1 and tries to zero its tax.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select is(pg_temp.rows_affected($$update public.food_orders
+     set status = 'accepted', tax_pct = 0, tax_amount = 0
+   where reservation_id = '44444444-0000-4000-8000-000000000051' and total = 525$$), 1,
+  'the kitchen accepts the order, sending tax 0');
+select is((select tax_pct::text || '/' || tax_amount::text from public.food_orders
+            where reservation_id = '44444444-0000-4000-8000-000000000051' and total = 525),
+  '5.00/25.00', 'the tax cannot be changed by an update');
+
+-- Olga raises the food rate to 12%.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000001","role":"authenticated"}';
+update public.properties set fnb_tax_pct = 12 where id = '44444444-0000-4000-8000-000000000001';
+select is((select tax_pct::text || '/' || tax_amount::text from public.food_orders
+            where reservation_id = '44444444-0000-4000-8000-000000000051' and total = 525),
+  '5.00/25.00', 'raising the food rate leaves the earlier order at 5%');
+
+-- O2: one more lassi, 105 at 12%.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000004","role":"authenticated"}';
+select lives_ok($$select public.place_food_order('44444444-0000-4000-8000-000000000051',
+  '[{"food_item_id":"44444444-0000-4000-8000-000000000032","quantity":1}]'::jsonb)$$,
+  'Gita orders one more lassi (105)');
+select is((select tax_pct::text || '/' || tax_amount::text from public.food_orders
+            where reservation_id = '44444444-0000-4000-8000-000000000051' and total = 105),
+  '12.00/11.25', 'the new order records 12% and 11.25 of tax');
+
+-- A1: a massage for two (2,360) today; A2: a massage for one (1,180),
+-- which Gita cancels.
+select lives_ok($$select public.book_activity('44444444-0000-4000-8000-000000000051',
+  '44444444-0000-4000-8000-000000000041', (now() at time zone 'Asia/Kolkata')::date, '10:00', 2)$$,
+  'Gita books a massage for two (2,360)');
+select is((select tax_pct::text || '/' || tax_amount::text from public.activity_bookings
+            where reservation_id = '44444444-0000-4000-8000-000000000051' and people = 2),
+  '18.00/360.00', 'the activity booking records 18% and 360.00 of tax');
+select lives_ok($$select public.book_activity('44444444-0000-4000-8000-000000000051',
+  '44444444-0000-4000-8000-000000000041', (now() at time zone 'Asia/Kolkata')::date, '10:00', 1)$$,
+  'Gita books a massage for one (1,180)');
+select is(pg_temp.rows_affected($$update public.activity_bookings set status = 'cancelled'
+   where reservation_id = '44444444-0000-4000-8000-000000000051' and people = 1$$), 1,
+  'Gita cancels the massage for one');
+select is((select status::text || ' ' || tax_pct::text || '/' || tax_amount::text
+             from public.activity_bookings
+            where reservation_id = '44444444-0000-4000-8000-000000000051' and people = 1),
+  'cancelled 18.00/180.00', 'a cancelled booking keeps its tax');
+
+-- Walk-ins logged by Sita today.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select lives_ok($$insert into public.food_activity_sales
+    (property_id, category, item_name, unit_price, amount, payment_method, tax_pct, tax_amount)
+  values ('44444444-0000-4000-8000-000000000001','food','Walk-in thali',210,210,'cash',0,0)$$,
+  'Sita logs a walk-in thali (210), sending tax 0');
+select is((select tax_pct::text || '/' || tax_amount::text from public.food_activity_sales
+            where item_name = 'Walk-in thali'),
+  '12.00/22.50', 'the sale records the current food rate, not what was sent');
+select lives_ok($$insert into public.food_activity_sales
+    (property_id, category, item_name, unit_price, amount, payment_method)
+  values ('44444444-0000-4000-8000-000000000001','activity','Walk-in yoga',590,590,'upi')$$,
+  'Sita logs a walk-in yoga session (590)');
+select is((select tax_pct::text || '/' || tax_amount::text from public.food_activity_sales
+            where item_name = 'Walk-in yoga'),
+  '18.00/90.00', 'an activity sale records the spa rate');
+
+-- Olga lowers the food rate to 5% and then corrects the thali to 336.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000001","role":"authenticated"}';
+update public.properties set fnb_tax_pct = 5 where id = '44444444-0000-4000-8000-000000000001';
+select is(pg_temp.rows_affected($$update public.food_activity_sales
+     set amount = 336, unit_price = 336
+   where item_name = 'Walk-in thali'$$), 1,
+  'the owner corrects the thali sale to 336 while the food rate is 5%');
+select is((select tax_pct::text || '/' || tax_amount::text from public.food_activity_sales
+            where item_name = 'Walk-in thali'),
+  '12.00/36.00', 'the corrected sale keeps the 12% it was sold at');
+update public.properties set fnb_tax_pct = 12 where id = '44444444-0000-4000-8000-000000000001';
+
+-- A snack logged as food, then moved to activities as a sauna session.
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000002","role":"authenticated"}';
+select lives_ok($$insert into public.food_activity_sales
+    (property_id, category, item_name, unit_price, amount, payment_method)
+  values ('44444444-0000-4000-8000-000000000001','food','Walk-in snack',118,118,'cash')$$,
+  'Sita logs a walk-in snack (118) as food');
+select is((select tax_pct::text || '/' || tax_amount::text from public.food_activity_sales
+            where item_name = 'Walk-in snack'),
+  '12.00/12.64', 'the snack records 12% and 12.64 of tax');
+set local request.jwt.claims to '{"sub":"44000000-0000-0000-0000-000000000001","role":"authenticated"}';
+select is(pg_temp.rows_affected($$update public.food_activity_sales
+     set category = 'activity', item_name = 'Walk-in sauna'
+   where item_name = 'Walk-in snack'$$), 1,
+  'the owner moves it to activities as a sauna session');
+select is((select tax_pct::text || '/' || tax_amount::text from public.food_activity_sales
+            where item_name = 'Walk-in sauna'),
+  '18.00/18.00', 'a changed category takes the new category''s current rate');
+select is(pg_temp.rows_affected($$update public.food_activity_sales
+     set tax_pct = 0, tax_amount = 0
+   where item_name = 'Walk-in sauna'$$), 1,
+  'the owner tries to zero a sale''s tax');
+select is((select tax_pct::text || '/' || tax_amount::text from public.food_activity_sales
+            where item_name = 'Walk-in sauna'),
+  '18.00/18.00', 'a sale''s tax cannot be changed by an update');
 
 select * from finish();
 rollback;
