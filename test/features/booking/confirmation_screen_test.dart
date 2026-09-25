@@ -4,8 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/models/unit.dart';
+import 'package:pasala/data/repositories/stay_pass_repository.dart';
+import 'package:pasala/features/admin/admin_bookings_screen.dart' show bookingCode;
 import 'package:pasala/features/booking/confirmation_screen.dart';
 import 'package:pasala/features/booking/providers.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+
+import '../../support/fake_stay_pass_source.dart';
 
 final _reservation = Reservation(
   id: 'r1',
@@ -27,7 +32,7 @@ const _unit = Unit(
   isActive: true,
 );
 
-Widget _appFor({Reservation? reservation}) {
+Widget _appFor({Reservation? reservation, FakeStayPassSource? passes}) {
   final res = reservation ?? _reservation;
   final router = GoRouter(
     initialLocation: '/booking/${res.id}',
@@ -44,6 +49,7 @@ Widget _appFor({Reservation? reservation}) {
 
   return ProviderScope(
     overrides: [
+      stayPassSourceProvider.overrideWithValue(passes ?? FakeStayPassSource()),
       reservationProvider(res.id).overrideWith((ref) => Future.value(res)),
       unitByIdProvider('u1').overrideWith((ref) => Future.value(_unit)),
     ],
@@ -99,5 +105,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('For:'), findsNothing);
+  });
+
+  testWidgets('shows the signed check-in pass and the booking code',
+      (tester) async {
+    final passes = FakeStayPassSource();
+    await tester.pumpWidget(_appFor(passes: passes));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(QrImageView), findsOneWidget);
+    expect(passes.issueCalls, everyElement('r1'));
+    expect(find.text('Booking code ${bookingCode('r1')}'), findsOneWidget);
+    expect(find.text('Show this at check-in'), findsOneWidget);
   });
 }

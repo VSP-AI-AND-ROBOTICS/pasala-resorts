@@ -20,6 +20,7 @@ import '../features/admin/maintenance_issues_screen.dart';
 import '../features/admin/reception_checkin_screen.dart';
 import '../features/admin/reception_checkout_screen.dart';
 import '../features/admin/resort_unit_guard.dart';
+import '../features/admin/scan_pass_screen.dart';
 import '../features/admin/service_requests_screen.dart';
 import '../features/admin/tasks_screen.dart';
 import '../features/admin/block_dates_screen.dart';
@@ -141,15 +142,17 @@ String? redirectFor({
     // staff-or-above grant too -- reception need not be an admin account to
     // check a guest in or settle their final bill -- so `/admin/check-in`
     // and `/admin/check-out` join them here as well, with the desk
-    // checkout of one booking at `/admin/check-out/:reservationId`. Every other
-    // `/admin/*` route (properties, units, rates, blocking, the bookings
-    // list) stays admin-only, matching the RLS/RPC surfaces that actually
-    // write data.
+    // checkout of one booking at `/admin/check-out/:reservationId`. The
+    // pass scanner at /admin/check-in/scan (P3) belongs to the check-in desk
+    // the same way. Every other `/admin/*` route (properties, units, rates,
+    // blocking, the bookings list) stays admin-only, matching the RLS/RPC
+    // surfaces that actually write data.
     final staffOrAboveOk = resort != null &&
         (path == '/admin/dashboard' ||
             path == '/admin/reports' ||
             path == '/admin/outbox' ||
             path == '/admin/check-in' ||
+            path.startsWith('/admin/check-in/') ||
             path == '/admin/check-out' ||
             path.startsWith('/admin/check-out/'));
     final isAdminHere =
@@ -632,6 +635,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/check-in',
             builder: (_, _) => const ReceptionCheckinScreen(),
+            routes: [
+              // The pass scanner (P3). A child of the list, so the list
+              // stays underneath and gets the scanned text back from pop.
+              GoRoute(
+                path: 'scan',
+                builder: (_, _) => const ScanPassScreen(),
+              ),
+            ],
           ),
           GoRoute(
             path: '/admin/check-out',

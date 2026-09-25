@@ -556,6 +556,43 @@ void main() {
     });
   });
 
+  group('pass scanner', () {
+    test('/admin/check-in/scan opens for every role at the current resort', () {
+      expect(_to(_superAdmin, _ownerM, '/admin/check-in/scan'), null);
+      expect(_to(_admin, _adminM, '/admin/check-in/scan'), null);
+      expect(_to(_staff, _staffM, '/admin/check-in/scan'), null);
+      expect(_to(_accountant, _accountantM, '/admin/check-in/scan'), null);
+    });
+
+    test('customers are refused /admin/check-in/scan', () {
+      expect(_to(_customer, null, '/admin/check-in/scan'), '/404');
+    });
+
+    test('the app router registers scan under /admin/check-in', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(null)),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+      final router = container.read(routerProvider);
+
+      GoRoute? findCheckIn(List<RouteBase> routes) {
+        for (final route in routes) {
+          if (route is GoRoute && route.path == '/admin/check-in') return route;
+          final hit = findCheckIn(route.routes);
+          if (hit != null) return hit;
+        }
+        return null;
+      }
+
+      final checkIn = findCheckIn(router.configuration.routes);
+      expect(checkIn, isNotNull);
+      expect(checkIn!.routes.whereType<GoRoute>().map((r) => r.path),
+          contains('scan'));
+    });
+  });
+
   // E2E bug (e2e/tests/frontdesk.spec.ts): reloading the desk checkout
   // landed on the user's landing page instead of the checkout.
   group('reload / cold start', () {

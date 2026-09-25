@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/format.dart';
 import '../../core/theme/app_assets.dart';
@@ -9,6 +8,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../core/widgets/hero_backdrop.dart';
 import '../../data/models/reservation.dart';
+import '../stay/stay_pass_qr.dart';
 import 'providers.dart';
 
 class ConfirmationScreen extends ConsumerWidget {
@@ -119,22 +119,8 @@ class _Confirmed extends ConsumerWidget {
                         ),
                       ],
                       const SizedBox(height: Spacing.lg),
-                      // Decorative only -- reception looks up the booking and
-                      // taps Check In, nothing in this app ever scans this back.
-                      Container(
-                        padding: const EdgeInsets.all(Spacing.sm),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(
-                            PasalaTokens.radiusSm,
-                          ),
-                        ),
-                        child: QrImageView(
-                          data: reservation.id,
-                          size: 140,
-                          backgroundColor: Colors.white,
-                        ),
-                      ),
+                      // The signed check-in pass reception scans (P3).
+                      StayPassQr(reservationId: reservation.id),
                       const SizedBox(height: Spacing.xs),
                       Text(
                         'Show this at check-in',
