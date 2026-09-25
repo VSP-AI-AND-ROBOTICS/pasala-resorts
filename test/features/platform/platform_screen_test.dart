@@ -6,10 +6,12 @@ import 'package:pasala/core/format.dart';
 import 'package:pasala/core/theme/app_theme.dart';
 import 'package:pasala/core/theme/theme_toggle_button.dart';
 import 'package:pasala/data/models/subscription.dart';
+import 'package:pasala/data/repositories/listing_repository.dart';
 import 'package:pasala/data/repositories/platform_repository.dart';
 import 'package:pasala/features/platform/platform_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../support/fake_listing_source.dart';
 import '../../support/fake_platform_source.dart';
 
 final _resortA = ResortSummary(
@@ -48,9 +50,17 @@ final _resortC = ResortSummary(
   revenue365d: 0,
 );
 
-Widget _appFor(FakePlatformSource repo, {ThemeMode themeMode = ThemeMode.light}) =>
+Widget _appFor(
+  FakePlatformSource repo, {
+  ThemeMode themeMode = ThemeMode.light,
+  FakeListingReviewSource? review,
+}) =>
     ProviderScope(
-      overrides: [platformSourceProvider.overrideWithValue(repo)],
+      overrides: [
+        platformSourceProvider.overrideWithValue(repo),
+        listingReviewSourceProvider
+            .overrideWithValue(review ?? FakeListingReviewSource()),
+      ],
       child: MaterialApp(
         theme: buildTheme(Brightness.light),
         darkTheme: buildTheme(Brightness.dark),
@@ -73,6 +83,10 @@ void main() {
   });
 
   testWidgets('renders two resorts from a fake', (tester) async {
+    // The Pending review card and filter chip (P10) push the list further
+    // down; the default test surface needs the same tall surface as the
+    // other multi-card console tests below.
+    _tall(tester);
     final repo = FakePlatformSource()..store = [_resortA, _resortB];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
@@ -87,6 +101,8 @@ void main() {
   testWidgets('tapping Suspend then confirming calls setStatus(id, suspended)', (
     tester,
   ) async {
+    // The Pending review card and filter chip (P10) push the list down.
+    _tall(tester);
     final repo = FakePlatformSource()..store = [_resortA, _resortB];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
@@ -130,6 +146,8 @@ void main() {
 
   testWidgets('a suspended resort offers Reactivate, which sets it active',
       (tester) async {
+    // The Pending review card and filter chip (P10) push the card down.
+    _tall(tester);
     final repo = FakePlatformSource()..store = [_resortB];
     await tester.pumpWidget(_appFor(repo));
     await tester.pumpAndSettle();
@@ -284,6 +302,8 @@ void main() {
 
     testWidgets('a status change refreshes the cards as well as the list',
         (tester) async {
+      // The Pending review card and filter chip (P10) push the card down.
+      _tall(tester);
       final repo = FakePlatformSource()..store = [paidPro];
       await tester.pumpWidget(_appFor(repo));
       await tester.pumpAndSettle();
@@ -336,6 +356,8 @@ void main() {
 
     testWidgets('a new resort refreshes the list and the cards',
         (tester) async {
+      // The Pending review card and filter chip (P10) push the card down.
+      _tall(tester);
       final repo = FakePlatformSource()..store = [_resortA];
       await tester.pumpWidget(_appFor(repo));
       await tester.pumpAndSettle();
@@ -352,6 +374,109 @@ void main() {
 
       expect(find.text('Resort E'), findsOneWidget);
       expect(repo.totalsCalls, 2);
+    });
+  });
+
+  group('pending review', () {
+    FakeListingReviewSource review() => FakeListingReviewSource()
+      ..pending = [
+        pendingListing(propertyId: 'r1', submittedAt: DateTime.utc(2026, 9, 20, 12)),
+        pendingListing(
+            propertyId: 'r2',
+            name: 'Hill View',
+            city: 'Pune',
+            applicantEmail: 'ravi@example.com'),
+      ];
+
+    testWidgets('the count card shows submitted and still-being-set-up counts',
+        (tester) async {
+      _tall(tester);
+      await tester.pumpWidget(
+          _appFor(FakePlatformSource()..store = [_resortA], review: review()));
+      await tester.pumpAndSettle();
+
+      final card = find.byKey(const Key('pending-listings-card'));
+      expect(find.descendant(of: card, matching: find.text('Waiting for review')),
+          findsOneWidget);
+      expect(find.descendant(of: card, matching: find.text('1')), findsOneWidget);
+      expect(find.descendant(of: card, matching: find.text('1 setting up')),
+          findsOneWidget);
+    });
+
+    testWidgets('the Pending review filter shows applications, not resorts',
+        (tester) async {
+      _tall(tester);
+      await tester.pumpWidget(
+          _appFor(FakePlatformSource()..store = [_resortA], review: review()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('pending-filter')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('pending-listing-r1')), findsOneWidget);
+      expect(find.byKey(const Key('pending-listing-r2')), findsOneWidget);
+      expect(find.text('Resort A'), findsNothing);
+    });
+
+    testWidgets('tapping the count card switches the filter too',
+        (tester) async {
+      _tall(tester);
+      await tester.pumpWidget(
+          _appFor(FakePlatformSource()..store = [_resortA], review: review()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('pending-listings-card')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('pending-listing-r1')), findsOneWidget);
+    });
+
+    testWidgets('search narrows the applications by city', (tester) async {
+      _tall(tester);
+      await tester.pumpWidget(
+          _appFor(FakePlatformSource()..store = [_resortA], review: review()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('pending-filter')));
+      await tester.enterText(find.byKey(const Key('resort-search')), 'pune');
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('pending-listing-r2')), findsOneWidget);
+      expect(find.byKey(const Key('pending-listing-r1')), findsNothing);
+    });
+
+    testWidgets('with nothing pending it says so', (tester) async {
+      _tall(tester);
+      await tester.pumpWidget(_appFor(FakePlatformSource()..store = [_resortA]));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('pending-filter')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No resorts are waiting for review.'), findsOneWidget);
+    });
+
+    testWidgets('after a decision the queue, the list and the cards refetch',
+        (tester) async {
+      _tall(tester);
+      final repo = FakePlatformSource()..store = [_resortA];
+      final source = review();
+      await tester.pumpWidget(_appFor(repo, review: source));
+      await tester.pumpAndSettle();
+      final resortsBefore = repo.resortsCalls;
+      final pendingBefore = source.pendingCalls;
+
+      await tester.tap(find.byKey(const Key('pending-filter')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('approve-r1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('approve-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(source.approveCalls, ['r1']);
+      expect(repo.resortsCalls, greaterThan(resortsBefore));
+      expect(source.pendingCalls, greaterThan(pendingBefore));
+      expect(find.byKey(const Key('pending-listing-r1')), findsNothing);
     });
   });
 }

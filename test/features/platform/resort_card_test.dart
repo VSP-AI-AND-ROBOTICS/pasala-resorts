@@ -177,4 +177,20 @@ void main() {
     expect(source.statusCalls, [('p1', 'suspended')]);
     expect(changed, 1);
   });
+
+  testWidgets('a pending resort waits for review: no status or plan actions',
+      (tester) async {
+    await _pump(
+        tester,
+        FakePlatformSource(),
+        resortSummary(
+            status: 'pending',
+            plan: resortPlan(tier: SubscriptionTier.starter)));
+
+    expect(find.text('Pending review'), findsOneWidget);
+    expect(find.byKey(const Key('resort-status-btn-p1')), findsNothing);
+    expect(find.byKey(const Key('resort-plan-btn-p1')), findsNothing);
+    expect(find.text('Waiting for review: see Pending review above.'),
+        findsOneWidget);
+  });
 }
