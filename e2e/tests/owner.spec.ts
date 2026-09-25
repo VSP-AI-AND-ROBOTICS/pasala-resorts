@@ -101,19 +101,15 @@ test('Team screen: refuses to demote the resort\'s only owner', async ({ page })
   await ownerRow.click();
   await page.getByRole('menuitem', { name: 'Admin', exact: true }).click();
 
-  // BUG (lib/core/errors.dart P0023 mapping, fed by the raw `message =
-  // 'last_owner'` raised in supabase/migrations/0046_drop_global_role_helpers.sql's
-  // set_role): the guard correctly blocks the demotion, but the snackbar
-  // shows the server's internal code word "last_owner" verbatim instead of
-  // a sentence written for the owner reading it (contrast P0021/P0023's own
-  // doc comment in errors.dart, which claims this message is "already safe
-  // to show verbatim" -- it is not, for this code path). Asserting the
-  // literal text here so a future fix of the copy is the thing that breaks
-  // this line, not a silent regression of the guard itself. Scoped to the
-  // semantics host: Flutter also mirrors new text into a hidden
-  // <flt-announcement-polite> live region for screen readers, which would
-  // otherwise make this match two elements.
-  await expect(page.locator('flt-semantics-host').getByText('last_owner', { exact: true })).toBeVisible();
+  // The server's set_role raises P0023 with the bare code word `last_owner`
+  // (supabase/migrations/0046_drop_global_role_helpers.sql); errors.dart maps
+  // it to LastOwner's readable copy, and the raw code must never show.
+  // Scoped to the semantics host: Flutter also mirrors new text into a
+  // hidden <flt-announcement-polite> live region for screen readers, which
+  // would otherwise make this match two elements.
+  const host = page.locator('flt-semantics-host');
+  await expect(host.getByText('A resort must keep at least one owner.', { exact: true })).toBeVisible();
+  await expect(host.getByText('last_owner')).toHaveCount(0);
 
   // The demotion did not go through: the row is still Owner.
   await expect(ownerRow).toHaveAttribute('aria-label', /\nOwner$/);
