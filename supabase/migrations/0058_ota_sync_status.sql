@@ -438,7 +438,15 @@ begin
               when 'conflict'  then
                 -- The OTA listing our own booking back to us (it closed
                 -- those dates because of our export) is not a conflict.
+                -- An event we already imported is never an echo: its own
+                -- stale copy would otherwise "cover" the nights it moved
+                -- onto, hiding a real double booking.
                 if v_event.start_date is not null
+                   and not exists (
+                     select 1 from public.reservations r
+                      where r.unit_id = v_feed.unit_id
+                        and r.external_uid = v_event.uid
+                        and r.status <> 'cancelled')
                    and public.ical_event_is_echo(v_feed.unit_id,
                          v_event.start_date, v_event.end_date) then
                   v_echoes := v_echoes + 1;

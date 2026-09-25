@@ -8,7 +8,7 @@
 -- column defaults) with an admin (Asha) and a staff member (Sunil); units
 -- Cottage A and Cottage B; an inactive contract feed on Cottage B.
 begin;
-select plan(102);
+select plan(106);
 
 insert into auth.users (id, email) values
   ('f9000000-0000-4000-8000-000000000001','ota-admin@example.com'),
@@ -679,6 +679,50 @@ select is((select url from public.ical_feeds where id = 'f9000000-0000-4000-8000
   'https://www.booking.com/ical/88.ics', 'an admin''s webcal:// link is stored as https://');
 reset role;
 set local request.jwt.claims to '';
+
+-- === Review fix: a moved OTA stay is not an echo of its own old dates ======
+--
+-- Cottage C: an Airbnb stay imported for nights 10-12 Dec, then our own
+-- booking on the night of 13 Dec. The OTA moves its stay to 11-13 Dec.
+-- Nights 11-12 are "taken" only by the stay's own stale import, so the
+-- move is a real conflict with our booking, not an echo.
+
+insert into public.units (id, property_id, name, capacity_base, capacity_max) values
+  ('f9000000-0000-4000-8000-000000000013','f9000000-0000-4000-8000-000000000010','Cottage C',2,4);
+insert into public.ical_feeds (id, unit_id, url, label) values
+  ('f9000000-0000-4000-8000-000000000024','f9000000-0000-4000-8000-000000000013',
+   'https://example.invalid/moved.ics','Airbnb');
+
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000024', 948000101, 200,
+  E'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:moved-stay@airbnb.com\r\n'
+  || E'DTSTART;VALUE=DATE:20271210\r\nDTEND;VALUE=DATE:20271213\r\n'
+  || E'SUMMARY:Reserved\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n');
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000024')::text as m1 \gset
+select is((:'m1'::jsonb ->> 'created')::int, 1, 'the OTA stay for nights 10-12 Dec is imported');
+
+insert into public.reservations (unit_id, period, kind, status, block_reason, source) values
+  ('f9000000-0000-4000-8000-000000000013',
+   tstzrange('2027-12-13 08:30+00','2027-12-14 05:30+00','[)'),
+   'block','confirmed','Owner stay','app');
+
+select pending_request_id as fm_next from public.ical_feeds
+ where id = 'f9000000-0000-4000-8000-000000000024' \gset
+select pg_temp.deliver('f9000000-0000-4000-8000-000000000024', :fm_next, 200,
+  E'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:moved-stay@airbnb.com\r\n'
+  || E'DTSTART;VALUE=DATE:20271211\r\nDTEND;VALUE=DATE:20271214\r\n'
+  || E'SUMMARY:Reserved\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n');
+select public.ical_poll_feed('f9000000-0000-4000-8000-000000000024')::text as m2 \gset
+select is(array[(:'m2'::jsonb ->> 'conflicts')::int, (:'m2'::jsonb ->> 'echoes')::int],
+  array[1, 0],
+  'a stay moved onto our booking is a conflict, not an echo of its own old dates');
+select is((select period from public.reservations
+            where external_uid = 'moved-stay@airbnb.com'),
+  tstzrange('2027-12-10 08:30+00','2027-12-13 05:30+00','[)'),
+  'the imported stay keeps its old dates');
+select is((select last_error from public.ical_feeds
+            where id = 'f9000000-0000-4000-8000-000000000024'),
+  '1 event(s) conflicted with an existing booking and were skipped',
+  'and the feed says so');
 
 select * from finish();
 rollback;

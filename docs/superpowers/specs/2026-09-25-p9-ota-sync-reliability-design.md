@@ -87,7 +87,9 @@ Judgment calls made while writing this spec, all within the brief:
    feed.
 8. **Echoes are not conflicts.** When an all-day event conflicts and every
    night it covers is already taken by one of our own reservations on that
-   unit, it is counted as an `echo`. It adds no warning.
+   unit, it is counted as an `echo`. It adds no warning. An event already
+   imported on that unit (a live reservation with its UID) is never an echo:
+   its own stale copy must not "cover" the nights it moved onto.
 9. **Only feed-level failures are errors.** An HTTP error, a timeout, a failed
    fetch, or a 200 response that is not a calendar (no `BEGIN:VCALENDAR`)
    sets `last_status = 'error'`. Conflicts and unreadable events keep
@@ -185,7 +187,8 @@ Changed (latest bodies copied, then extended):
     through `ical_event_period` and then `ical_import_event`, and the per-event
     exception boundary is kept.
   - A conflicting all-day event that `ical_event_is_echo` accepts counts as
-    `echoes`.
+    `echoes`, unless the unit already has a non-cancelled reservation with
+    that event's UID (then it is a conflict).
   - A 200 response without `BEGIN:VCALENDAR` is an error: `not a calendar:
     the link did not return iCal data`.
   - The result `jsonb` gains `events` and `echoes`: `{status:'ok', events,
