@@ -2,9 +2,9 @@
 // payments the app never verified (the guest closed the tab), records
 // failures and refunds. Each event is processed once (spec decision 12).
 import { fail, json, preflight } from "../_shared/http.ts";
-import type { RazorpayApi, RazorpayConfig, ServicePaymentsDb } from "../_shared/payments_types.ts";
+import { DbError, type RazorpayApi, type RazorpayConfig, type ServicePaymentsDb } from "../_shared/payments_types.ts";
 import { sha256Hex, verifyWebhookSignature } from "../_shared/razorpay.ts";
-import { refundIfNeeded } from "../_shared/settlement.ts";
+import { refundIfNeeded, syncLive } from "../_shared/settlement.ts";
 
 export interface WebhookDeps {
   config(): RazorpayConfig | null;
@@ -65,6 +65,17 @@ export async function handleEvent(event: Json, config: RazorpayConfig, deps: Web
   }
 }
 
+/**
+ * A database error that fails the same way on every retry: a check our
+ * own functions raise (P0xxx), bad data (22xxx) or a broken constraint
+ * (23xxx). Anything else (a lost connection, a deadlock or serialization
+ * failure, a timeout, PostgREST not reaching Postgres, or no code at all)
+ * may pass on a retry (final review minor 8).
+ */
+export function isPermanentDbError(e: unknown): e is DbError {
+  return e instanceof DbError && /^(P0|22|23)/.test(e.code);
+}
+
 export function webhookHandler(deps: WebhookDeps): (req: Request) => Promise<Response> {
   return async (req) => {
     if (req.method === "OPTIONS") return preflight();
@@ -81,6 +92,9 @@ export function webhookHandler(deps: WebhookDeps): (req: Request) => Promise<Res
       if (!(await verifyWebhookSignature(raw, signature, config.webhookSecret))) {
         return fail(401, "invalid_signature", "Bad signature.");
       }
+      // A signed event proves the keys and the webhook secret are set. Only
+      // now, so an unsigned caller never reaches the database.
+      await syncLive(deps.service, config);
 
       let event: Json;
       try {
@@ -97,7 +111,16 @@ export function webhookHandler(deps: WebhookDeps): (req: Request) => Promise<Res
         return json(200, { status: "duplicate" });
       }
 
-      const outcome = await handleEvent(event, config, deps);
+      let outcome: string;
+      try {
+        outcome = await handleEvent(event, config, deps);
+      } catch (e) {
+        // A permanent error is recorded and answered 200, or Razorpay
+        // retries it for a day to the same end. A transient one is 500.
+        if (!isPermanentDbError(e)) throw e;
+        console.error("payments-webhook: permanent database error", eventId, e.code, e.message);
+        outcome = `error:${e.code}`;
+      }
       // Only after it was handled: a crash above leaves the event
       // unfinished, and Razorpay's retry processes it again.
       await deps.service.finishWebhook(eventId, outcome);

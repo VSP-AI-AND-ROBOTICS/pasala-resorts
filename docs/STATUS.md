@@ -77,8 +77,9 @@ business logic, only unsent notifications and, until Razorpay secrets are set, a
   - `payments-create-order`, `payments-verify` and `payments-webhook` create,
     verify and settle Razorpay orders on the server;
   - the app opens Checkout.js or the native SDK with only the public key id;
-  - the database refuses a guest's mock confirmation while the secrets are
-    set (P0036).
+  - the database refuses a guest's mock confirmation while all three
+    secrets (the webhook secret included) are set and the probe has been
+    run as a deploy step (P0036; see the README).
 
   It has never been run against a real Razorpay account.
 - **Email and SMS are sent by the `outbox-dispatch` Edge Function** once

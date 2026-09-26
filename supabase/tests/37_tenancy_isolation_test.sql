@@ -482,6 +482,9 @@ select is(
         'payment_order_quote','payment_order_open','payment_order_settle',
         'payment_order_failed','payment_order_refunded','payment_webhook_begin',
         'payment_webhook_done','payments_set_live',
+        -- 0062: payment_order_refund_release is executable by service_role
+        -- only and acts on the order its Razorpay payment id names.
+        'payment_order_refund_release',
         -- 0044: properties_guard_status checks is_platform_admin() directly
         -- before allowing a status change; reviews_set_author_name has no
         -- check of its own, but it only ever fires on a row the reviews_insert

@@ -157,3 +157,24 @@ Deno.test("anything unexpected is a 500 with our own error body", async () => {
   assertEquals(res.status, 500);
   assertEquals((await res.json()).error, "internal");
 });
+
+// Final review minor 3: without RAZORPAY_WEBHOOK_SECRET a guest who closes
+// the tab after paying is never settled or refunded, so payments stay off.
+Deno.test("keys without the webhook secret are not live: no order, live off", async () => {
+  const { handler, service, user, razorpay } = setup({ ...fixtureConfig, webhookSecret: null });
+  const res = await handler(post(request));
+  assertEquals(await res.json(), { configured: false });
+  assertEquals(service.live, false);
+  assertEquals(service.liveKeyId, null);
+  assertEquals(user.calls.length, 0);
+  assertEquals(razorpay.orders.length, 0);
+});
+
+Deno.test("a probe with keys but no webhook secret says the secret is missing", async () => {
+  const { handler, service } = setup({ ...fixtureConfig, webhookSecret: null });
+  assertEquals(await (await handler(post({ probe: true }))).json(), {
+    configured: false,
+    missing: ["RAZORPAY_WEBHOOK_SECRET"],
+  });
+  assertEquals(service.live, false);
+});

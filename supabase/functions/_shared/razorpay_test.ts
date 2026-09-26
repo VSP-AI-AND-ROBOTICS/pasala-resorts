@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertFalse, assertRejects } from "jsr:@std/assert@1";
 import {
   hmacSha256Hex,
+  paymentsLive,
   RazorpayClient,
   RazorpayHttpError,
   readConfig,
@@ -134,6 +135,40 @@ Deno.test("refundPayment posts to /v1/payments/:id/refund, full amount by defaul
   assertEquals(refund.id, "rfnd_X");
   assertEquals(calls[0].url, "https://api.razorpay.com/v1/payments/pay_P6test0001/refund");
   assertEquals(JSON.parse(calls[0].init.body as string), { notes: { reason: "unapplied" } });
+});
+
+Deno.test("refundPayment sends the idempotency key as X-Refund-Idempotency and the receipt", async () => {
+  const calls: Call[] = [];
+  const client = new RazorpayClient(fixtureConfig, fakeFetch(200, { id: "rfnd_X", amount: 500000 }, calls));
+
+  await client.refundPayment("pay_P6test0001", {
+    notes: { reason: "unapplied" },
+    receipt: "unapplied_pay_P6test0001",
+    idempotencyKey: "unapplied_pay_P6test0001",
+  });
+
+  const headers = calls[0].init.headers as Record<string, string>;
+  assertEquals(headers["X-Refund-Idempotency"], "unapplied_pay_P6test0001");
+  assertEquals(JSON.parse(calls[0].init.body as string), {
+    notes: { reason: "unapplied" },
+    receipt: "unapplied_pay_P6test0001",
+  });
+});
+
+Deno.test("refundPayment sends no idempotency header when none is given", async () => {
+  const calls: Call[] = [];
+  const client = new RazorpayClient(fixtureConfig, fakeFetch(200, { id: "rfnd_X", amount: 500000 }, calls));
+  await client.refundPayment("pay_P6test0001");
+  const headers = calls[0].init.headers as Record<string, string>;
+  assertEquals("X-Refund-Idempotency" in headers, false);
+});
+
+// Final review minor 3: without the webhook secret a guest who closes the
+// tab after paying is never settled, so payments are not live.
+Deno.test("paymentsLive needs both keys and the webhook secret", () => {
+  assertEquals(paymentsLive(null), false);
+  assertEquals(paymentsLive({ ...fixtureConfig, webhookSecret: null }), false);
+  assertEquals(paymentsLive(fixtureConfig), true);
 });
 
 Deno.test("fetchPayment and fetchOrder GET /v1/payments/:id and /v1/orders/:id with Basic auth", async () => {

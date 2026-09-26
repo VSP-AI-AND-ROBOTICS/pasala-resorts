@@ -88,7 +88,8 @@ select is((select array_agg(column_name::text order by ordinal_position)
             where table_schema = 'public' and table_name = 'payment_orders'),
   array['id','property_id','reservation_id','customer_id','kind','amount','currency',
         'razorpay_order_id','razorpay_payment_id','status','payment_id','refunded_amount',
-        'refund_ids','failure_reason','created_at','updated_at'],
+        'refund_ids','failure_reason','created_at','updated_at',
+        'refund_claimed_at'],  -- 0062
   'payment_orders has the columns the functions and the app read');
 select is((select count(*)::int from public.payment_gateway_config where not live), 1,
   'the gateway switch is one row, off');
@@ -325,8 +326,8 @@ set local role service_role;
 set local request.jwt.claims to '{"role":"service_role"}';
 select is(public.payment_order_settle('order_A1', 'pay_A2') ->> 'status', 'unapplied',
   'a second payment for a confirmed booking is unapplied');
-select is(public.payment_order_settle('order_A1', 'pay_A2') ->> 'refund_needed', 'true',
-  'it stays refund-needed until a refund is recorded');
+select is(public.payment_order_settle('order_A1', 'pay_A2') ->> 'refund_needed', 'false',
+  'the refund went to the first settle call (0062), not to this one too');
 select is(public.payment_order_settle('order_B1', 'pay_B1') ->> 'status', 'paid',
   'a verified balance is paid');
 select is(public.payment_order_settle('order_C1', 'pay_C1') ->> 'status', 'paid',

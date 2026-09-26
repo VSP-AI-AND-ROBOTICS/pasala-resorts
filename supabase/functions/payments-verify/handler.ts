@@ -11,7 +11,7 @@ import {
 } from "../_shared/payments_types.ts";
 import { verifyPaymentSignature } from "../_shared/razorpay.ts";
 import type { CaptureCheck } from "../_shared/settlement.ts";
-import { ensureCaptured, orderNote, refundIfNeeded } from "../_shared/settlement.ts";
+import { ensureCaptured, orderNote, refundIfNeeded, syncLive } from "../_shared/settlement.ts";
 
 export interface VerifyDeps {
   config(): RazorpayConfig | null;
@@ -55,6 +55,9 @@ export function verifyHandler(deps: VerifyDeps): (req: Request) => Promise<Respo
       if (typeof parsed === "string") return fail(400, "bad_request", parsed);
 
       const config = deps.config();
+      // Live only with the webhook secret too; a payment made against these
+      // keys is still settled below either way.
+      await syncLive(deps.service, config);
       if (!config) return json(200, { configured: false } satisfies VerifyResponse);
 
       const valid = await verifyPaymentSignature(
