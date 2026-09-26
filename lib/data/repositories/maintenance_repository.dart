@@ -109,6 +109,9 @@ final maintenanceRepositoryProvider = Provider<MaintenanceRepository>(
 final myMaintenanceIssuesProvider = FutureProvider.family<List<MaintenanceIssue>, String>(
   (ref, reservationId) =>
       ref.watch(maintenanceRepositoryProvider).myIssues(reservationId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 final maintenanceIssuesProvider =
@@ -118,4 +121,7 @@ final maintenanceIssuesProvider =
         assignedStaffId: filter.assignedStaffId,
         status: filter.status,
       ),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

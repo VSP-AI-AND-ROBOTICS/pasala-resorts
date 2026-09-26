@@ -50,4 +50,7 @@ final refundRuleRepositoryProvider = Provider<RefundRuleRepository>(
 
 final refundRulesProvider = FutureProvider.family<List<RefundRule>, String>(
   (ref, propertyId) => ref.watch(refundRuleRepositoryProvider).list(propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

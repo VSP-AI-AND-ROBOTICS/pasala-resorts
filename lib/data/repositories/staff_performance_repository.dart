@@ -60,4 +60,7 @@ final staffPerformanceProvider =
         from: filter.from,
         to: filter.to,
       ),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

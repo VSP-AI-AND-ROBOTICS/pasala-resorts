@@ -252,11 +252,17 @@ final platformSourceProvider = Provider<PlatformSource>(
 
 final platformResortsProvider = FutureProvider<List<ResortSummary>>(
   (ref) => ref.watch(platformSourceProvider).resorts(),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 /// Platform-wide: the cards do not follow the console's search or filter.
 final platformTotalsProvider = FutureProvider<PlatformTotals>(
   (ref) => ref.watch(platformSourceProvider).totals(),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 final subscriptionPlansProvider = FutureProvider<List<SubscriptionPlan>>(

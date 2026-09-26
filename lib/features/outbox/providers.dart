@@ -9,6 +9,9 @@ import '../../data/repositories/outbox_repository.dart';
 /// shows another resort's cached queue. Backs [OutboxScreen].
 final outboxMessagesProvider = FutureProvider.family<List<OutboxMessage>, String>(
   (ref, propertyId) => ref.watch(outboxSourceProvider).messages(propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 /// Each channel's delivery mode and when the sender last ran

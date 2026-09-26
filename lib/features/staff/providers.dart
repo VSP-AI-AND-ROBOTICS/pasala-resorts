@@ -14,6 +14,9 @@ import '../../data/repositories/booking_repository.dart';
 final allBookingsProvider = FutureProvider.family<List<Reservation>, String>(
   (ref, propertyId) =>
       ref.watch(bookingRepositoryProvider).allBookings(propertyId: propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 /// The real amount paid so far on one reservation -- see

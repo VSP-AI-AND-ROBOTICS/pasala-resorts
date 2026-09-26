@@ -50,4 +50,7 @@ final rateRepositoryProvider = Provider<RateRepository>(
 
 final rateRulesProvider = FutureProvider.family<List<RateRule>, String>(
   (ref, unitId) => ref.watch(rateRepositoryProvider).forUnit(unitId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

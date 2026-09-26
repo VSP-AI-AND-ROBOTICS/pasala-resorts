@@ -86,6 +86,9 @@ final serviceRequestRepositoryProvider = Provider<ServiceRequestRepository>(
 final myServiceRequestsProvider = FutureProvider.family<List<ServiceRequest>, String>(
   (ref, reservationId) =>
       ref.watch(serviceRequestRepositoryProvider).myRequests(reservationId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 final serviceRequestsProvider =
@@ -95,4 +98,7 @@ final serviceRequestsProvider =
         assignedStaffId: filter.assignedStaffId,
         status: filter.status,
       ),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

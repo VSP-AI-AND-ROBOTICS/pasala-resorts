@@ -155,20 +155,32 @@ final stayRepositoryProvider = Provider<StayRepository>(
 
 final currentStayProvider = FutureProvider<Reservation?>(
   (ref) => ref.watch(stayRepositoryProvider).currentStay(),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 final mostRecentCheckedOutProvider = FutureProvider<Reservation?>(
   (ref) => ref.watch(stayRepositoryProvider).mostRecentCheckedOut(),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 final currentChargesProvider = FutureProvider.family<CurrentCharges, String>(
   (ref, reservationId) =>
       ref.watch(stayRepositoryProvider).currentCharges(reservationId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 final todaysArrivalsProvider = FutureProvider.family<List<Reservation>, String>(
   (ref, propertyId) =>
       ref.watch(stayRepositoryProvider).todaysArrivals(propertyId: propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 /// `autoDispose` -- unlike this file's other providers, the mutation that
@@ -185,4 +197,7 @@ final checkedInProvider =
     FutureProvider.autoDispose.family<List<Reservation>, String>(
   (ref, propertyId) =>
       ref.watch(stayRepositoryProvider).checkedIn(propertyId: propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

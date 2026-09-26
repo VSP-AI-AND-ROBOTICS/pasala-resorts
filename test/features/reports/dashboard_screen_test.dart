@@ -108,6 +108,15 @@ void main() {
     expect(find.text('You do not have access to do that.'), findsOneWidget);
     expect(find.text('Revenue today'), findsNothing);
 
+    // Riverpod 3's `defaultRetry` auto-retries any FutureProvider whose
+    // `create()` threw something that isn't an `Error`/`ProviderException`
+    // -- up to 10 times with exponential backoff -- and `NotPermitted` is a
+    // plain `BookingFailure`. This screen already has its own Retry button,
+    // so `dashboardSummaryProvider` must opt out of that auto-retry: the
+    // repository should be hit exactly once for the initial failed load,
+    // not up to 11 times before the error UI even appears.
+    expect(repo.requestedPropertyIds, hasLength(1));
+
     repo.dashboardFailure = null;
     repo.summary = const DashboardSummary(
       todayRevenue: 5000,
@@ -123,6 +132,9 @@ void main() {
     expect(find.text('Revenue today'), findsOneWidget);
     expect(find.text('₹5,000'), findsOneWidget);
     expect(find.text('₹15,000'), findsOneWidget);
+    // ...and exactly one more call for the manual Retry tap, not another
+    // burst of internal auto-retries on top of it.
+    expect(repo.requestedPropertyIds, hasLength(2));
   });
 
   // Review Focus #1: the current resort's id must reach the RPC.

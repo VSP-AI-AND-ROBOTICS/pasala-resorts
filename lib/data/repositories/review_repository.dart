@@ -81,9 +81,15 @@ final reviewRepositoryProvider = Provider<ReviewRepository>(
 final reviewForReservationProvider = FutureProvider.family<Review?, String>(
   (ref, reservationId) =>
       ref.watch(reviewRepositoryProvider).forReservation(reservationId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
 
 final propertyReviewsProvider = FutureProvider.family<List<Review>, String>(
   (ref, propertyId) =>
       ref.watch(reviewRepositoryProvider).forProperty(propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
