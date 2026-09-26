@@ -164,8 +164,12 @@ export formats (`supabase/tests/48_ota_sync_test.sql`).
   secrets and do the work:
   - `payments-create-order` checks the amount (the advance rule or the
     balance due) as the signed-in guest and creates the Razorpay order;
-  - `payments-verify` checks Checkout's signature and confirms the booking
-    (or checks the guest out) on the server;
+  - `payments-verify` checks Checkout's signature, asks Razorpay whether
+    the money was captured (capturing an authorized payment for the
+    order's amount), and only then confirms the booking (or checks the
+    guest out) on the server. A payment that is still not captured is
+    reported as "not confirmed yet" and settles nothing; the
+    `payment.captured` webhook settles it if it is captured later;
   - `payments-webhook` handles `payment.captured`, `payment.failed` and
     `refund.processed`, once each.
 
@@ -190,8 +194,13 @@ curl -X POST "https://<project-ref>.supabase.co/functions/v1/payments-create-ord
 In the Razorpay Dashboard (Account & Settings → Webhooks), add the URL
 `https://<project-ref>.supabase.co/functions/v1/payments-webhook`. Give it
 the same secret as `RAZORPAY_WEBHOOK_SECRET`, and the events
-`payment.captured`, `payment.failed` and `refund.processed`. Leave
-automatic capture on (the default).
+`payment.captured`, `payment.failed` and `refund.processed`. Keep
+**automatic capture** on (Account & Settings → Payment capture; the
+default). A Checkout signature only proves a payment was authorized:
+`payments-verify` captures an authorized payment itself, but when the guest
+closes the tab before it runs, only automatic capture turns that payment
+into money. An uncaptured payment is returned to the guest by Razorpay
+after a few days and never confirms a booking.
 
 To switch it off, run
 `supabase secrets unset RAZORPAY_KEY_ID RAZORPAY_KEY_SECRET RAZORPAY_WEBHOOK_SECRET`

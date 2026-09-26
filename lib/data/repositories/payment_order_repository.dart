@@ -93,7 +93,9 @@ class PaymentFunctionsSource implements PaymentOrderSource {
         'razorpay_signature': signature,
       });
     } on FunctionException catch (e) {
-      if (isFunctionUnavailable(e)) {
+      // Razorpay did not answer the capture check: the guest may already
+      // have paid, so never invite a second payment.
+      if (isFunctionUnavailable(e) || _functionError(e) == 'gateway') {
         throw const InvalidState(paymentNotConfirmedYetMessage);
       }
       throw failureFromFunction(e);
@@ -118,6 +120,12 @@ Map<String, dynamic> _object(Object? data) => switch (data) {
       final Map<dynamic, dynamic> map => map.cast<String, dynamic>(),
       _ => throw const UnknownFailure('Unexpected answer from payments.'),
     };
+
+/// The `error` of the function's own error body, or null.
+Object? _functionError(FunctionException e) {
+  final details = e.details;
+  return details is Map ? details['error'] : null;
+}
 
 /// 404 (not deployed), or a 5xx without the function's own `{"error": …}`
 /// body (booting, or the gateway in front of it failed).

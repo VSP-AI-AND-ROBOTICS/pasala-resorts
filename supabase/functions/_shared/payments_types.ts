@@ -52,6 +52,15 @@ export type VerifyResponse =
     reservation_id: string;
     kind: PaymentKind;
     refund: "initiated" | "failed" | null;
+  }
+  | {
+    // Razorpay has not captured the money (yet), so nothing was settled.
+    // The payment.captured webhook settles it if it is captured later.
+    configured: true;
+    outcome: "pending";
+    reservation_id: string;
+    kind: PaymentKind | null;
+    refund: null;
   };
 
 /** Every non-2xx body the three functions send. */
@@ -136,14 +145,38 @@ export interface RazorpayOrderCreated {
   currency: string;
 }
 
+/** GET /v1/payments/:id (the fields we read). */
+export interface RazorpayPayment {
+  id: string;
+  order_id: string | null;
+  /** Paise. */
+  amount: number;
+  currency: string;
+  /** created | authorized | captured | refunded | failed */
+  status: string;
+}
+
+/** GET /v1/orders/:id (the fields we read). Empty notes come back as []. */
+export interface RazorpayOrder {
+  id: string;
+  /** Paise. */
+  amount: number;
+  currency: string;
+  notes: Record<string, string> | unknown[];
+}
+
 export interface RazorpayRefundCreated {
   id: string;
   /** Paise. */
   amount: number;
 }
 
-/** The two Razorpay REST calls the functions make. */
+/** The Razorpay REST calls the functions make. */
 export interface RazorpayApi {
+  fetchPayment(paymentId: string): Promise<RazorpayPayment>;
+  fetchOrder(orderId: string): Promise<RazorpayOrder>;
+  /** POST /v1/payments/:id/capture: an authorized payment becomes captured. */
+  capturePayment(paymentId: string, args: { amountPaise: number; currency: string }): Promise<RazorpayPayment>;
   createOrder(args: {
     amountPaise: number;
     currency: "INR";

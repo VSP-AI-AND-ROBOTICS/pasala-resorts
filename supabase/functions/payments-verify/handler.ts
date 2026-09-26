@@ -1,5 +1,6 @@
-// payments-verify: checks Razorpay Checkout's signature and settles the
-// payment in the database (spec decision 6).
+// payments-verify: checks Razorpay Checkout's signature, makes sure the
+// money is captured, and settles the payment in the database (spec
+// decision 6).
 import { fail, json, preflight } from "../_shared/http.ts";
 import {
   DbError,
@@ -9,7 +10,8 @@ import {
   type VerifyResponse,
 } from "../_shared/payments_types.ts";
 import { verifyPaymentSignature } from "../_shared/razorpay.ts";
-import { refundIfNeeded } from "../_shared/settlement.ts";
+import type { CaptureCheck } from "../_shared/settlement.ts";
+import { ensureCaptured, orderNote, refundIfNeeded } from "../_shared/settlement.ts";
 
 export interface VerifyDeps {
   config(): RazorpayConfig | null;
@@ -63,10 +65,36 @@ export function verifyHandler(deps: VerifyDeps): (req: Request) => Promise<Respo
       );
       if (!valid) return fail(400, "invalid_signature", "The payment could not be verified.");
 
+      // The signature proves authorization only: settle captured money
+      // alone (an authorized payment is captured first).
+      const razorpay = deps.razorpay(config);
+      let check: CaptureCheck;
+      try {
+        check = await ensureCaptured(razorpay, parsed.orderId, parsed.paymentId);
+      } catch (e) {
+        console.error("payments-verify: Razorpay lookup failed", e);
+        return fail(502, "gateway", "The payment provider did not respond. Try again.");
+      }
+      if (check.state === "mismatch") {
+        console.error("payments-verify: mismatch", parsed.orderId, parsed.paymentId, check.reason);
+        return fail(400, "invalid_signature", "The payment could not be verified.");
+      }
+      if (check.state === "pending") {
+        const kind = orderNote(check.order, "kind");
+        const pending: VerifyResponse = {
+          configured: true,
+          outcome: "pending",
+          reservation_id: orderNote(check.order, "reservation_id") ?? "",
+          kind: kind === "advance" || kind === "balance" ? kind : null,
+          refund: null,
+        };
+        return json(200, pending);
+      }
+
       const settled = await deps.service.settleOrder(parsed.orderId, parsed.paymentId);
       if (!settled) return fail(409, "db", "payment_order_not_found", "P0002");
 
-      const refund = await refundIfNeeded(settled, deps.razorpay(config), deps.service);
+      const refund = await refundIfNeeded(settled, razorpay, deps.service);
       const response: VerifyResponse = {
         configured: true,
         outcome: settled.status === "paid" ? "paid" : "unapplied",

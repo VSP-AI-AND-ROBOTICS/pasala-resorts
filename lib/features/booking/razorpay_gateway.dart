@@ -83,6 +83,8 @@ class RazorpayGateway implements PaymentGateway {
               verified.refund == RefundState.initiated
                   ? unappliedRefundingMessage
                   : unappliedContactMessage),
+          VerifyOutcome.pending =>
+            const PaymentResult.failure(paymentNotConfirmedYetMessage),
         };
     }
   }

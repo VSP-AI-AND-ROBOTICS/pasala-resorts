@@ -1,11 +1,13 @@
 // Razorpay for the Edge Functions: reading the secrets, the two HMAC
-// signatures, and the Orders and Refunds REST calls. No Razorpay SDK:
+// signatures, and the Orders, Payments and Refunds REST calls. No Razorpay SDK:
 // fetch and Web Crypto only, so tests inject `fetch`. P8 (subscription
 // billing) reuses this module.
 import type {
   RazorpayApi,
   RazorpayConfig,
+  RazorpayOrder,
   RazorpayOrderCreated,
+  RazorpayPayment,
   RazorpayRefundCreated,
 } from "./payments_types.ts";
 
@@ -89,18 +91,41 @@ export class RazorpayClient implements RazorpayApi {
     private readonly baseUrl: string = RAZORPAY_API,
   ) {}
 
-  private async post<T>(path: string, body: unknown): Promise<T> {
+  private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+    const headers: Record<string, string> = {
+      "Authorization": `Basic ${btoa(`${this.config.keyId}:${this.config.keySecret}`)}`,
+    };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
     const response = await this.fetchFn(`${this.baseUrl}${path}`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Basic ${btoa(`${this.config.keyId}:${this.config.keySecret}`)}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await response.text();
     if (!response.ok) throw new RazorpayHttpError(response.status, text);
     return JSON.parse(text) as T;
+  }
+
+  private post<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>("POST", path, body);
+  }
+
+  /** GET /v1/payments/:id. */
+  fetchPayment(paymentId: string): Promise<RazorpayPayment> {
+    return this.request<RazorpayPayment>("GET", `/payments/${encodeURIComponent(paymentId)}`);
+  }
+
+  /** GET /v1/orders/:id. */
+  fetchOrder(orderId: string): Promise<RazorpayOrder> {
+    return this.request<RazorpayOrder>("GET", `/orders/${encodeURIComponent(orderId)}`);
+  }
+
+  /** POST /v1/payments/:id/capture. The amount must equal the payment's. */
+  capturePayment(paymentId: string, args: { amountPaise: number; currency: string }): Promise<RazorpayPayment> {
+    return this.post<RazorpayPayment>(`/payments/${encodeURIComponent(paymentId)}/capture`, {
+      amount: args.amountPaise,
+      currency: args.currency,
+    });
   }
 
   /** POST /v1/orders. Amounts are paise. */

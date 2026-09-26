@@ -160,6 +160,17 @@ void main() {
               (e) => e.message, 'message', paymentNotConfirmedYetMessage)));
     });
 
+    test('Razorpay not answering the verify says "not confirmed yet"',
+        () async {
+      // The guest may already have paid: "try again" would invite a second
+      // payment.
+      await expectLater(
+          _verify(_throwing(_status(
+              502, {'error': 'gateway', 'message': 'x'}))),
+          throwsA(isA<InvalidState>().having(
+              (e) => e.message, 'message', paymentNotConfirmedYetMessage)));
+    });
+
     test('an unreachable verify function says "not confirmed yet"', () async {
       await expectLater(_verify(_throwing(_status(404))),
           throwsA(isA<InvalidState>().having(

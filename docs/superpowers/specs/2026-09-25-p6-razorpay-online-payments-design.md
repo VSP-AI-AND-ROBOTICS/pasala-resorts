@@ -111,8 +111,18 @@ that both screens call.
     ignored. Each event is processed once, keyed by `X-Razorpay-Event-Id`
     (or the SHA-256 of the body when that header is missing), in
     `payment_webhook_events`.
-13. **Capture:** the Razorpay account's default automatic capture for
-    orders is assumed. A valid checkout signature is enough to settle.*
+13. **Capture:** a valid checkout signature proves only that the payment
+    was authorized. `payments-verify` therefore asks Razorpay for the
+    payment and its order before settling: a payment for another order,
+    amount or currency is refused (`invalid_signature`); an authorized
+    payment is captured for the order's amount; a captured one settles;
+    anything else answers `{"outcome": "pending"}` and settles nothing (the
+    app shows "not confirmed yet", and a later `payment.captured` webhook
+    settles it). If Razorpay does not answer, verify returns 502 `gateway`,
+    which the app also shows as "not confirmed yet". The account should
+    keep its default automatic capture, so a payment whose guest closed the
+    tab is still captured. (Changed after the final review; the first
+    version settled on the signature alone.)*
 14. **Only the guest pays online** for their own booking. Anyone else gets
     P0008. Staff keep the desk methods.
 15. **Checkout UI:** on the web, Razorpay Checkout.js is injected on first

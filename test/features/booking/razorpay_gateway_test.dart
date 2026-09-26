@@ -145,6 +145,19 @@ void main() {
         'Your payment could not be added to this booking. The resort will refund it.');
   });
 
+  test('a payment Razorpay has not captured is not confirmed yet', () async {
+    orders
+      ..createResult = razorpayOrder()
+      ..verifyResult = const VerifyResult(
+          outcome: VerifyOutcome.pending, reservationId: 'r1');
+    checkout.outcome = _succeeded;
+
+    final result = await gateway.charge(reservationId: 'r1', amount: 5000);
+
+    expect(result.succeeded, isFalse);
+    expect(result.failureMessage, paymentNotConfirmedYetMessage);
+  });
+
   test("the server's refusals reach the caller as BookingFailures", () async {
     orders.createError = const HoldExpired();
     await expectLater(gateway.charge(reservationId: 'r1', amount: 5000),

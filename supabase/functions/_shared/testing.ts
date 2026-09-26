@@ -1,12 +1,14 @@
 // Fakes and fixtures for the payments-* handler tests. Never imported by
 // a function's index.ts.
-import { hmacSha256Hex } from "./razorpay.ts";
+import { hmacSha256Hex, RazorpayHttpError } from "./razorpay.ts";
 import type {
   OrderQuote,
   PaymentKind,
   RazorpayApi,
   RazorpayConfig,
+  RazorpayOrder,
   RazorpayOrderCreated,
+  RazorpayPayment,
   RazorpayRefundCreated,
   ServicePaymentsDb,
   SettleResult,
@@ -51,6 +53,29 @@ export function settleResult(overrides: Partial<SettleResult> = {}): SettleResul
     razorpay_payment_id: "pay_P6test0001",
     reason: null,
     refund_needed: false,
+    ...overrides,
+  };
+}
+
+/** GET /v1/payments/pay_P6test0001: captured, for order_P6test0001. */
+export function razorpayPayment(overrides: Partial<RazorpayPayment> = {}): RazorpayPayment {
+  return {
+    id: "pay_P6test0001",
+    order_id: "order_P6test0001",
+    amount: 500000,
+    currency: "INR",
+    status: "captured",
+    ...overrides,
+  };
+}
+
+/** GET /v1/orders/order_P6test0001, with the notes payments-create-order sets. */
+export function razorpayOrder(overrides: Partial<RazorpayOrder> = {}): RazorpayOrder {
+  return {
+    id: "order_P6test0001",
+    amount: 500000,
+    currency: "INR",
+    notes: { reservation_id: reservationId, property_id: "a6100000-0000-4000-8000-000000000001", kind: "advance" },
     ...overrides,
   };
 }
@@ -129,11 +154,39 @@ export class FakeRazorpay implements RazorpayApi {
   refunds: Array<[string, Parameters<RazorpayApi["refundPayment"]>[1]]> = [];
   orderError: Error | null = null;
   refundError: Error | null = null;
+  payments = new Map<string, RazorpayPayment>([["pay_P6test0001", razorpayPayment()]]);
+  orderLookups = new Map<string, RazorpayOrder>([["order_P6test0001", razorpayOrder()]]);
+  captures: Array<[string, { amountPaise: number; currency: string }]> = [];
+  /** Fails fetchPayment and fetchOrder (Razorpay unreachable). */
+  fetchError: Error | null = null;
+  captureError: Error | null = null;
+  /** With captureError: the payment is captured all the same (a race). */
+  captureAnyway = false;
 
   createOrder(args: Parameters<RazorpayApi["createOrder"]>[0]): Promise<RazorpayOrderCreated> {
     this.orders.push(args);
     if (this.orderError) return Promise.reject(this.orderError);
     return Promise.resolve({ id: "order_P6test0001", amount: args.amountPaise, currency: args.currency });
+  }
+
+  fetchPayment(paymentId: string): Promise<RazorpayPayment> {
+    if (this.fetchError) return Promise.reject(this.fetchError);
+    const payment = this.payments.get(paymentId);
+    return payment ? Promise.resolve({ ...payment }) : Promise.reject(new RazorpayHttpError(400, "no such payment"));
+  }
+
+  fetchOrder(orderId: string): Promise<RazorpayOrder> {
+    if (this.fetchError) return Promise.reject(this.fetchError);
+    const order = this.orderLookups.get(orderId);
+    return order ? Promise.resolve({ ...order }) : Promise.reject(new RazorpayHttpError(400, "no such order"));
+  }
+
+  capturePayment(paymentId: string, args: { amountPaise: number; currency: string }): Promise<RazorpayPayment> {
+    this.captures.push([paymentId, args]);
+    const payment = this.payments.get(paymentId);
+    if (payment && (!this.captureError || this.captureAnyway)) payment.status = "captured";
+    if (this.captureError) return Promise.reject(this.captureError);
+    return payment ? Promise.resolve({ ...payment }) : Promise.reject(new RazorpayHttpError(400, "no such payment"));
   }
 
   refundPayment(

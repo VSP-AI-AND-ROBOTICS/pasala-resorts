@@ -67,6 +67,19 @@ void main() {
     expect(unapplied.refund, RefundState.initiated);
   });
 
+  test('pending (Razorpay has not captured the money) is its own outcome',
+      () {
+    final pending = VerifyResult.fromJson({
+      'configured': true,
+      'outcome': 'pending',
+      'reservation_id': 'r1',
+      'kind': null,
+      'refund': null,
+    });
+    expect(pending.outcome, VerifyOutcome.pending);
+    expect(pending.refund, isNull);
+  });
+
   test('an outcome the app does not know is never read as paid', () {
     final result = VerifyResult.fromJson({
       'configured': true,

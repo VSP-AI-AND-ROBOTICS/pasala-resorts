@@ -79,7 +79,9 @@ final class RazorpayOrder extends CreateOrderResult {
   final String? prefillContact;
 }
 
-enum VerifyOutcome { paid, unapplied }
+/// [pending]: Razorpay has not captured the money (yet), so the server
+/// settled nothing; the webhook settles it if it is captured later.
+enum VerifyOutcome { paid, unapplied, pending }
 
 enum RefundState { initiated, failed }
 
@@ -94,9 +96,11 @@ class VerifyResult {
   /// Anything but `paid` is treated as unapplied: the app must never claim
   /// a booking is paid on an answer it does not understand.
   factory VerifyResult.fromJson(Map<String, dynamic> json) => VerifyResult(
-    outcome: json['outcome'] == 'paid'
-        ? VerifyOutcome.paid
-        : VerifyOutcome.unapplied,
+    outcome: switch (json['outcome']) {
+      'paid' => VerifyOutcome.paid,
+      'pending' => VerifyOutcome.pending,
+      _ => VerifyOutcome.unapplied,
+    },
     reservationId: json['reservation_id'] as String,
     refund: switch (json['refund']) {
       'initiated' => RefundState.initiated,

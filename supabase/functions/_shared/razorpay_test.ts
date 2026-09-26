@@ -135,3 +135,50 @@ Deno.test("refundPayment posts to /v1/payments/:id/refund, full amount by defaul
   assertEquals(calls[0].url, "https://api.razorpay.com/v1/payments/pay_P6test0001/refund");
   assertEquals(JSON.parse(calls[0].init.body as string), { notes: { reason: "unapplied" } });
 });
+
+Deno.test("fetchPayment and fetchOrder GET /v1/payments/:id and /v1/orders/:id with Basic auth", async () => {
+  const calls: Call[] = [];
+  const client = new RazorpayClient(
+    fixtureConfig,
+    fakeFetch(200, {
+      id: "pay_P6test0001",
+      order_id: "order_P6test0001",
+      amount: 500000,
+      currency: "INR",
+      status: "authorized",
+    }, calls),
+  );
+
+  const payment = await client.fetchPayment("pay_P6test0001");
+  await client.fetchOrder("order_P6test0001");
+
+  assertEquals(payment.status, "authorized");
+  assertEquals(calls[0].url, "https://api.razorpay.com/v1/payments/pay_P6test0001");
+  assertEquals(calls[0].init.method, "GET");
+  assertEquals(calls[0].init.body, undefined);
+  const headers = calls[0].init.headers as Record<string, string>;
+  assertEquals(headers["Authorization"], `Basic ${btoa("rzp_test_fixture:rzp_secret_fixture")}`);
+  assertEquals(calls[1].url, "https://api.razorpay.com/v1/orders/order_P6test0001");
+  assertEquals(calls[1].init.method, "GET");
+});
+
+Deno.test("capturePayment posts the amount and currency to /v1/payments/:id/capture", async () => {
+  const calls: Call[] = [];
+  const client = new RazorpayClient(
+    fixtureConfig,
+    fakeFetch(200, {
+      id: "pay_P6test0001",
+      order_id: "order_P6test0001",
+      amount: 500000,
+      currency: "INR",
+      status: "captured",
+    }, calls),
+  );
+
+  const payment = await client.capturePayment("pay_P6test0001", { amountPaise: 500000, currency: "INR" });
+
+  assertEquals(payment.status, "captured");
+  assertEquals(calls[0].url, "https://api.razorpay.com/v1/payments/pay_P6test0001/capture");
+  assertEquals(calls[0].init.method, "POST");
+  assertEquals(JSON.parse(calls[0].init.body as string), { amount: 500000, currency: "INR" });
+});

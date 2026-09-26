@@ -1,6 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { refundIfNeeded } from "./settlement.ts";
-import { FakeRazorpay, FakeServiceDb, settleResult } from "./testing.ts";
+import { ensureCaptured, refundIfNeeded } from "./settlement.ts";
+import { FakeRazorpay, FakeServiceDb, razorpayOrder, razorpayPayment, settleResult } from "./testing.ts";
 
 Deno.test("a paid order needs no refund", async () => {
   const razorpay = new FakeRazorpay();
@@ -32,4 +32,73 @@ Deno.test("a refund Razorpay refuses is reported and not recorded", async () => 
   const state = await refundIfNeeded(settleResult({ status: "unapplied", refund_needed: true }), razorpay, service);
   assertEquals(state, "failed");
   assertEquals(service.refunds.length, 0);
+});
+
+// A Checkout signature proves the payment was authorized, not captured
+// (final review, Important 1). Only captured money may settle a booking.
+Deno.test("a captured payment for this order and amount is captured; nothing else is called", async () => {
+  const razorpay = new FakeRazorpay();
+  assertEquals((await ensureCaptured(razorpay, "order_P6test0001", "pay_P6test0001")).state, "captured");
+  assertEquals(razorpay.captures.length, 0);
+});
+
+Deno.test("an authorized payment is captured for the order's amount first", async () => {
+  const razorpay = new FakeRazorpay();
+  razorpay.payments.set("pay_P6test0001", razorpayPayment({ status: "authorized" }));
+  assertEquals((await ensureCaptured(razorpay, "order_P6test0001", "pay_P6test0001")).state, "captured");
+  assertEquals(razorpay.captures, [["pay_P6test0001", { amountPaise: 500000, currency: "INR" }]]);
+});
+
+Deno.test("a capture that fails because it was captured meanwhile still counts", async () => {
+  const razorpay = new FakeRazorpay();
+  razorpay.payments.set("pay_P6test0001", razorpayPayment({ status: "authorized" }));
+  razorpay.captureError = new Error("This payment has already been captured");
+  razorpay.captureAnyway = true;
+  assertEquals((await ensureCaptured(razorpay, "order_P6test0001", "pay_P6test0001")).state, "captured");
+});
+
+Deno.test("an authorized payment that cannot be captured is pending", async () => {
+  const razorpay = new FakeRazorpay();
+  razorpay.payments.set("pay_P6test0001", razorpayPayment({ status: "authorized" }));
+  razorpay.captureError = new Error("capture window closed");
+  const check = await ensureCaptured(razorpay, "order_P6test0001", "pay_P6test0001");
+  assertEquals(check.state, "pending");
+});
+
+Deno.test("a created, failed or refunded payment is pending and is not captured", async () => {
+  for (const status of ["created", "failed", "refunded"]) {
+    const razorpay = new FakeRazorpay();
+    razorpay.payments.set("pay_P6test0001", razorpayPayment({ status }));
+    assertEquals((await ensureCaptured(razorpay, "order_P6test0001", "pay_P6test0001")).state, "pending", status);
+    assertEquals(razorpay.captures.length, 0);
+  }
+});
+
+Deno.test("a payment for another order, amount or currency is a mismatch and is not captured", async () => {
+  const cases = [
+    razorpayPayment({ order_id: "order_OTHER", status: "authorized" }),
+    razorpayPayment({ amount: 100, status: "authorized" }),
+    razorpayPayment({ currency: "USD", status: "authorized" }),
+  ];
+  for (const payment of cases) {
+    const razorpay = new FakeRazorpay();
+    razorpay.payments.set("pay_P6test0001", payment);
+    assertEquals((await ensureCaptured(razorpay, "order_P6test0001", "pay_P6test0001")).state, "mismatch");
+    assertEquals(razorpay.captures.length, 0);
+  }
+  const razorpay = new FakeRazorpay();
+  razorpay.orderLookups.set("order_P6test0001", razorpayOrder({ amount: 900000 }));
+  assertEquals((await ensureCaptured(razorpay, "order_P6test0001", "pay_P6test0001")).state, "mismatch");
+});
+
+Deno.test("when Razorpay cannot be asked, the error reaches the caller", async () => {
+  const razorpay = new FakeRazorpay();
+  razorpay.fetchError = new Error("network down");
+  let thrown = false;
+  try {
+    await ensureCaptured(razorpay, "order_P6test0001", "pay_P6test0001");
+  } catch {
+    thrown = true;
+  }
+  assertEquals(thrown, true);
 });

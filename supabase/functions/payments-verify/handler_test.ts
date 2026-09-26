@@ -7,6 +7,7 @@ import {
   fixtureConfig,
   fixtureSignature,
   post,
+  razorpayPayment,
   reservationId,
   settleResult,
 } from "../_shared/testing.ts";
@@ -113,4 +114,48 @@ Deno.test("a database error is a 409 with its code", async () => {
   const res = await handler(post(good));
   assertEquals(res.status, 409);
   assertEquals((await res.json()).code, "P0009");
+});
+
+// Final review, Important 1: a signature proves authorization only.
+Deno.test("an authorized-only payment is captured before the booking is settled", async () => {
+  const { handler, service, razorpay } = setup();
+  razorpay.payments.set("pay_P6test0001", razorpayPayment({ status: "authorized" }));
+  const body = await (await handler(post(good))).json();
+  assertEquals(razorpay.captures, [["pay_P6test0001", { amountPaise: 500000, currency: "INR" }]]);
+  assertEquals(service.settles, [["order_P6test0001", "pay_P6test0001"]]);
+  assertEquals(body.outcome, "paid");
+});
+
+Deno.test("a payment that is not captured answers pending and settles nothing", async () => {
+  const { handler, service, razorpay } = setup();
+  razorpay.payments.set("pay_P6test0001", razorpayPayment({ status: "authorized" }));
+  razorpay.captureError = new Error("capture window closed");
+  const res = await handler(post(good));
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), {
+    configured: true,
+    outcome: "pending",
+    reservation_id: reservationId,
+    kind: "advance",
+    refund: null,
+  });
+  assertEquals(service.settles.length, 0);
+});
+
+Deno.test("a payment Razorpay reports for another order or amount is refused and not settled", async () => {
+  const { handler, service, razorpay } = setup();
+  razorpay.payments.set("pay_P6test0001", razorpayPayment({ amount: 100 }));
+  const res = await handler(post(good));
+  assertEquals(res.status, 400);
+  assertEquals((await res.json()).error, "invalid_signature");
+  assertEquals(service.settles.length, 0);
+});
+
+Deno.test("when Razorpay cannot be asked it is a 502 gateway error and nothing is settled", async () => {
+  const { handler, service, razorpay } = setup();
+  razorpay.fetchError = new Error("network down");
+  const res = await handler(post(good));
+  assertEquals(res.status, 502);
+  assertEquals((await res.json()).error, "gateway");
+  assertEquals(service.settles.length, 0);
 });
