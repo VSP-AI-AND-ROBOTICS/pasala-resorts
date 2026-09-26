@@ -182,19 +182,31 @@ export formats (`supabase/tests/48_ota_sync_test.sql`).
   processed events older than 90 days.
 - **Without secrets nothing changes.** The functions answer
   `{"configured": false}`, and the app pays through `MockGateway` as before.
-  With secrets set, the database refuses a guest's mock confirmation
-  (P0036), so a live deployment cannot be booked for free.
+  Online payments are live only when all three secrets are set, the webhook
+  secret included: without it a guest who closes the tab after paying would
+  never be settled or refunded. While live, the database refuses a guest's
+  mock confirmation (P0036), so a live deployment cannot be booked for
+  free.
 
-To switch it on (test keys first):
+To switch it on (test keys first), run all three steps; the probe is part
+of the deploy, not optional:
 
 ```bash
 supabase secrets set RAZORPAY_KEY_ID=rzp_test_xxx RAZORPAY_KEY_SECRET=xxx RAZORPAY_WEBHOOK_SECRET=xxx
 supabase functions deploy payments-create-order payments-verify payments-webhook
-# Switch the database to live now rather than at the first payment:
+# Deploy step: switch the database to live now. Until something does, a
+# guest could still confirm with a mock payment by calling confirm_booking.
 curl -X POST "https://<project-ref>.supabase.co/functions/v1/payments-create-order" \
   -H "Authorization: Bearer <anon key>" -H "Content-Type: application/json" \
   -d '{"probe": true}'     # → {"configured":true,"key_id":"rzp_test_xxx"}
 ```
+
+Anything but `{"configured":true,...}` means payments are not live. The
+answer `{"configured":false,"missing":["RAZORPAY_WEBHOOK_SECRET"]}` means
+the keys are set but the webhook secret is not: set it and probe again.
+`payments-verify` and every signed `payments-webhook` event also keep the
+live switch in step with the secrets, but only the probe does so before the
+first guest pays.
 
 In the Razorpay Dashboard (Account & Settings → Webhooks), add the URL
 `https://<project-ref>.supabase.co/functions/v1/payments-webhook`. Give it

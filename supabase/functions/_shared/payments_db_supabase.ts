@@ -79,6 +79,9 @@ export function serviceDb(): ServicePaymentsDb {
         p_amount: amount,
       });
     },
+    async releaseRefund(razorpayPaymentId) {
+      await rpc(db(), "payment_order_refund_release", { p_razorpay_payment_id: razorpayPaymentId });
+    },
     beginWebhook: (eventId, event, payload) =>
       rpc<boolean>(db(), "payment_webhook_begin", { p_event_id: eventId, p_event: event, p_payload: payload }),
     async finishWebhook(eventId, outcome) {

@@ -20,9 +20,45 @@ Deno.test("an unapplied order is refunded in full and the refund recorded in rup
   assertEquals(state, "initiated");
   assertEquals(razorpay.refunds, [[
     "pay_P6test0001",
-    { notes: { reason: "unapplied", reservation_id: "a6100000-0000-4000-8000-000000000031" } },
+    {
+      notes: { reason: "unapplied", reservation_id: "a6100000-0000-4000-8000-000000000031" },
+      receipt: "unapplied_pay_P6test0001",
+      idempotencyKey: "unapplied_pay_P6test0001",
+    },
   ]]);
   assertEquals(service.refunds, [["pay_P6test0001", "rfnd_P6test0001", 5000]]);
+  assertEquals(service.releases, []);
+});
+
+// Final review minor 1: verify and the webhook can both be told
+// refund_needed for one payment. Both calls carry the same idempotency key,
+// so Razorpay makes one refund however many callers ask.
+Deno.test("every refund of one payment carries the same idempotency key and receipt", async () => {
+  const razorpay = new FakeRazorpay();
+  const service = new FakeServiceDb();
+  const unapplied = settleResult({ status: "unapplied", refund_needed: true });
+  await refundIfNeeded(unapplied, razorpay, service);
+  await refundIfNeeded(unapplied, razorpay, service);
+  assertEquals(razorpay.refunds.length, 2);
+  assertEquals(razorpay.refunds[0], razorpay.refunds[1]);
+});
+
+Deno.test("a failed refund releases the refund claim for the next settle call", async () => {
+  const razorpay = new FakeRazorpay();
+  razorpay.refundError = new Error("gateway timeout");
+  const service = new FakeServiceDb();
+  const state = await refundIfNeeded(settleResult({ status: "unapplied", refund_needed: true }), razorpay, service);
+  assertEquals(state, "failed");
+  assertEquals(service.releases, ["pay_P6test0001"]);
+});
+
+Deno.test("a refund that cannot be recorded is failed and released too", async () => {
+  const razorpay = new FakeRazorpay();
+  const service = new FakeServiceDb();
+  service.refundError = new Error("database down");
+  const state = await refundIfNeeded(settleResult({ status: "unapplied", refund_needed: true }), razorpay, service);
+  assertEquals(state, "failed");
+  assertEquals(service.releases, ["pay_P6test0001"]);
 });
 
 Deno.test("a refund Razorpay refuses is reported and not recorded", async () => {

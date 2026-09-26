@@ -13,6 +13,7 @@ import {
   type ServicePaymentsDb,
   type UserPaymentsDb,
 } from "../_shared/payments_types.ts";
+import { paymentsLive } from "../_shared/razorpay.ts";
 
 export interface CreateOrderDeps {
   /** Read on every request, so `supabase secrets set` takes effect without a redeploy. */
@@ -62,15 +63,24 @@ export function createOrderHandler(deps: CreateOrderDeps): (req: Request) => Pro
       if (typeof parsed === "string") return fail(400, "bad_request", parsed);
 
       // Keep the database's live switch in step with the secrets (spec
-      // decision 5): on while the keys are set, off once they are removed.
+      // decision 5): on while the keys and the webhook secret are set, off
+      // once any is removed. Without the webhook secret a guest who closes
+      // the tab after paying is never settled, so no order is made either
+      // (final review minor 3). payments-verify and payments-webhook keep
+      // the switch in step too.
       const config = deps.config();
-      await deps.service.setLive(config !== null, config?.keyId ?? null);
+      const live = paymentsLive(config);
+      await deps.service.setLive(live, live ? config.keyId : null);
 
       if (parsed.probe) {
-        const probe: ProbeResponse = config ? { configured: true, key_id: config.keyId } : { configured: false };
+        const probe: ProbeResponse = live
+          ? { configured: true, key_id: config.keyId }
+          : config
+          ? { configured: false, missing: ["RAZORPAY_WEBHOOK_SECRET"] }
+          : { configured: false };
         return json(200, probe);
       }
-      if (!config) return json(200, { configured: false } satisfies CreateOrderResponse);
+      if (!live) return json(200, { configured: false } satisfies CreateOrderResponse);
 
       const authorization = req.headers.get("Authorization") ?? "";
       if (!authorization.startsWith("Bearer ")) return fail(401, "unauthorized", "Sign in to pay.");

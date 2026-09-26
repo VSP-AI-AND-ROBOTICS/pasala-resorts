@@ -10,6 +10,7 @@ import type {
   RazorpayOrderCreated,
   RazorpayPayment,
   RazorpayRefundCreated,
+  RefundArgs,
   ServicePaymentsDb,
   SettleResult,
   UserPaymentsDb,
@@ -94,6 +95,7 @@ export class FakeUserDb implements UserPaymentsDb {
 export class FakeServiceDb implements ServicePaymentsDb {
   live: boolean | null = null;
   liveKeyId: string | null = null;
+  setLiveError: Error | null = null;
   opened: Array<Parameters<ServicePaymentsDb["openOrder"]>[0]> = [];
   openError: Error | null = null;
   settles: Array<[string, string]> = [];
@@ -101,9 +103,12 @@ export class FakeServiceDb implements ServicePaymentsDb {
   settleError: Error | null = null;
   failed: Array<[string, string]> = [];
   refunds: Array<[string, string, number]> = [];
+  refundError: Error | null = null;
+  releases: string[] = [];
   events = new Map<string, { event: string; processed: boolean; outcome?: string }>();
 
   setLive(live: boolean, keyId: string | null): Promise<void> {
+    if (this.setLiveError) return Promise.reject(this.setLiveError);
     this.live = live;
     this.liveKeyId = keyId;
     return Promise.resolve();
@@ -126,7 +131,13 @@ export class FakeServiceDb implements ServicePaymentsDb {
   }
 
   recordRefund(razorpayPaymentId: string, refundId: string, amount: number): Promise<void> {
+    if (this.refundError) return Promise.reject(this.refundError);
     this.refunds.push([razorpayPaymentId, refundId, amount]);
+    return Promise.resolve();
+  }
+
+  releaseRefund(razorpayPaymentId: string): Promise<void> {
+    this.releases.push(razorpayPaymentId);
     return Promise.resolve();
   }
 
@@ -151,7 +162,7 @@ export class FakeServiceDb implements ServicePaymentsDb {
 
 export class FakeRazorpay implements RazorpayApi {
   orders: Array<Parameters<RazorpayApi["createOrder"]>[0]> = [];
-  refunds: Array<[string, Parameters<RazorpayApi["refundPayment"]>[1]]> = [];
+  refunds: Array<[string, RefundArgs | undefined]> = [];
   orderError: Error | null = null;
   refundError: Error | null = null;
   payments = new Map<string, RazorpayPayment>([["pay_P6test0001", razorpayPayment()]]);
@@ -189,10 +200,7 @@ export class FakeRazorpay implements RazorpayApi {
     return payment ? Promise.resolve({ ...payment }) : Promise.reject(new RazorpayHttpError(400, "no such payment"));
   }
 
-  refundPayment(
-    paymentId: string,
-    args?: Parameters<RazorpayApi["refundPayment"]>[1],
-  ): Promise<RazorpayRefundCreated> {
+  refundPayment(paymentId: string, args?: RefundArgs): Promise<RazorpayRefundCreated> {
     this.refunds.push([paymentId, args]);
     if (this.refundError) return Promise.reject(this.refundError);
     return Promise.resolve({ id: "rfnd_P6test0001", amount: 500000 });

@@ -159,3 +159,34 @@ Deno.test("when Razorpay cannot be asked it is a 502 gateway error and nothing i
   assertEquals((await res.json()).error, "gateway");
   assertEquals(service.settles.length, 0);
 });
+
+// Final review minor 2: payments-verify keeps the database's live switch
+// in step with the secrets too, so it is not left to the first order.
+Deno.test("verifying switches live on with the key id", async () => {
+  const { handler, service } = setup();
+  await handler(post(good));
+  assertEquals(service.live, true);
+  assertEquals(service.liveKeyId, "rzp_test_fixture");
+});
+
+Deno.test("verifying without keys switches live off", async () => {
+  const { handler, service } = setup(null);
+  await handler(post(good));
+  assertEquals(service.live, false);
+});
+
+Deno.test("keys without the webhook secret: live off, but a real payment still settles", async () => {
+  const { handler, service } = setup({ ...fixtureConfig, webhookSecret: null });
+  const body = await (await handler(post(good))).json();
+  assertEquals(body.outcome, "paid");
+  assertEquals(service.live, false);
+  assertEquals(service.settles.length, 1);
+});
+
+Deno.test("a failure to update the live switch never blocks settling a payment", async () => {
+  const { handler, service } = setup();
+  service.setLiveError = new DbError("08006", "connection failure");
+  const res = await handler(post(good));
+  assertEquals(res.status, 200);
+  assertEquals((await res.json()).outcome, "paid");
+});

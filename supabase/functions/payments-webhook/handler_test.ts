@@ -107,3 +107,60 @@ Deno.test("a database failure is 500 and leaves the event unfinished for the ret
   assertEquals(res.status, 500);
   assertEquals(service.events.get("evt_7")?.processed, false);
 });
+
+// Final review minor 2: a signed event proves the secrets are set, so the
+// webhook switches live on too.
+Deno.test("a signed event switches live on with the key id", async () => {
+  const { handler, service } = setup();
+  await handler(await signedWebhook(capturedEvent(), "evt_8"));
+  assertEquals(service.live, true);
+  assertEquals(service.liveKeyId, "rzp_test_fixture");
+});
+
+Deno.test("an unsigned request never touches the live switch", async () => {
+  const noSecret = setup({ ...fixtureConfig, webhookSecret: null });
+  await noSecret.handler(await signedWebhook(capturedEvent(), "evt_9"));
+  assertEquals(noSecret.service.live, null);
+  const { handler, service } = setup();
+  await handler(new Request("http://localhost/fn", { method: "POST", body: "{}" }));
+  assertEquals(service.live, null);
+});
+
+Deno.test("a failure to update the live switch never blocks the event", async () => {
+  const { handler, service } = setup();
+  service.setLiveError = new DbError("08006", "connection failure");
+  const res = await handler(await signedWebhook(capturedEvent(), "evt_10"));
+  assertEquals(res.status, 200);
+  assertEquals(service.events.get("evt_10")?.outcome, "settled:paid");
+});
+
+// Final review minor 8: a permanent database error will fail the same way
+// on every retry, so it is recorded with an error outcome and answered 200.
+Deno.test("a permanent database error is finished with an error outcome and answered 200", async () => {
+  for (const code of ["P0009", "23505", "22P02"]) {
+    const { handler, service } = setup();
+    service.settleError = new DbError(code, "refused");
+    const res = await handler(await signedWebhook(capturedEvent(), "evt_11"));
+    assertEquals(res.status, 200, code);
+    assertEquals(await res.json(), { status: "processed", outcome: `error:${code}` }, code);
+    assertEquals(service.events.get("evt_11")?.processed, true, code);
+    assertEquals(service.events.get("evt_11")?.outcome, `error:${code}`, code);
+  }
+});
+
+Deno.test("a transient database error is 500 and left for Razorpay's retry", async () => {
+  for (const code of ["08006", "40001", "40P01", "53300", "57014", "PGRST000", "unknown"]) {
+    const { handler, service } = setup();
+    service.settleError = new DbError(code, "try again");
+    const res = await handler(await signedWebhook(capturedEvent(), "evt_12"));
+    assertEquals(res.status, 500, code);
+    assertEquals(service.events.get("evt_12")?.processed, false, code);
+  }
+});
+
+Deno.test("an error that is not from the database is still 500", async () => {
+  const { handler, service } = setup();
+  service.settleError = new Error("boom");
+  assertEquals((await handler(await signedWebhook(capturedEvent(), "evt_13"))).status, 500);
+  assertEquals(service.events.get("evt_13")?.processed, false);
+});

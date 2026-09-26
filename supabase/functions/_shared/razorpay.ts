@@ -9,6 +9,7 @@ import type {
   RazorpayOrderCreated,
   RazorpayPayment,
   RazorpayRefundCreated,
+  RefundArgs,
 } from "./payments_types.ts";
 
 export const RAZORPAY_API = "https://api.razorpay.com/v1";
@@ -20,6 +21,15 @@ export function readConfig(get: (name: string) => string | undefined): RazorpayC
   if (keyId === "" || keySecret === "") return null;
   const webhookSecret = get("RAZORPAY_WEBHOOK_SECRET")?.trim() ?? "";
   return { keyId, keySecret, webhookSecret: webhookSecret === "" ? null : webhookSecret };
+}
+
+/**
+ * Whether online payments are on: both keys AND the webhook secret. Without
+ * the webhook secret payments-webhook answers 503, so a guest who closes the
+ * tab after paying would never be settled or refunded (final review minor 3).
+ */
+export function paymentsLive(config: RazorpayConfig | null): config is RazorpayConfig & { webhookSecret: string } {
+  return config !== null && config.webhookSecret !== null;
 }
 
 const encoder = new TextEncoder();
@@ -91,8 +101,14 @@ export class RazorpayClient implements RazorpayApi {
     private readonly baseUrl: string = RAZORPAY_API,
   ) {}
 
-  private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  private async request<T>(
+    method: "GET" | "POST",
+    path: string,
+    body?: unknown,
+    extraHeaders: Record<string, string> = {},
+  ): Promise<T> {
     const headers: Record<string, string> = {
+      ...extraHeaders,
       "Authorization": `Basic ${btoa(`${this.config.keyId}:${this.config.keySecret}`)}`,
     };
     if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -143,16 +159,24 @@ export class RazorpayClient implements RazorpayApi {
     });
   }
 
-  /** POST /v1/payments/:id/refund. No amount = the full payment. */
+  /**
+   * POST /v1/payments/:id/refund. No amount = the full payment. With an
+   * idempotency key (X-Refund-Idempotency), a repeat of the same request
+   * returns the first refund instead of making another.
+   */
   refundPayment(
     paymentId: string,
-    args: { amountPaise?: number; notes?: Record<string, string> } = {},
+    args: RefundArgs = {},
   ): Promise<RazorpayRefundCreated> {
-    return this.post<RazorpayRefundCreated>(
+    const body: Record<string, unknown> = {};
+    if (args.amountPaise !== undefined) body.amount = args.amountPaise;
+    body.notes = args.notes ?? {};
+    if (args.receipt !== undefined) body.receipt = args.receipt;
+    return this.request<RazorpayRefundCreated>(
+      "POST",
       `/payments/${encodeURIComponent(paymentId)}/refund`,
-      args.amountPaise === undefined
-        ? { notes: args.notes ?? {} }
-        : { amount: args.amountPaise, notes: args.notes ?? {} },
+      body,
+      args.idempotencyKey === undefined ? {} : { "X-Refund-Idempotency": args.idempotencyKey },
     );
   }
 }

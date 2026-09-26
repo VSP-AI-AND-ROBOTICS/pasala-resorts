@@ -34,8 +34,13 @@ export type CreateOrderResponse =
     prefill: Prefill;
   };
 
-/** POST payments-create-order with {"probe": true}. */
-export type ProbeResponse = { configured: false } | { configured: true; key_id: string };
+/**
+ * POST payments-create-order with {"probe": true}. `missing` names the
+ * secrets still to set when some, but not all, are set.
+ */
+export type ProbeResponse =
+  | { configured: false; missing?: string[] }
+  | { configured: true; key_id: string };
 
 /** POST payments-verify: the three values Razorpay Checkout hands back. */
 export interface VerifyRequest {
@@ -102,6 +107,11 @@ export interface SettleResult {
   status: "paid" | "unapplied" | "refunded";
   razorpay_payment_id: string;
   reason: string | null;
+  /**
+   * True for one caller only: payment_order_settle hands the refund of an
+   * unapplied payment to the first caller (a claim that lapses after 10
+   * minutes, or is given back with releaseRefund).
+   */
   refund_needed: boolean;
 }
 
@@ -133,6 +143,11 @@ export interface ServicePaymentsDb {
   failOrder(razorpayOrderId: string, reason: string): Promise<void>;
   /** `amount` in rupees. */
   recordRefund(razorpayPaymentId: string, refundId: string, amount: number): Promise<void>;
+  /**
+   * Gives back the refund claim payment_order_settle handed out with
+   * `refund_needed`, so the next settle call tries the refund again.
+   */
+  releaseRefund(razorpayPaymentId: string): Promise<void>;
   /** true while the event still needs processing. */
   beginWebhook(eventId: string, event: string, payload: unknown): Promise<boolean>;
   finishWebhook(eventId: string, outcome: string): Promise<void>;
@@ -183,10 +198,18 @@ export interface RazorpayApi {
     receipt: string;
     notes: Record<string, string>;
   }): Promise<RazorpayOrderCreated>;
-  refundPayment(
-    paymentId: string,
-    args?: { amountPaise?: number; notes?: Record<string, string> },
-  ): Promise<RazorpayRefundCreated>;
+  refundPayment(paymentId: string, args?: RefundArgs): Promise<RazorpayRefundCreated>;
+}
+
+/** POST /v1/payments/:id/refund. */
+export interface RefundArgs {
+  /** Paise; omitted = the full payment. */
+  amountPaise?: number;
+  notes?: Record<string, string>;
+  /** At most 40 characters; unique per refund of a payment. */
+  receipt?: string;
+  /** Sent as X-Refund-Idempotency: 10+ letters, digits, `-` or `_`. */
+  idempotencyKey?: string;
 }
 
 /** From the Edge Function secrets; null when the keys are not set. */
