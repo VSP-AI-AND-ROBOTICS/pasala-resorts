@@ -68,4 +68,7 @@ final stayPassSourceProvider = Provider<StayPassSource>(
 final stayPassProvider = FutureProvider.family<String, String>(
   (ref, reservationId) =>
       ref.watch(stayPassSourceProvider).issue(reservationId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

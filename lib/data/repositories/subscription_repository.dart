@@ -57,4 +57,7 @@ final resortPlanProvider = FutureProvider.autoDispose
     .family<ResortPlan?, String>(
       (ref, propertyId) =>
           ref.watch(resortPlanSourceProvider).resortPlan(propertyId),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+      // retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );

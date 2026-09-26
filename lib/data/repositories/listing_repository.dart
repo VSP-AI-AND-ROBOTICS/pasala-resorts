@@ -131,6 +131,9 @@ final listingReviewSourceProvider = Provider<ListingReviewSource>(
 final myListingApplicationsProvider =
     FutureProvider.autoDispose<List<ListingApplication>>(
       (ref) => ref.watch(listingSourceProvider).myApplications(),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+      // retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );
 
 /// Keyed by property id so switching resort never shows another resort's
@@ -139,8 +142,14 @@ final listingSetupProvider = FutureProvider.autoDispose
     .family<ListingSetup, String>(
       (ref, propertyId) =>
           ref.watch(listingSourceProvider).setupStatus(propertyId),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+      // retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );
 
 final pendingListingsProvider = FutureProvider<List<PendingListing>>(
   (ref) => ref.watch(listingReviewSourceProvider).pendingListings(),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

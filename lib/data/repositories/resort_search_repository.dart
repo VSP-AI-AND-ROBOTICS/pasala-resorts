@@ -54,4 +54,7 @@ final resortSearchSourceProvider = Provider<ResortSearchSource>(
 final resortSearchProvider = FutureProvider.autoDispose
     .family<List<ResortSearchResult>, ResortSearchQuery>(
       (ref, query) => ref.watch(resortSearchSourceProvider).search(query),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+      // retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );

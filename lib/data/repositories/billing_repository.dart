@@ -161,10 +161,16 @@ final billingAvailabilityProvider = FutureProvider.autoDispose
 final resortBillingProvider = FutureProvider.autoDispose
     .family<ResortBilling?, String>(
       (ref, propertyId) => ref.watch(billingSourceProvider).billing(propertyId),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+      // retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );
 
 final subscriptionInvoicesProvider = FutureProvider.autoDispose
     .family<List<SubscriptionInvoice>, String>(
       (ref, propertyId) =>
           ref.watch(billingSourceProvider).invoices(propertyId),
+      // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+      // retries non-Error throws by default).
+      retry: (retryCount, error) => null,
     );

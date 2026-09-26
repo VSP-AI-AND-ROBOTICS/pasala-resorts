@@ -49,4 +49,7 @@ final positionServiceProvider = Provider<PositionService>((ref) {
 /// invalidates both.
 final currentPositionProvider = FutureProvider<GeoPoint?>(
   (ref) => ref.watch(positionServiceProvider).approximatePosition(),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

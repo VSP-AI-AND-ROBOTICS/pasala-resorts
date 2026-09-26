@@ -276,4 +276,7 @@ final platformBillingProvider = FutureProvider<Map<String, PlatformBilling>>(
     for (final b in await ref.watch(platformSourceProvider).billing())
       b.propertyId: b,
   },
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );

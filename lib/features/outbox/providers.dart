@@ -21,4 +21,7 @@ final outboxDeliveryStatusProvider =
     FutureProvider.family<List<ChannelDelivery>, String>(
   (ref, propertyId) =>
       ref.watch(outboxSourceProvider).deliveryStatus(propertyId),
+  // Screens show their own Retry button; don't also auto-retry (Riverpod 3
+  // retries non-Error throws by default).
+  retry: (retryCount, error) => null,
 );
