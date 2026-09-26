@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
@@ -10,6 +9,7 @@ import '../../core/widgets/empty_state.dart';
 import '../../data/models/reservation.dart';
 import '../../data/repositories/review_repository.dart';
 import '../../data/repositories/stay_repository.dart';
+import 'stay_pass_qr.dart';
 
 /// The hub every "in-stay" screen hangs off of -- resolves
 /// [currentStayProvider] (a `checked_in` stay if there is one, otherwise the
@@ -169,14 +169,7 @@ class _Hub extends StatelessWidget {
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.all(Spacing.xs),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(PasalaTokens.radiusSm),
-                  ),
-                  child: QrImageView(data: reservation.id, size: 64),
-                ),
+                StayPassThumbnail(reservationId: reservation.id),
               ],
             ),
           ),

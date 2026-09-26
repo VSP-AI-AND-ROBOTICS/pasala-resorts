@@ -84,6 +84,128 @@ class AlreadyDispatched extends BookingFailure {
       : super('Housekeeping is already on its way to this room.');
 }
 
+/// P0041 -- `search_resorts` refused its input: an unknown sort, half a
+/// position, an out-of-range coordinate, or a query over 100 characters.
+/// The browse screen never sends any of these, so this is a backstop.
+class InvalidSearch extends BookingFailure {
+  const InvalidSearch()
+      : super('That search could not be run. Clear the filters and try again.');
+}
+
+/// P0040 -- a listing-state refusal (0059_resort_self_listing.sql): a
+/// second open application, submitting an unfinished checklist, deciding
+/// an application twice, approving one that was never submitted. The
+/// server writes each message for the person reading it, so it is shown
+/// verbatim.
+class ListingBlocked extends BookingFailure {
+  const ListingBlocked(super.message);
+}
+
+/// P0038 -- `billing_subscribe_state`: the chosen tier has no Razorpay
+/// plan id yet, so it cannot be paid online (P8). The server sends the
+/// bare code word `billing_unavailable`, so the copy lives here.
+class BillingUnavailable extends BookingFailure {
+  const BillingUnavailable()
+      : super("Online payment isn't set up for this plan yet. "
+            'Contact ResortHub.');
+}
+
+/// P0037 -- `retry_outbox_message` refused a message that is not failed or
+/// dry run (it is already queued again, sent, or skipped).
+class NotRetryable extends BookingFailure {
+  const NotRetryable()
+      : super('Only failed or dry-run messages can be sent again.');
+}
+
+/// P0035 -- `properties_check_service_tax` refused a food or spa rate
+/// outside 0..28. The Taxes screen checks the range first, so this is a
+/// backstop.
+class TaxRateOutOfRange extends BookingFailure {
+  const TaxRateOutOfRange()
+      : super('Food and spa tax rates must be between 0% and 28%.');
+}
+
+/// Why `verify_stay_pass` refused a check-in pass (P0034).
+enum PassRejection { invalid, expired, otherResort }
+
+/// P0034 -- `verify_stay_pass` (0052_stay_pass.sql) refused a scanned or
+/// typed check-in pass. The server sends one of three bare code words
+/// (`pass_invalid`, `pass_expired`, `pass_other_resort`), so the copy lives
+/// here; anything else reads as invalid.
+class StayPassRejected extends BookingFailure {
+  const StayPassRejected.invalid()
+      : reason = PassRejection.invalid,
+        super('This is not a valid check-in pass.');
+
+  const StayPassRejected.expired()
+      : reason = PassRejection.expired,
+        super('This pass has expired. Ask the guest to reopen their booking, '
+            'or find them in the list.');
+
+  const StayPassRejected.otherResort()
+      : reason = PassRejection.otherResort,
+        super('This pass is for a booking at a different resort.');
+
+  factory StayPassRejected.fromServer(String code) => switch (code) {
+        'pass_expired' => const StayPassRejected.expired(),
+        'pass_other_resort' => const StayPassRejected.otherResort(),
+        _ => const StayPassRejected.invalid(),
+      };
+
+  final PassRejection reason;
+}
+
+/// P0033 -- `create_coupon` / `update_coupon` (0051) refused the input.
+/// The server sends one reason word ([reason]); the copy lives here. The
+/// coupon form checks the same rules first, so most of these are
+/// backstops -- `code_taken` and `guest_not_eligible` are the ones only
+/// the server can know.
+class CouponInvalid extends BookingFailure {
+  const CouponInvalid._(this.reason, super.message);
+
+  factory CouponInvalid(String reason) => CouponInvalid._(
+    reason,
+    switch (reason) {
+      'code_invalid' => 'Use 3–24 letters, numbers, - or _ for the code.',
+      'code_taken' => 'That code is already in use at this resort.',
+      'kind_required' => 'Choose a percentage or a fixed amount.',
+      'value_invalid' =>
+        'Enter a discount above 0 (at most 100 for a percentage).',
+      'min_amount_invalid' => 'The minimum booking amount cannot be negative.',
+      'dates_invalid' => 'The end date must be on or after the start date.',
+      'usage_limit_invalid' => 'The usage limit must be at least 1.',
+      'usage_limit_below_used' =>
+        'The usage limit cannot be lower than the times already used.',
+      'guest_not_eligible' => 'That guest has no booking at this resort.',
+      _ => 'That coupon could not be saved. Check the details and try again.',
+    },
+  );
+
+  final String reason;
+}
+
+/// P0036 -- `confirm_booking`/`checkout_booking` refused a mock payment
+/// because online payments are live (0055). Reached only when the app
+/// could not reach the payment functions and fell back to the mock.
+class OnlinePaymentRequired extends BookingFailure {
+  const OnlinePaymentRequired()
+      : super('Online payment is not available right now. Please try again '
+            'in a few minutes.');
+}
+
+/// P0039 -- the `ical_feeds` URL rules (0058) refused an import feed: not
+/// an http(s) or webcal link (`invalid_feed_url`), or already added to this
+/// unit (`duplicate_feed`). The server sends bare code words, so the copy
+/// lives here.
+class FeedUrlRejected extends BookingFailure {
+  const FeedUrlRejected(super.message);
+
+  static const invalid =
+      'That is not a calendar link. Paste the link that starts with '
+      'https:// or webcal://.';
+  static const duplicate = 'This calendar is already added to this unit.';
+}
+
 /// A 400/422 from Supabase auth: a mistyped password on sign-in, or a
 /// duplicate email on sign-up. Kept distinct from [NotPermitted] (I7) --
 /// without this, every one of those looked identical to "you don't have
@@ -193,6 +315,32 @@ BookingFailure mapPostgrestError(Object error) {
     // (`reason_required`, `already_dispatched`), so the copy lives here.
     'P0030' => const ReasonRequired(),
     'P0031' => const AlreadyDispatched(),
+    // P0041: guest search (0060). The server sends the bare code word
+    // `invalid_search`, so the copy lives here.
+    'P0041' => const InvalidSearch(),
+    // P0040: resort self-listing (0059). Messages are written for the
+    // reader.
+    'P0040' => ListingBlocked(message),
+    // P0039: import feed URL rules (0058).
+    'P0039' => FeedUrlRejected(message == 'duplicate_feed'
+        ? FeedUrlRejected.duplicate
+        : FeedUrlRejected.invalid),
+    // P0038: subscription billing (0057). Bare code word, copy lives here.
+    'P0038' => const BillingUnavailable(),
+    // P0037: outbox delivery (0056). Only retry_outbox_message reaches the
+    // app; complete_outbox_message's P0037 is service_role-only.
+    'P0037' => const NotRetryable(),
+    // P0036: online payments (0055). The server sends the bare code
+    // `online_payment_required`, so the copy lives here.
+    'P0036' => const OnlinePaymentRequired(),
+    // P0035: food and spa tax rates (0053). Bare code word from the server.
+    'P0035' => const TaxRateOutOfRange(),
+    // P0034: check-in passes (0052). Bare code words; see StayPassRejected.
+    'P0034' => StayPassRejected.fromServer(message),
+    // P0033: coupon management (0051). The server sends a bare reason
+    // word (`code_taken`, `guest_not_eligible`, ...); CouponInvalid holds
+    // the copy.
+    'P0033' => CouponInvalid(message),
     '23514' => InvalidState(message),
     '23505' => const DuplicateValue(),
     _ => UnknownFailure(message),

@@ -1,3 +1,4 @@
+import 'package:pasala/data/models/billing.dart';
 import 'package:pasala/data/models/subscription.dart';
 import 'package:pasala/data/repositories/platform_repository.dart';
 
@@ -93,6 +94,11 @@ class FakePlatformSource implements PlatformSource {
   Object? createError;
   Object? subscriptionError;
   Object? priceError;
+  List<PlatformBilling> billingList = [];
+  Object? billingError;
+  Object? planIdError;
+  int billingCalls = 0;
+  final List<(SubscriptionTier, String?)> planIdCalls = [];
 
   int resortsCalls = 0;
   int totalsCalls = 0;
@@ -208,6 +214,32 @@ class FakePlatformSource implements PlatformSource {
                 name: p.name,
                 monthlyPriceInr: monthlyPriceInr,
                 sortOrder: p.sortOrder,
+                razorpayPlanId: p.razorpayPlanId,
+              )
+            : p,
+    ];
+  }
+
+  @override
+  Future<List<PlatformBilling>> billing() async {
+    billingCalls++;
+    if (billingError != null) throw billingError!;
+    return List.of(billingList);
+  }
+
+  @override
+  Future<void> setRazorpayPlanId(SubscriptionTier tier, String? planId) async {
+    planIdCalls.add((tier, planId));
+    if (planIdError != null) throw planIdError!;
+    planList = [
+      for (final p in planList)
+        p.tier == tier
+            ? SubscriptionPlan(
+                tier: p.tier,
+                name: p.name,
+                monthlyPriceInr: p.monthlyPriceInr,
+                sortOrder: p.sortOrder,
+                razorpayPlanId: planId,
               )
             : p,
     ];

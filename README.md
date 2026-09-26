@@ -69,8 +69,7 @@ and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
   underlying function; an earlier draft of this README claimed one that was
   never actually built.)
 - `/admin/reports`: revenue and occupancy by date range and property,
-  exportable as CSV. PDF export was explicitly deferred — see
-  "Known limitations".
+  exportable as CSV or PDF (see "Invoices and PDF exports").
 - Both screens are staff-or-above (not admin-only): the accountant role
   exists specifically to read financials.
 
@@ -80,10 +79,10 @@ and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
   booking value, and optional per-customer restriction. Applied inside
   `get_quote`, so a coupon can never produce a client-computed total, and
   redemption counting is race-safe (proven with two genuinely concurrent
-  `create_hold` calls via `dblink`). There is no admin UI for creating
-  coupons yet — create them directly in the `coupons` table (Supabase
-  Studio or `psql`); the customer-facing "Have a coupon?" field in the
-  booking screen and all quote/redemption logic are otherwise complete.
+  `create_hold` calls via `dblink`). Owners and admins manage them on the
+  Coupons screen (owner hub → Coupons, or admin More → Coupons): create,
+  edit, deactivate, and see each code's usage; a coupon can be limited to
+  one guest who has booked at the resort.
 - Refund policy: rules by days-before-check-in, stored in `refund_rules` and
   editable directly in that table (Supabase Studio or `psql`) — "admin-
   configurable" describes the data model and RLS (staff/accountant can
@@ -110,26 +109,30 @@ and `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md`.
   cancellation message, rendered from templates, per channel
   (email/sms/whatsapp), with per-customer skip-with-reason when no
   email/phone is on file.
-- `/admin/outbox` (staff-or-above) shows the queue honestly, including a
-  permanent, undismissable banner: **nothing has ever been sent — there is
-  no email/SMS/WhatsApp provider configured.**
-- This is enforced at the database privilege level, not just in the UI:
-  `outbox` has no INSERT/UPDATE/DELETE grant to `authenticated` or `anon` at
-  all. The only writer is a `SECURITY DEFINER` trigger function that never
-  once sets `status = 'sent'`. A direct attempt to write `sent` fails with
-  `42501` before RLS is even evaluated — proven in `13_outbox_test.sql`.
+- The `outbox-dispatch` Edge Function sends email (Resend) and SMS
+  (MSG91), called every minute by pg_cron, with retries (1, 2, 4, 8
+  minutes; failed after 5 attempts). Without provider keys it runs as a
+  **dry run**: messages are marked `dry_run` and nothing is sent. WhatsApp
+  is queued only. Setup: [docs/email-and-sms-delivery.md](docs/email-and-sms-delivery.md).
+- `/admin/outbox` (staff-or-above) shows each channel's delivery mode and
+  when the sender last ran, and lets owners/admins send a failed or
+  dry-run message again.
+- Clients still cannot write `outbox`: there is no INSERT/UPDATE/DELETE
+  grant to `authenticated` or `anon` (proven in `13_outbox_test.sql`).
+  Only `security definer` functions change rows, and only the service
+  role (the Edge Function) marks one sent (`46_email_sms_delivery_test.sql`).
 
 **OTA calendar sync — iCal (phase 2)**
 
 `/admin/ota/:unitId` (Admin → Properties → Units → a unit's overflow menu →
 "OTA sync") gives each unit two things, with no paid channel manager:
 
-- **An export URL** to paste into Airbnb (Listing → Availability → Sync
-  calendars → Add another calendar) or Booking.com's equivalent "Import
-  calendar" field. It lists only busy date ranges as RFC 5545 `VEVENT`s —
-  no guest name, email, or amount ever appears in it, by construction: the
-  builder reads `unit_calendar_events`, the identity-free occupancy mirror,
-  never `reservations` directly.
+- **An export URL** to paste into Airbnb or Booking.com's "import calendar"
+  setting: `<SUPABASE_URL>/functions/v1/ical-export/<token>.ics`, served as
+  `text/calendar` by the `ical-export` Edge Function. It lists only busy
+  date ranges as RFC 5545 `VEVENT`s — no guest name, email, or amount ever
+  appears in it, by construction: the builder reads `unit_calendar_events`,
+  the identity-free occupancy mirror, never `reservations` directly.
 - **Import feeds**: paste the OTA's own export URL back in, and this app
   imports its busy dates as `ota`-kind reservations that block those dates
   here too. A genuine overlap with an existing confirmed booking is caught
@@ -142,33 +145,84 @@ OTA screen invalidates the leaked URL immediately.
 
 **Automatic polling is wired and real**: `pg_net` is available in this local
 stack, so a `pg_cron` job (`ical-poll-feeds`, every 15 minutes) fetches every
-active import feed and applies it automatically — verified end-to-end
-against a real local HTTP server. The admin "Sync" button drives the same
-function on demand.
+active import feed and applies it automatically. The admin "Sync now" button
+drives the same function and waits for fresh data. Each feed shows
+"Last sync 5 min ago · 3 events", or its error in red with a hint. All-day
+OTA events are placed at the resort's own check-in and check-out times, and
+an OTA listing our own booking back to us is not reported as a conflict.
+The import is tested against fixtures in the real Airbnb and Booking.com
+export formats (`supabase/tests/48_ota_sync_test.sql`).
 
-**The export URL shape has never been verified against a real Airbnb or
-Booking.com account** — there is no owner-provided listing to test against.
-See `docs/STATUS.md`.
+**Linking a real listing is the one step left to verify by hand** — see
+[Linking a real Airbnb or Booking.com listing](#linking-a-real-airbnb-or-bookingcom-listing).
 
-**Payments (phase 2 seam, still stubbed)**
+**Online payments (Razorpay)**
 
-- `MockGateway` is, and remains, the default `PaymentGateway` in every build
-  this repo produces — no real money moves anywhere in this app today.
-- `RazorpayGateway` (`lib/features/booking/razorpay_gateway.dart`) exists as
-  a written adapter against Razorpay's real Orders API shape, but it is
-  inert: there is no merchant account to test it against, and no native
-  checkout SDK integrated into the app, so `charge()` fails loudly
-  (`UnimplementedError`) after creating an order rather than pretending a
-  created order is a captured payment. `paymentGatewayProvider` only
-  selects it when `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` are supplied via
-  `--dart-define`; nothing in this repo's build configuration ever supplies
-  them.
+- Guests pay the booking advance and their checkout balance through
+  Razorpay: Checkout.js on the web, `razorpay_flutter` on Android and iOS.
+  The app holds only the public key id. Three Edge Functions hold the
+  secrets and do the work:
+  - `payments-create-order` checks the amount (the advance rule or the
+    balance due) as the signed-in guest and creates the Razorpay order;
+  - `payments-verify` checks Checkout's signature, asks Razorpay whether
+    the money was captured (capturing an authorized payment for the
+    order's amount), and only then confirms the booking (or checks the
+    guest out) on the server. A payment that is still not captured is
+    reported as "not confirmed yet" and settles nothing; the
+    `payment.captured` webhook settles it if it is captured later;
+  - `payments-webhook` handles `payment.captured`, `payment.failed` and
+    `refund.processed`, once each.
+
+  A payment that cannot be applied (the hold was released, the booking
+  was already paid, the balance changed) is refunded automatically.
+- **Without secrets nothing changes.** The functions answer
+  `{"configured": false}`, and the app pays through `MockGateway` as before.
+  With secrets set, the database refuses a guest's mock confirmation
+  (P0036), so a live deployment cannot be booked for free.
+
+To switch it on (test keys first):
+
+```bash
+supabase secrets set RAZORPAY_KEY_ID=rzp_test_xxx RAZORPAY_KEY_SECRET=xxx RAZORPAY_WEBHOOK_SECRET=xxx
+supabase functions deploy payments-create-order payments-verify payments-webhook
+# Switch the database to live now rather than at the first payment:
+curl -X POST "https://<project-ref>.supabase.co/functions/v1/payments-create-order" \
+  -H "Authorization: Bearer <anon key>" -H "Content-Type: application/json" \
+  -d '{"probe": true}'     # → {"configured":true,"key_id":"rzp_test_xxx"}
+```
+
+In the Razorpay Dashboard (Account & Settings → Webhooks), add the URL
+`https://<project-ref>.supabase.co/functions/v1/payments-webhook`. Give it
+the same secret as `RAZORPAY_WEBHOOK_SECRET`, and the events
+`payment.captured`, `payment.failed` and `refund.processed`. Keep
+**automatic capture** on (Account & Settings → Payment capture; the
+default). A Checkout signature only proves a payment was authorized:
+`payments-verify` captures an authorized payment itself, but when the guest
+closes the tab before it runs, only automatic capture turns that payment
+into money. An uncaptured payment is returned to the guest by Razorpay
+after a few days and never confirms a booking.
+
+To switch it off, run
+`supabase secrets unset RAZORPAY_KEY_ID RAZORPAY_KEY_SECRET RAZORPAY_WEBHOOK_SECRET`
+and then the probe again. Refunds for cancelled bookings are still made by
+hand in the Razorpay Dashboard.
+
+To run it locally, put the three variables in `supabase/functions/.env`
+(gitignored) and run
+`supabase functions serve --env-file supabase/functions/.env`. Razorpay can
+reach a local webhook only through a tunnel. Never put the key secret in
+`--dart-define`, the database or git.
+
+**Not yet verified against a real Razorpay account.** The functions are
+tested with signature fixtures and a mocked Razorpay API only. See
+`docs/STATUS.md`.
 
 ## What is still out of scope
 
-- **SMS/WhatsApp/email actually being delivered.** The outbox renders and
-  queues; nothing sends. WhatsApp additionally needs Meta Business API
-  verification, which has a multi-week lead time.
+- **WhatsApp delivery.** Email and SMS are sent once their provider keys
+  are set (see [docs/email-and-sms-delivery.md](docs/email-and-sms-delivery.md));
+  WhatsApp needs Meta Business API verification, which has a multi-week
+  lead time, and is queued only.
 - **A real-time, guaranteed-zero-double-booking two-way API integration**
   with Agoda/MakeMyTrip/Goibibo — none of them publish one; iCal (above) is
   the closest thing available without a commercial channel-manager
@@ -285,6 +339,7 @@ the only seeded resort; all four staff accounts are `resort_members` of it
 | `make db-reset` | `supabase db reset` — reapply migrations and reload seed data |
 | `make db-test` | `supabase test db` — run the pgTAP suite |
 | `make test` | `flutter test` — run the Flutter test suite |
+| `make functions-test` | `deno test supabase/functions/` — run the Edge Function tests |
 | `make run-web` | Run the app in Chrome against the local Supabase stack |
 | `make run-android` | Run the app on a connected Android emulator |
 | `make run-ios` | Run the app on a connected iOS simulator |
@@ -296,7 +351,12 @@ work as-is once `supabase start` has run — no manual key copying needed for
 ## End-to-end tests (Playwright)
 
 `e2e/` holds a Playwright suite (Chromium) that drives the real web build
-against the local Supabase stack. Flutter web paints to a canvas, so the
+against the local Supabase stack. Every spec runs twice: in the `desktop`
+project (1280x800, navigation rail) and in the `phone` project (a Pixel 7:
+412x839, touch, Android Chrome, bottom navigation bar). Specs call
+`reveal()` (`e2e/support/nav.ts`) before touching anything that can sit
+below a phone's fold, because Flutter builds lazy lists only near the
+viewport. Flutter web paints to a canvas, so the
 tests go through Flutter's semantics DOM (`flt-semantics` elements with
 ARIA roles and labels). The E2E build turns semantics on at startup via
 `--dart-define=E2E=true` (`lib/core/e2e_semantics.dart`); a normal build is
@@ -308,7 +368,9 @@ cd e2e
 npm install                          # first time only
 npx playwright install chromium      # first time only
 ./build-app.sh                       # flutter build web (E2E) into ../build/web
-npx playwright test                  # serves build/web on :8790 and runs every spec
+npx playwright test                  # serves build/web on :8790 and runs every spec, desktop then phone
+npx playwright test --project=desktop            # 1280x800 only
+npx playwright test --project=phone              # Pixel 7 only
 npx playwright test tests/smoke.spec.ts          # one spec
 npx playwright test -g "owner of Resort A"       # one test by title
 npx playwright show-report           # HTML report of the last run
@@ -336,6 +398,36 @@ booking, and the shared test-only password.
   them without running any tests (e.g. after a killed run; the next run's
   setup also clears leftovers first).
 - Tests run one at a time (`workers: 1`) because they share one database.
+- The gap-round specs (coupons, taxes, OTA sync, outbox, listing,
+  discovery) bring their own resort and accounts (`e2e/support/kit.ts`),
+  created in `beforeAll` and removed in `afterAll` by exact slug and email.
+- `ota-sync.spec.ts` serves an Airbnb-style calendar on a loopback port;
+  the database container fetches it as `host.docker.internal` (Docker
+  Desktop). `owner.spec.ts` runs the real `billing-subscribe` function
+  under Deno (`e2e/support/functions.ts`, no Razorpay keys), since the
+  suite does not need the stack's edge runtime. `discovery.spec.ts`
+  grants geolocation at a fixed point and answers the Nominatim lookup
+  locally.
+
+## Front-desk check-in passes
+
+The QR a guest sees on their booking (confirmation, booking detail, My
+Stay) is a signed check-in pass: `rh1.` plus the booking id, the resort id
+and the end of the stay, signed with HMAC-SHA256 under a random
+per-database secret (`supabase/migrations/0052_stay_pass.sql`). Reception
+opens it from `/admin/check-in` with **Scan pass** (the device camera), or
+by typing or pasting it into the search field. A USB or Bluetooth barcode
+scanner that types and presses Enter works too. Guests can always read out
+the booking code under the QR instead.
+
+- The secret lives in `private.stay_pass_secret`, which the API cannot
+  reach. `supabase db reset` (or the first migration run) creates it.
+- To rotate it, which invalidates every pass issued so far (guests get a
+  fresh one the next time they open their booking):
+  `update private.stay_pass_secret set secret = extensions.gen_random_bytes(32);`
+- The web camera needs HTTPS or `localhost`. On iOS the app asks with
+  `NSCameraUsageDescription`; Android gets the camera permission from the
+  `mobile_scanner` plugin.
 
 ## Per-platform host
 
@@ -395,6 +487,97 @@ change on every deploy and must always be revalidated); the hashed,
 content-addressed assets under `build/web/` (e.g. `main.dart.js`,
 `canvaskit/`) can still be cached aggressively/immutably as usual.
 
+## Linking a real Airbnb or Booking.com listing
+
+This needs a live OTA listing, so it has to be done by someone who manages
+one. Plan on about 30 minutes, plus however long the OTA takes to refresh
+an imported calendar (often a few hours).
+
+### Before you start
+
+- The hosted project has every migration applied, and `pg_cron` and `pg_net`
+  enabled (Database → Extensions).
+- The export function is deployed: `supabase functions deploy ical-export`.
+  `supabase/config.toml` sets `verify_jwt = false` for it, because an OTA
+  cannot send a key. With an older CLI, add `--no-verify-jwt`.
+- The app you use is built with the hosted `SUPABASE_URL`, because the
+  export link is built from it.
+
+### 1. Give the OTA our calendar
+
+1. In the app, go to Admin → Properties → Units → the unit's menu → **OTA
+   sync**, and copy the **Export URL**. It looks like
+   `https://<project>.supabase.co/functions/v1/ical-export/<48 hex characters>.ics`.
+2. Check the link before pasting it anywhere:
+
+   ```bash
+   curl -i 'https://<project>.supabase.co/functions/v1/ical-export/<token>.ics'
+   ```
+
+   Expect `200`, `content-type: text/calendar; charset=utf-8`, and a body
+   starting with `BEGIN:VCALENDAR`. A `404 Calendar not found` means the
+   token was rotated or mistyped, or the resort is not active.
+3. Paste it into the OTA's import setting:
+   - Airbnb: Listing → Availability → Connect calendars → Import.
+   - Booking.com extranet: Rates & Availability → Sync calendars → Add
+     calendar connection.
+   - Menu names change; look for "import calendar". Name it "ResortHub".
+
+### 2. Give our app the OTA's calendar
+
+1. Copy the OTA's own export link. It is on the same page as the import,
+   under "Export".
+   - Airbnb: `https://www.airbnb.com/calendar/ical/<id>.ics?s=<secret>`.
+   - Booking.com: a link to `admin.booking.com/…ical…`.
+   - A `webcal://` link is fine: the app stores it as `https://`.
+2. On the OTA sync screen, go to **Add import feed**. Paste the link, label
+   it "Airbnb" or "Booking.com", and press **Add feed**.
+3. Press **Sync now**. Within about 15 seconds the feed shows
+   `Last sync just now · N events`. N should match the stays plus blocked
+   periods on that OTA calendar, counting from today.
+
+### 3. Prove both directions
+
+1. **Ours to the OTA.** Block one night here (Admin → Block dates). After the
+   OTA refreshes, that night shows as unavailable there. Check that it blocks
+   **exactly** that night. Our export uses exact check-in/check-out times, so
+   write down if an OTA also blocks the next night.
+2. **The OTA to ours.** Block one night on the OTA, then press **Sync now**
+   here. The count goes up by one, and the night is unavailable in this app's
+   booking calendar.
+3. Remove both test blocks. Removing the OTA block does **not** free the
+   night here (see "Known gaps" below). Ask a developer to cancel the
+   imported reservation.
+
+### What the feed status means
+
+| The feed shows | Meaning | What to do |
+|---|---|---|
+| `Last sync 5 min ago · 3 events` | Healthy. | Nothing. |
+| Amber `N event(s) conflicted with an existing booking and were skipped` | The OTA has a stay on dates already booked here. | A double booking: contact the guest, then close the dates on the OTA. |
+| Amber `N event(s) failed to import and were skipped (…)` | Some events could not be read. | Send the note and the OTA's link to a developer. |
+| Red `Sync failed …: HTTP 404` (or 401, 403, 410) | The OTA no longer serves this link (it was reset, or the listing was unlisted). | Copy the export link from the OTA again, remove this feed and add the new link. |
+| Red `Sync failed …: not a calendar: …` | The link opens a web page, not a calendar. | Use the calendar **export** link, not the listing page. |
+| Red `request timed out` or `HTTP 5xx` | The OTA is down for a while. | Nothing; the next run is within 15 minutes. |
+| Amber `Automatic sync has not run for over an hour` | The `pg_cron` job is not running. | In the SQL editor, run `select * from cron.job_run_details order by start_time desc limit 5;` and check that `ical-poll-feeds` is scheduled and succeeding. |
+
+An OTA listing our own bookings back to us ("Airbnb (Not available)",
+"CLOSED - Not available") is normal and is not counted as a conflict.
+
+### Record the result
+
+Update item 5 in `docs/STATUS.md` with the date, the OTA, and the listing.
+Record whether each direction passed, and whether the OTA blocked any extra
+night.
+
+### Known gaps
+
+- When an event disappears from an OTA feed (a cancellation there), the
+  dates stay blocked here. Reservations do not yet record which feed they
+  came from.
+- Our export lists timed events (check-in to check-out). Step 3.1 is where
+  you find out whether an OTA rounds them to one night too many.
+
 ## Known limitations
 
 Carried forward from phase 1, plus everything phase 2 found or deferred.
@@ -430,21 +613,18 @@ task-by-task record.
 
 **From phase 2:**
 
-- **Payment is still a mock gateway.** See "Payments" above — `MockGateway`
-  is the default in every build this repo produces; `RazorpayGateway` exists
-  but is inert without a merchant account and a checkout SDK this app does
-  not integrate.
-- **Nothing in the notification outbox has ever been sent.** There is no
-  email/SMS/WhatsApp provider configured; the queue and the honest
-  "not sent" banner are the whole deliverable here. See `docs/STATUS.md`
-  for what's needed to change that.
-- **The iCal export URL shape has never been verified against a real
-  Airbnb or Booking.com account** — there is no owner-provided listing to
-  test against. The RFC 5545 shape and the local end-to-end poll/apply
-  cycle are verified; the specific way a real OTA parses this app's feed
-  is not.
-- **No coupon management UI.** Coupons are created directly in the
-  `coupons` table.
+- **Online payments are off until Razorpay secrets are set, and have not been
+  run against a real Razorpay account.** See "Online payments (Razorpay)"
+  above. Refunds for cancelled bookings are made by hand in the Razorpay
+  Dashboard.
+- **Email and SMS go out only once provider keys are set.** Until then the
+  sender runs as a dry run and the Outbox screen says so per channel.
+  WhatsApp is never sent. See `docs/email-and-sms-delivery.md`.
+- **The iCal link has not yet been tried with a real Airbnb or Booking.com
+  listing** — see "Linking a real Airbnb or Booking.com listing" above. The
+  import is tested against fixtures in both OTAs' real formats and the export
+  is served as `text/calendar`; how a live OTA reads our export is what is
+  left to check. Events removed from an OTA feed are not removed here.
 - **No refund-policy or advance-payment configuration UI.** `refund_rules`
   tiers and `properties.advance_pct` are both editable only by writing to
   the table directly (Supabase Studio or `psql`) — "admin-configurable"
@@ -453,9 +633,6 @@ task-by-task record.
 - **The balance portion of an advance/balance booking is never collected.**
   The split is computed and stored on confirmation; nothing prompts for or
   records the balance payment afterward.
-- **PDF report export was explicitly deferred.** Reports export as CSV
-  only — there is deliberately no disabled/greyed-out PDF button standing
-  in for it.
 - **The admin dashboard's occupancy tab was not click-verified live** in
   the development sandbox (canvas click flakiness); it is covered by a
   widget test instead.
@@ -473,3 +650,18 @@ For the full task-by-task record (every defect found, every ruling made,
 every deferred item), see:
 - `.superpowers/sdd/2026-07-28-pasala-booking-core/progress.md` (phase 1)
 - `.superpowers/sdd/2026-07-30-pasala-phase2/progress.md` (phase 2)
+
+## Invoices and PDF exports
+
+- **Booking invoice (PDF)** — on a checked-in or checked-out booking's detail
+  screen (guests from My Bookings, owners/admins from Admin → Bookings), on the
+  Final Invoice screen after checkout, per row in Finance → Settlements, and
+  from reception's check-out list right after a desk checkout.
+  Built client-side from the stored quote, the booking's food orders,
+  activity bookings and payments, checked against `current_charges`; a
+  checked-in stay gets a "Provisional bill". Invoice number:
+  `<RESORT-SLUG>-<first 8 hex of the booking id>`.
+- **Report PDFs** — Finance → Collections / Ledger / Settlements ("Export PDF"
+  next to "Export CSV") and Owner → Reports.
+- Web downloads the file; Android/iOS/desktop open the share sheet
+  (`package:printing`). Fonts: Noto Sans (SIL OFL 1.1, `assets/fonts/`).

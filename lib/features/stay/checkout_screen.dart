@@ -10,6 +10,7 @@ import '../../core/widgets/failure_view.dart';
 import '../../data/models/payment_method.dart';
 import '../../data/repositories/room_status_repository.dart';
 import '../../data/repositories/stay_repository.dart';
+import '../admin/reception_checkout_screen.dart' show deskCheckoutDoneLocation;
 import '../booking/payment_gateway.dart';
 import '../finance/providers.dart';
 import '../staff/providers.dart' show allBookingsProvider;
@@ -21,12 +22,15 @@ Widget checkoutScreenFor(Object? extra) => switch (extra) {
       _ => throw ArgumentError.value(extra, 'extra', 'checkout needs a reservation id'),
     };
 
-/// The final bill. A guest settles it through the same mock
-/// [PaymentGateway] seam `booking_screen.dart`'s own `_pay` uses. At the
-/// desk ([desk]) reception records how the guest paid -- the method and an
-/// optional receipt or UTR number -- and the gateway is never called.
+/// The final bill. A guest settles it through the same [PaymentGateway]
+/// `booking_screen.dart`'s own `_pay` uses (Razorpay, or the mock without
+/// keys). At the desk ([desk]) reception records how the guest paid -- the
+/// method and an optional receipt or UTR number -- and the gateway is
+/// never called.
 /// `checkout_booking` never trusts a client-supplied amount, and refuses a
 /// desk method from anyone who is not staff at the booking's resort.
+/// A guest's checkout ends on their invoice; a desk checkout goes back to
+/// reception's check-out list ([deskCheckoutDoneLocation]).
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key, required this.reservationId, this.desk = false});
 
@@ -67,9 +71,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       } else {
         String? paymentRef;
         if (balance > 0) {
-          final payment = await ref
-              .read(paymentGatewayProvider)
-              .charge(reservationId: widget.reservationId, amount: balance);
+          final payment = await ref.read(paymentGatewayProvider).charge(
+                reservationId: widget.reservationId,
+                amount: balance,
+                purpose: PaymentPurpose.balance,
+              );
           if (!payment.succeeded) {
             throw InvalidState(payment.failureMessage ?? 'Payment failed');
           }
@@ -98,10 +104,20 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         ref.invalidate(checkedInProvider);
         ref.invalidate(allBookingsProvider);
         ref.invalidate(roomBoardProvider);
+        // Back to reception's own list, with the success banner and the
+        // invoice download -- not the guest's /my-stay/invoice screen.
+        context.go(deskCheckoutDoneLocation(widget.reservationId));
+      } else {
+        context.go('/my-stay/invoice/${widget.reservationId}');
       }
-      context.go('/my-stay/invoice/${widget.reservationId}');
     } on BookingFailure catch (e) {
       if (!mounted) return;
+      // The balance may have changed under an online payment (a food order
+      // placed meanwhile leaves the payment unapplied and refunded), so
+      // show the current figure before the guest tries again.
+      if (!widget.desk) {
+        ref.invalidate(currentChargesProvider(widget.reservationId));
+      }
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(FailureView.messageFor(e))));
     } finally {
@@ -117,7 +133,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         : 'Pay ${formatInr(balance)} and check out';
   }
 
+  // semanticContainer: false -- a merged Card made the reference field's
+  // accessible name include the card title, and its tap target the whole
+  // card (on a phone, over the method chips).
   Widget _deskPayment(BuildContext context) => Card(
+        semanticContainer: false,
         child: Padding(
           padding: const EdgeInsets.all(Spacing.md),
           child: Column(

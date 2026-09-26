@@ -7,25 +7,56 @@ import '../../core/supabase_client.dart';
 import '../models/ical_feed.dart';
 
 /// One `ical_poll_feed` outcome, as returned by the RPC: `status` is one
-/// of `requested` (fired, not yet resolved -- pg_net is genuinely
-/// asynchronous, see migration 0018's header), `pending` (still waiting
-/// on a previously fired request), `ok` (a response was collected and
-/// processed -- `created`/`updated`/`unchanged`/`conflicts` count the
-/// events in it), or `error` (the fetch or the feed itself failed --
-/// `error` carries why). Never thrown as an exception -- a feed that
-/// fails to sync is exactly the "last error, shown honestly" case the
-/// screen exists for, not a crash.
+/// of `requested` (a fetch was fired; pg_net is asynchronous, see 0018),
+/// `pending` (still waiting on a fetch fired earlier), `ok` (a response was
+/// collected and processed -- the counts describe its events) or `error`
+/// (the fetch or the feed itself failed -- `error` carries why). Never
+/// thrown -- a failing feed is what the OTA screen exists to show.
 class IcalSyncResult {
-  const IcalSyncResult({required this.status, this.error, this.conflicts});
+  const IcalSyncResult({
+    required this.status,
+    this.error,
+    this.events,
+    this.created,
+    this.updated,
+    this.unchanged,
+    this.conflicts,
+    this.echoes,
+    this.failed,
+  });
 
   final String status;
   final String? error;
+
+  /// Events read from the feed (cancelled ones excluded).
+  final int? events;
+  final int? created;
+  final int? updated;
+  final int? unchanged;
+
+  /// Events that overlap a booking here and were skipped.
   final int? conflicts;
+
+  /// Events that only repeat our own bookings back (0058) -- not a problem.
+  final int? echoes;
+
+  /// Events that could not be read or imported.
+  final int? failed;
+
+  /// A response was collected (`ok` or `error`), as opposed to a fetch
+  /// still being on its way (`requested`, `pending`).
+  bool get isFinal => status == 'ok' || status == 'error';
 
   factory IcalSyncResult.fromJson(Map<String, dynamic> json) => IcalSyncResult(
         status: json['status'] as String,
         error: json['error'] as String?,
+        events: (json['events'] as num?)?.toInt(),
+        created: (json['created'] as num?)?.toInt(),
+        updated: (json['updated'] as num?)?.toInt(),
+        unchanged: (json['unchanged'] as num?)?.toInt(),
         conflicts: (json['conflicts'] as num?)?.toInt(),
+        echoes: (json['echoes'] as num?)?.toInt(),
+        failed: (json['failed'] as num?)?.toInt(),
       );
 }
 
@@ -126,18 +157,17 @@ class IcalRepository implements IcalSource {
         return token as String;
       });
 
-  // PostgREST's GET-for-RPC convention (any `stable`/`immutable` function
-  // -- `ical_export_public` is `stable` -- can be called with GET, not
-  // just POST) with the token and this app's own public anon key as query
-  // parameters. The anon key is not a secret (it already ships inside
-  // this app's build), and Supabase's gateway accepts `apikey` as a query
-  // parameter on GET the same as it does as a header -- required here
-  // because Airbnb/Booking.com fetch a plain URL with no custom headers
-  // at all, so there is nowhere else to put it.
   @override
-  String exportUrl(String token) =>
-      '${Env.supabaseUrl}/rest/v1/rpc/ical_export_public'
-      '?token=$token&apikey=${Env.supabaseAnonKey}';
+  String exportUrl(String token) => icalExportUrl(Env.supabaseUrl, token);
+}
+
+/// The link an OTA fetches for [token]: the `ical-export` Edge Function,
+/// which serves the unit's calendar as `text/calendar` (spec decision 15).
+/// No key in it -- the function runs with `verify_jwt = false` and the
+/// token is the only secret.
+String icalExportUrl(String supabaseUrl, String token) {
+  final base = supabaseUrl.replaceFirst(RegExp(r'/+$'), '');
+  return '$base/functions/v1/ical-export/$token.ics';
 }
 
 final icalRepositoryProvider = Provider<IcalRepository>(

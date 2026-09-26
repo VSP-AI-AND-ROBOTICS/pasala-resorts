@@ -3,26 +3,29 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/errors.dart';
 import '../../core/supabase_client.dart';
+import '../models/channel_delivery.dart';
 import '../models/outbox_message.dart';
 
-/// The slice of [OutboxRepository] that [OutboxScreen] needs. Extracted as
-/// its own interface, mirroring [ReportRepository]'s peers in
-/// `booking_repository.dart`, so tests can override just this provider
-/// with a fake instead of needing a real `SupabaseClient`.
+/// The slice of [OutboxRepository] that [OutboxScreen] needs. Tests
+/// override [outboxSourceProvider] with `FakeOutboxSource`
+/// (test/support/fake_outbox_source.dart) instead of a real client.
 abstract class OutboxSource {
   Future<List<OutboxMessage>> messages(String propertyId);
+
+  /// One row per channel (email, sms, whatsapp), from
+  /// `outbox_delivery_status`.
+  Future<List<ChannelDelivery>> deliveryStatus(String propertyId);
+
+  /// Puts a failed or dry-run message back in the queue
+  /// (`retry_outbox_message`). Owner/admin only, enforced server-side.
+  Future<void> retry(String messageId);
 }
 
-/// Reads `public.outbox`, staff-gated by RLS (`outbox_read`) -- a customer
-/// never reaches this repository because the router already refuses
-/// `/admin/*` for anyone but an admin, but even a forged request still
-/// returns zero rows under RLS rather than an error, mapped through
-/// [mapPostgrestError] like everywhere else this app touches Postgrest.
-///
-/// There is no write method here at all: `public.outbox` has no insert/
-/// update/delete grant to `authenticated`, not even for staff -- the
-/// SECURITY DEFINER trigger in migration 0017 is the only writer, and
-/// nothing in this phase ever marks a row `sent`.
+/// Reads `public.outbox` (RLS `outbox_read`: staff and above at the
+/// resort) and calls the two app-facing functions from
+/// 0056_email_sms_delivery.sql. Clients still cannot write `outbox`
+/// directly: only definer functions change a row, and only the
+/// `outbox-dispatch` Edge Function (as service_role) marks one sent.
 class OutboxRepository implements OutboxSource {
   OutboxRepository(this._db);
   final SupabaseClient _db;
@@ -44,16 +47,31 @@ class OutboxRepository implements OutboxSource {
             .order('created_at', ascending: false);
         return rows.map(OutboxMessage.fromJson).toList();
       });
+
+  @override
+  Future<List<ChannelDelivery>> deliveryStatus(String propertyId) =>
+      _guard(() async {
+        final rows = await _db.rpc(
+          'outbox_delivery_status',
+          params: {'p_property': propertyId},
+        ) as List<dynamic>;
+        return rows
+            .map((e) => ChannelDelivery.fromJson(e as Map<String, dynamic>))
+            .toList();
+      });
+
+  @override
+  Future<void> retry(String messageId) => _guard(() async {
+        await _db.rpc('retry_outbox_message', params: {'p_message': messageId});
+      });
 }
 
 final outboxRepositoryProvider = Provider<OutboxRepository>(
   (ref) => OutboxRepository(ref.watch(supabaseProvider)),
 );
 
-/// [OutboxSource] seam around [outboxRepositoryProvider], mirroring
-/// [refundSourceProvider] in `booking_repository.dart`: [OutboxScreen] only
-/// ever calls `messages`, so tests can override just this provider with a
-/// fake.
+/// [OutboxSource] seam around [outboxRepositoryProvider], so tests can
+/// override just this provider with a fake.
 final outboxSourceProvider = Provider<OutboxSource>(
   (ref) => ref.watch(outboxRepositoryProvider),
 );

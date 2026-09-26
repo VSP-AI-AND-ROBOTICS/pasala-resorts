@@ -20,7 +20,7 @@
 
 import { expect, test } from '@playwright/test';
 import { bookings, resortA, resortB } from '../fixtures/world.ts';
-import { expectAt, fillField, goTo, landingPath, login } from '../support/index.ts';
+import { expectAt, fillField, goTo, landingPath, login, reveal } from '../support/index.ts';
 import {
   frontdeskBookingId,
   frontdeskGuest,
@@ -41,10 +41,9 @@ test('admin sees the Resort A dashboard', async ({ page }) => {
   await expect(
     page.getByText(new RegExp(`Good (Morning|Afternoon|Evening), ${firstName}`)),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'New Booking', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Check-in', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Check-out', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Rooms', exact: true })).toBeVisible();
+  for (const action of ['New Booking', 'Check-in', 'Check-out', 'Rooms']) {
+    await reveal(page, page.getByRole('button', { name: action, exact: true }));
+  }
 });
 
 test('admin bookings list shows the Resort A reservations', async ({ page }) => {
@@ -84,7 +83,7 @@ test('reception checks the guest in, and the room grid marks the unit occupied',
   await expect(tile).toContainText('Guest: Frank');
 });
 
-test('reception checks the guest out with a desk Cash payment and reference; the room needs cleaning afterwards', async ({
+test('reception checks the guest out with a desk Cash payment and reference, lands back on the list with the invoice, and the room needs cleaning', async ({
   page,
 }) => {
   await login(page, admin);
@@ -117,9 +116,29 @@ test('reception checks the guest out with a desk Cash payment and reference; the
 
   await page.getByRole('button', { name: /^Record .* and check out$/ }).click();
 
-  // checkout_booking succeeds and lands on the final invoice.
-  await expectAt(page, `/my-stay/invoice/${frontdeskBookingId}`);
-  await expect(page.getByRole('heading', { name: 'Final Invoice' })).toBeVisible();
+  // checkout_booking succeeds and reception is back on its own check-out
+  // list -- not the guest's /my-stay/invoice -- with a success banner (in
+  // the URL, so a reload keeps it) and the booking's invoice PDF.
+  await expectAt(page, '/admin/check-out');
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash))
+    .toBe(`#/admin/check-out?checkedOut=${frontdeskBookingId}`);
+  await expect(page.getByRole('heading', { name: 'Check-Out' })).toBeVisible();
+  // Scoped to the semantics host: the banner is a live region, so Flutter
+  // also copies its text into the hidden aria-live announcer. With its
+  // Download invoice button the banner is a group, and its text is that
+  // group's aria-label rather than inner text.
+  const host = page.locator('flt-semantics-host');
+  await expect(
+    host.getByText(/Guest checked out/).or(host.locator('[aria-label*="Guest checked out"]')).first(),
+  ).toBeVisible();
+  await expect(outRow).toBeHidden();
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download invoice', exact: true }).click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/\.pdf$/);
 
   // checkout_booking marks the room dirty -- the grid now shows Cleaning.
   await goTo(page, '/staff/rooms');
@@ -133,7 +152,7 @@ test('units and rates screens open for Resort A', async ({ page }) => {
   await goTo(page, `/admin/units/${resortA.id}`);
   await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible();
   for (const unit of resortA.units) {
-    await expect(page.getByRole('group', { name: new RegExp(`^${unit.name}`) })).toBeVisible();
+    await reveal(page, page.getByRole('group', { name: new RegExp(`^${unit.name}`) }));
   }
 
   await goTo(page, `/admin/rates/${frontdeskUnit.id}`);

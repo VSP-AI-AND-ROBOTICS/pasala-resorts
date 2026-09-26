@@ -63,6 +63,90 @@ void main() {
     expect(failure.message, 'Housekeeping is already on its way to this room.');
   });
 
+  test('P0041 maps to InvalidSearch with readable copy', () {
+    final failure = map('P0041', 'invalid_search');
+    expect(failure, isA<InvalidSearch>());
+    expect(failure.message,
+        'That search could not be run. Clear the filters and try again.');
+  });
+
+  test('P0040 maps to ListingBlocked and keeps the server message', () {
+    final failure = map('P0040', 'Finish the setup checklist before submitting.');
+    expect(failure, isA<ListingBlocked>());
+    expect(failure.message, 'Finish the setup checklist before submitting.');
+  });
+
+  test('P0038 maps to BillingUnavailable with readable copy', () {
+    final failure = map('P0038', 'billing_unavailable');
+    expect(failure, isA<BillingUnavailable>());
+    expect(failure.message,
+        "Online payment isn't set up for this plan yet. Contact ResortHub.");
+  });
+
+  test('P0037 maps to NotRetryable with readable copy', () {
+    final failure = map('P0037', 'not_retryable');
+    expect(failure, isA<NotRetryable>());
+    expect(failure.message, 'Only failed or dry-run messages can be sent again.');
+  });
+
+  test('P0035 maps to TaxRateOutOfRange with readable copy', () {
+    final failure = map('P0035', 'tax_rate_out_of_range');
+    expect(failure, isA<TaxRateOutOfRange>());
+    expect(failure.message, 'Food and spa tax rates must be between 0% and 28%.');
+  });
+
+  group('P0034 maps to StayPassRejected by code word', () {
+    test('pass_invalid', () {
+      final failure = map('P0034', 'pass_invalid');
+      expect(failure, isA<StayPassRejected>());
+      expect((failure as StayPassRejected).reason, PassRejection.invalid);
+      expect(failure.message, 'This is not a valid check-in pass.');
+    });
+
+    test('pass_expired', () {
+      final failure = map('P0034', 'pass_expired') as StayPassRejected;
+      expect(failure.reason, PassRejection.expired);
+      expect(failure.message,
+          'This pass has expired. Ask the guest to reopen their booking, '
+          'or find them in the list.');
+    });
+
+    test('pass_other_resort', () {
+      final failure = map('P0034', 'pass_other_resort') as StayPassRejected;
+      expect(failure.reason, PassRejection.otherResort);
+      expect(failure.message,
+          'This pass is for a booking at a different resort.');
+    });
+
+    // Review Focus 5: whatever the server sends, the desk never sees raw
+    // text, and an unknown word reads as an invalid pass.
+    test('an unknown code word reads as invalid and never leaks', () {
+      final failure = map('P0034', 'something_new') as StayPassRejected;
+      expect(failure.reason, PassRejection.invalid);
+      expect(failure.message, isNot(contains('something_new')));
+    });
+  });
+
+  test('P0036 maps to OnlinePaymentRequired with readable copy', () {
+    final failure = map('P0036', 'online_payment_required');
+    expect(failure, isA<OnlinePaymentRequired>());
+    expect(failure.message,
+        'Online payment is not available right now. Please try again in a few minutes.');
+  });
+
+  test('P0039 invalid_feed_url maps to FeedUrlRejected with readable copy',
+      () {
+    final failure = map('P0039', 'invalid_feed_url');
+    expect(failure, isA<FeedUrlRejected>());
+    expect(failure.message, FeedUrlRejected.invalid);
+  });
+
+  test('P0039 duplicate_feed says the calendar is already added', () {
+    final failure = map('P0039', 'duplicate_feed');
+    expect(failure, isA<FeedUrlRejected>());
+    expect(failure.message, 'This calendar is already added to this unit.');
+  });
+
   test('NotPermitted never leaks the server message', () {
     expect(map('42501', 'permission denied for table reservations').message,
         isNot(contains('reservations')));
@@ -218,5 +302,26 @@ void main() {
         mapPostgrestError(AuthRetryableFetchException(message: 'x'));
     expect(credentials.runtimeType, isNot(permission.runtimeType));
     expect(credentials.runtimeType, isNot(network.runtimeType));
+  });
+
+  group('P0033 coupon_invalid', () {
+    test('each reason word gets its own copy', () {
+      final failure = map('P0033', 'code_taken');
+      expect(failure, isA<CouponInvalid>());
+      expect((failure as CouponInvalid).reason, 'code_taken');
+      expect(failure.message, 'That code is already in use at this resort.');
+      expect(map('P0033', 'guest_not_eligible').message,
+          'That guest has no booking at this resort.');
+      expect(map('P0033', 'usage_limit_below_used').message,
+          'The usage limit cannot be lower than the times already used.');
+      expect(map('P0033', 'dates_invalid').message,
+          'The end date must be on or after the start date.');
+    });
+
+    test('an unknown reason still reads as a coupon problem, never raw text',
+        () {
+      expect(map('P0033', 'something_new').message,
+          'That coupon could not be saved. Check the details and try again.');
+    });
   });
 }

@@ -10,3 +10,6 @@ supabase/.temp/
 ios/Pods/
 .flutter-plugins-dependencies
 .flutter-plugins
+
+# Deno lockfiles the Supabase CLI or deno writes next to a function
+supabase/functions/**/deno.lock

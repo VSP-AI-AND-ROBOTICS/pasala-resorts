@@ -9,48 +9,23 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import { resortA, resortS, guests } from '../fixtures/world.ts';
+import { pickStayDates } from '../support/booking.ts';
 import { guestResort, bookingGuest, setupGuestData, teardownGuestData } from '../support/guest-data.ts';
-import { currentPath, expectAt, fillField, goTo, landingPath, login, openApp, waitForFlutter } from '../support/index.ts';
+import {
+  currentPath,
+  expectAt,
+  fillField,
+  goTo,
+  landingPath,
+  login,
+  openApp,
+  reveal,
+  revealAndClick,
+  waitForFlutter,
+} from '../support/index.ts';
 
 test.beforeAll(() => setupGuestData());
 test.afterAll(() => teardownGuestData());
-
-/** Clicks the calendar sheet's month-forward arrow ("Next month", the
- * IconButton's tooltip in booking_screen.dart's date-picker sheet). It used
- * to have no accessible name, so this picked the second unlabelled button
- * on the page -- which broke whenever the page had other unlabelled buttons,
- * i.e. whenever a stay crossed into next month. */
-async function clickNextMonth(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Next month', exact: true }).click();
-}
-
-/** Opens the check-in/check-out sheet from the property page and picks a
- * two-night stay starting [startOffsetDays] days from today (default
- * tomorrow), advancing the sheet's month forward as many times as needed for
- * each date (0, 1, or -- crossing a year-end -- conceivably more). Callers
- * that book guestResort's one unit more than once across this file (the
- * happy-path booking test and the cancel-flow bug test both call
- * `bookGuestResort`) must use non-overlapping offsets, since a night the
- * other one already booked shows as unavailable and can't be tapped. */
-async function pickStayDates(page: Page, startOffsetDays = 1): Promise<void> {
-  await page.getByRole('button', { name: /^Check-in/ }).click();
-
-  const today = new Date();
-  const checkIn = new Date(today);
-  checkIn.setDate(checkIn.getDate() + startOffsetDays);
-  const checkOut = new Date(checkIn);
-  checkOut.setDate(checkOut.getDate() + 2);
-
-  const monthsAhead = (d: Date) =>
-    (d.getFullYear() - today.getFullYear()) * 12 + (d.getMonth() - today.getMonth());
-
-  let shown = 0;
-  for (const day of [checkIn, checkOut]) {
-    const target = monthsAhead(day);
-    for (; shown < target; shown++) await clickNextMonth(page);
-    await page.getByRole('button', { name: String(day.getDate()), exact: true }).click();
-  }
-}
 
 test('welcome does not require signing up: a fixture guest signs straight in', async ({ page }) => {
   await openApp(page, '/');
@@ -79,8 +54,8 @@ test('browse shows only active resorts, and greets the guest', async ({ page }) 
   await expect(page.getByText(new RegExp(`Good (Morning|Afternoon|Evening), Farah`))).toBeVisible();
   await expect(page.getByText('Discover your stay')).toBeVisible();
 
-  await expect(resortCard(page, resortA.name)).toBeVisible();
-  await expect(resortCard(page, guestResort.name)).toBeVisible();
+  await reveal(page, resortCard(page, resortA.name));
+  await reveal(page, resortCard(page, guestResort.name));
   // Resort S is suspended: properties_read (RLS) hides it from a guest
   // entirely (not just a client-side filter), so no card for it exists at all.
   await expect(resortCard(page, resortS.name)).toHaveCount(0);
@@ -123,12 +98,32 @@ test('amenity filter chips filter the resort list', async ({ page }) => {
   // also matches guestResort's own card-level amenity pill; the filter
   // row's chip is first in document order.
   await page.getByRole('checkbox', { name: 'Spa', exact: true }).first().click();
-  await expect(resortCard(page, guestResort.name)).toBeVisible();
+  await reveal(page, resortCard(page, guestResort.name));
   await expect(resortCard(page, resortA.name)).toHaveCount(0);
 
   await page.getByRole('checkbox', { name: 'All', exact: true }).first().click();
-  await expect(resortCard(page, resortA.name)).toBeVisible();
-  await expect(resortCard(page, guestResort.name)).toBeVisible();
+  await reveal(page, resortCard(page, resortA.name));
+  await reveal(page, resortCard(page, guestResort.name));
+});
+
+test('the search box narrows the resort list and Clear filters restores it', async ({ page }) => {
+  await login(page, bookingGuest);
+  await expectAt(page, '/');
+
+  // Every word must match: "Guest" and "Booking" only appear in
+  // guestResort's name, so Resort A drops out.
+  await fillField(page.getByLabel('Search resorts'), guestResort.name);
+  await reveal(page, resortCard(page, guestResort.name));
+  await expect(resortCard(page, resortA.name)).toHaveCount(0);
+
+  await fillField(page.getByLabel('Search resorts'), 'zzzz-no-such-resort');
+  await reveal(page, page.getByText('No resorts match your search'));
+
+  // Two "Clear filters" exist here (filter bar and empty state); either one
+  // resets everything.
+  await revealAndClick(page, page.getByRole('button', { name: 'Clear filters', exact: true }).first());
+  await reveal(page, resortCard(page, resortA.name));
+  await reveal(page, resortCard(page, guestResort.name));
 });
 
 test('a resort page shows the photo counter, an address link, and reviews', async ({ page }) => {
@@ -137,12 +132,10 @@ test('a resort page shows the photo counter, an address link, and reviews', asyn
 
   await expect(page.getByText(guestResort.name, { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/^1 \/ \d+$/)).toBeVisible();
-  await expect(page.getByText('E2E Meadow Lane, Testville')).toBeVisible();
+  await reveal(page, page.getByText('E2E Meadow Lane, Testville'));
   // Seeded by guest-data.ts's setupGuestData: exactly one past, reviewed stay.
   const viewAllReviews = page.getByRole('button', { name: 'View All Reviews', exact: true });
-  await expect(viewAllReviews).toBeVisible();
-  await viewAllReviews.scrollIntoViewIfNeeded();
-  await viewAllReviews.click();
+  await revealAndClick(page, viewAllReviews);
 
   // The reviews link itself is exercised above; getting there is confirmed
   // with goTo rather than by trusting that one click's own navigation timing,
@@ -162,11 +155,12 @@ test('a resort page shows the photo counter, an address link, and reviews', asyn
 async function bookGuestResort(page: Page, startOffsetDays: number): Promise<string> {
   await login(page, bookingGuest);
   await goTo(page, `/property/${guestResort.id}`);
-  await expect(page.getByText(/Sleeps/)).toBeVisible();
+  await reveal(page, page.getByText(/Sleeps/));
 
   await pickStayDates(page, startOffsetDays);
 
   const payButton = page.getByRole('button', { name: /^Pay ₹/ });
+  await reveal(page, payButton);
   await expect(payButton).toBeEnabled({ timeout: 20_000 });
   await payButton.click();
 
@@ -177,10 +171,12 @@ async function bookGuestResort(page: Page, startOffsetDays: number): Promise<str
   // RadioListTile folds its title+subtitle into the radio's own accessible
   // name (aria-label), with no plain text node of its own -- getByText (or
   // even the page's rendered innerText) can't see it, only role+name can.
-  await expect(page.getByRole('radio', { name: /Pay 35% advance now/ })).toBeVisible();
-  await expect(page.getByRole('radio', { name: /Pay full amount now/ })).toBeVisible();
+  // The quote is a bottom sheet: scroll over the sheet, not the page behind it.
+  const inSheet = { over: page.getByRole('radio').first() };
+  await reveal(page, page.getByRole('radio', { name: /Pay 35% advance now/ }), inSheet);
+  await reveal(page, page.getByRole('radio', { name: /Pay full amount now/ }), inSheet);
 
-  await page.getByRole('button', { name: 'Pay and confirm', exact: true }).click();
+  await revealAndClick(page, page.getByRole('button', { name: 'Pay and confirm', exact: true }), inSheet);
   await expect.poll(() => currentPath(page), { timeout: 20_000 }).toMatch(/^\/booking\//);
   await waitForFlutter(page);
   await expect(page.getByRole('heading', { name: 'Booking confirmed' })).toBeVisible();
@@ -218,7 +214,7 @@ test(
 
     await goTo(page, `/booking-detail/${reservationId}`);
     await expect(page.getByRole('heading', { name: 'Booking details' })).toBeVisible();
-    await page.getByRole('button', { name: 'Cancel booking', exact: true }).click();
+    await revealAndClick(page, page.getByRole('button', { name: 'Cancel booking', exact: true }));
 
     const dialog = page.getByRole('alertdialog');
     const dialogReason = dialog.getByLabel('Reason');
@@ -258,11 +254,11 @@ test('My Stay shows the checked-in guest their pass', async ({ page }) => {
   // through the accessibility tree the rest of it drives through, short of a
   // pixel-level screenshot comparison). The "Checked in" Chip inside it is
   // its own separate, actually-labelled node.
-  await expect(resortCard(page, resortA.name)).toBeVisible();
+  await reveal(page, resortCard(page, resortA.name));
   await expect(page.getByRole('checkbox', { name: 'Checked in', exact: true })).toBeVisible();
   // Checkout is only offered once checked in, so its presence is further
   // evidence the checked-in hub (with its pass) rendered, not the empty state.
-  await expect(page.getByRole('button', { name: 'Checkout', exact: true })).toBeVisible();
+  await reveal(page, page.getByRole('button', { name: 'Checkout', exact: true }));
 });
 
 // -----------------------------------------------------------------------
@@ -279,7 +275,7 @@ test(
   async ({ page }) => {
     await login(page, bookingGuest);
     await goTo(page, `/property/${resortA.id}`);
-    await expect(page.getByText('Choose your stay', { exact: true })).toBeVisible();
-    await expect(page.getByText(/Sleeps/)).toBeVisible({ timeout: 5_000 });
+    await reveal(page, page.getByText('Choose your stay', { exact: true }));
+    await reveal(page, page.getByText(/Sleeps/));
   },
 );

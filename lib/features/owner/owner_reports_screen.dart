@@ -4,10 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/current_resort.dart';
 import '../../core/errors.dart';
 import '../../core/format.dart';
+import '../../core/pdf/pdf_delivery.dart';
+import '../../core/pdf/pdf_exporter.dart';
+import '../../core/pdf/report_pdf.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/repositories/finance_repository.dart';
 import '../finance/finance_csv.dart';
+import '../finance/finance_pdf.dart';
 import '../finance/providers.dart';
 import '../reports/csv_export.dart';
 import '../reports/providers.dart';
@@ -39,7 +43,8 @@ enum _OwnerReportKind {
 /// `/owner/reports` -- the consolidated export center: Revenue, Occupancy,
 /// Food & Activity Sales, Expenses, and the three finance reports
 /// (Collections, Ledger, Settlements, from 0048_finance_ledger.sql), all
-/// exportable as CSV through `csv_export.dart` and [csvDownloaderProvider].
+/// exportable as CSV through `csv_export.dart` and [csvDownloaderProvider],
+/// and the three finance reports as PDF too (`finance_pdf.dart`).
 /// Deliberately separate from `ReportsScreen` (which the Owner hub's
 /// Revenue/Occupancy tiles link to directly for a live day-by-day view) and
 /// from `/finance` (which shows the finance reports on screen) -- this
@@ -53,6 +58,7 @@ class OwnerReportsScreen extends ConsumerStatefulWidget {
 
 class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
   DateTimeRange _range = _currentMonth();
+  bool _pdfBusy = false;
 
   ReportFilter _reportFilter(String propertyId) =>
       (from: _range.start, to: _range.end, propertyId: propertyId);
@@ -175,6 +181,41 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
     }
   }
 
+  /// A finance report as PDF: a fresh query per export, like
+  /// [_exportFinance]; one at a time.
+  Future<void> _exportFinancePdf(_OwnerReportKind kind, String propertyId) async {
+    if (_pdfBusy) return;
+    final source = ref.read(financeSourceProvider);
+    final exporter = ref.read(pdfExporterProvider);
+    final deliver = ref.read(pdfDelivererProvider);
+    final from = _range.start;
+    final to = _range.end;
+    setState(() => _pdfBusy = true);
+    try {
+      final resort = (await source.summary(propertyId)).resort;
+      final ReportPdf report = switch (kind) {
+        _OwnerReportKind.collections => collectionsPdf(
+            resort, from, to, await source.collections(from, to, propertyId)),
+        _OwnerReportKind.ledger =>
+          ledgerPdf(resort, from, to, await source.ledger(from, to, propertyId)),
+        _ => settlementsPdf(
+            resort, from, to, await source.settlements(from, to, propertyId)),
+      };
+      final delivered = await deliver(report.fileName, await exporter.report(report));
+      if (mounted) {
+        _showMessage(delivered
+            ? 'PDF exported.'
+            : "PDF export isn't available on this platform yet.");
+      }
+    } on BookingFailure catch (e) {
+      if (mounted) _showMessage(FailureView.messageFor(e));
+    } catch (_) {
+      if (mounted) _showMessage("Couldn't create the PDF. Try again.");
+    } finally {
+      if (mounted) setState(() => _pdfBusy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // A screen reached without a current resort is impossible after Task
@@ -185,6 +226,7 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
 
     void export(_OwnerReportKind kind) =>
         _export(kind, resort.propertyId, resort.resortName);
+    void exportPdf(_OwnerReportKind kind) => _exportFinancePdf(kind, resort.propertyId);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Reports')),
@@ -208,7 +250,7 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
             ),
           ),
           const SizedBox(height: Spacing.lg),
-          Text('EXPORT AS CSV',
+          Text('EXPORT',
               style: textTheme.labelMedium?.copyWith(
                   color: scheme.onSurfaceVariant, letterSpacing: 0.5)),
           const SizedBox(height: Spacing.sm),
@@ -246,13 +288,17 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
             subtitle: 'Money in and out by day, online and desk, by method',
             color: scheme.primary,
             onExport: () => export(_OwnerReportKind.collections),
+            onExportPdf: () => exportPdf(_OwnerReportKind.collections),
+            pdfBusy: _pdfBusy,
           ),
           _ReportTile(
             icon: Icons.account_balance_outlined,
             title: 'Ledger',
-            subtitle: 'Revenue by category with room tax',
+            subtitle: 'Revenue and tax by category',
             color: scheme.tertiary,
             onExport: () => export(_OwnerReportKind.ledger),
+            onExportPdf: () => exportPdf(_OwnerReportKind.ledger),
+            pdfBusy: _pdfBusy,
           ),
           _ReportTile(
             icon: Icons.fact_check_outlined,
@@ -260,6 +306,8 @@ class _OwnerReportsScreenState extends ConsumerState<OwnerReportsScreen> {
             subtitle: 'Checked-out bookings and how they were paid',
             color: scheme.onSurfaceVariant,
             onExport: () => export(_OwnerReportKind.settlements),
+            onExportPdf: () => exportPdf(_OwnerReportKind.settlements),
+            pdfBusy: _pdfBusy,
           ),
         ],
       ),
@@ -274,6 +322,8 @@ class _ReportTile extends StatelessWidget {
     required this.subtitle,
     required this.color,
     required this.onExport,
+    this.onExportPdf,
+    this.pdfBusy = false,
   });
 
   final IconData icon;
@@ -282,9 +332,18 @@ class _ReportTile extends StatelessWidget {
   final Color color;
   final VoidCallback onExport;
 
+  /// Shows an Export PDF button next to CSV when set.
+  final VoidCallback? onExportPdf;
+  final bool pdfBusy;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final csv = IconButton(
+      tooltip: 'Export CSV',
+      icon: const Icon(Icons.download_outlined),
+      onPressed: onExport,
+    );
     return Card(
       margin: const EdgeInsets.only(bottom: Spacing.sm),
       child: ListTile(
@@ -294,11 +353,16 @@ class _ReportTile extends StatelessWidget {
         ),
         title: Text(title),
         subtitle: Text(subtitle, style: TextStyle(color: scheme.onSurfaceVariant)),
-        trailing: IconButton(
-          tooltip: 'Export CSV',
-          icon: const Icon(Icons.download_outlined),
-          onPressed: onExport,
-        ),
+        trailing: onExportPdf == null
+            ? csv
+            : Row(mainAxisSize: MainAxisSize.min, children: [
+                IconButton(
+                  tooltip: 'Export PDF',
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  onPressed: pdfBusy ? null : onExportPdf,
+                ),
+                csv,
+              ]),
       ),
     );
   }

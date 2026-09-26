@@ -8,9 +8,11 @@ import 'package:pasala/core/current_resort.dart';
 import 'package:pasala/core/router.dart';
 import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/current_charges.dart';
+import 'package:pasala/data/models/reservation.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:pasala/data/repositories/stay_repository.dart';
+import 'package:pasala/features/admin/reception_checkout_screen.dart';
 import 'package:pasala/features/stay/checkout_screen.dart';
 import 'package:pasala/core/supabase_client.dart';
 import 'package:pasala/core/widgets/failure_view.dart';
@@ -447,6 +449,113 @@ void main() {
     });
   });
 
+  group('coupons', () {
+    test('the app router registers /admin/coupons', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(null)),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      final router = container.read(routerProvider);
+
+      expect(_paths(router.configuration.routes), contains('/admin/coupons'));
+    });
+
+    test('/admin/coupons opens for owners and admins only', () {
+      expect(_to(_superAdmin, _ownerM, '/admin/coupons'), null);
+      expect(_to(_admin, _adminM, '/admin/coupons'), null);
+      expect(_to(_staff, _staffM, '/admin/coupons'), '/404');
+      expect(_to(_accountant, _accountantM, '/admin/coupons'), '/404');
+      expect(_to(_customer, null, '/admin/coupons'), '/404');
+    });
+  });
+
+  group('list your resort', () {
+    const platformAdmin = AppUser(
+        id: 'p', email: 'e', platformRole: PlatformRole.platformAdmin);
+
+    test('a signed-out visit goes to sign-in and comes back afterwards', () {
+      expect(_to(null, null, '/list-your-resort'),
+          '/login?next=%2Flist-your-resort');
+    });
+
+    test('any signed-in user but the platform admin opens it', () {
+      expect(_to(_customer, null, '/list-your-resort'), null);
+      expect(_to(_superAdmin, _ownerM, '/list-your-resort'), null);
+      expect(_to(_staff, _staffM, '/list-your-resort'), null);
+      expect(_to(platformAdmin, null, '/list-your-resort'), '/404');
+    });
+
+    test('after sign-in an allowed next wins over the landing page', () {
+      expect(
+          redirectFor(
+              user: _customer,
+              resort: null,
+              path: '/login',
+              onPreAuthScreen: true,
+              next: '/list-your-resort'),
+          '/list-your-resort');
+      expect(
+          redirectFor(
+              user: _superAdmin,
+              resort: _ownerM,
+              path: '/signup',
+              onPreAuthScreen: true,
+              next: '/list-your-resort'),
+          '/list-your-resort');
+    });
+
+    test('a next outside the allow-list, or for the platform admin, is ignored',
+        () {
+      expect(
+          redirectFor(
+              user: _customer,
+              resort: null,
+              path: '/login',
+              onPreAuthScreen: true,
+              next: '/admin'),
+          '/');
+      expect(
+          redirectFor(
+              user: _customer,
+              resort: null,
+              path: '/login',
+              onPreAuthScreen: true,
+              next: 'https://evil.example/list-your-resort'),
+          '/');
+      expect(
+          redirectFor(
+              user: platformAdmin,
+              resort: null,
+              path: '/login',
+              onPreAuthScreen: true,
+              next: '/list-your-resort'),
+          '/platform');
+    });
+
+    test('postSignInPath reads only allowed next values', () {
+      expect(postSignInPath(Uri.parse('/login?next=%2Flist-your-resort')),
+          '/list-your-resort');
+      expect(postSignInPath(Uri.parse('/login?next=%2Fadmin')), isNull);
+      expect(postSignInPath(Uri.parse('/login')), isNull);
+    });
+
+    test('the app router registers /list-your-resort', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(null)),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+
+      final router = container.read(routerProvider);
+
+      expect(_paths(router.configuration.routes), contains('/list-your-resort'));
+    });
+  });
+
   group('finance', () {
     test('owner, admin and accountant open /finance', () {
       expect(_to(_superAdmin, _ownerM, '/finance'), null);
@@ -530,6 +639,72 @@ void main() {
       final screen = tester.widget<CheckoutScreen>(find.byType(CheckoutScreen));
       expect(screen.reservationId, 'res-1');
       expect(screen.desk, isTrue);
+    });
+
+    // The success banner after a desk checkout lives in the URL's query,
+    // so a reload (or the URL alone) rebuilds it.
+    testWidgets('builds the check-out list with its banner from the URL alone',
+        (tester) async {
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(_staff)),
+        currentResortProvider.overrideWith(_StaffResort.new),
+        checkedInProvider
+            .overrideWith((ref, propertyId) async => const <Reservation>[]),
+      ]);
+      addTearDown(container.dispose);
+      container.listen(currentUserProvider, (_, _) {});
+      await container.read(currentUserProvider.future);
+      final router = container.read(routerProvider);
+
+      router.go('/admin/check-out?checkedOut=res-1');
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(routerConfig: router),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      final screen = tester.widget<ReceptionCheckoutScreen>(
+          find.byType(ReceptionCheckoutScreen));
+      expect(screen.checkedOutId, 'res-1');
+      expect(find.text('Guest checked out'), findsOneWidget);
+    });
+  });
+
+  group('pass scanner', () {
+    test('/admin/check-in/scan opens for every role at the current resort', () {
+      expect(_to(_superAdmin, _ownerM, '/admin/check-in/scan'), null);
+      expect(_to(_admin, _adminM, '/admin/check-in/scan'), null);
+      expect(_to(_staff, _staffM, '/admin/check-in/scan'), null);
+      expect(_to(_accountant, _accountantM, '/admin/check-in/scan'), null);
+    });
+
+    test('customers are refused /admin/check-in/scan', () {
+      expect(_to(_customer, null, '/admin/check-in/scan'), '/404');
+    });
+
+    test('the app router registers scan under /admin/check-in', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final container = ProviderContainer(overrides: [
+        currentUserProvider.overrideWith((ref) => Stream.value(null)),
+        currentResortProvider.overrideWith(_NoResort.new),
+      ]);
+      addTearDown(container.dispose);
+      final router = container.read(routerProvider);
+
+      GoRoute? findCheckIn(List<RouteBase> routes) {
+        for (final route in routes) {
+          if (route is GoRoute && route.path == '/admin/check-in') return route;
+          final hit = findCheckIn(route.routes);
+          if (hit != null) return hit;
+        }
+        return null;
+      }
+
+      final checkIn = findCheckIn(router.configuration.routes);
+      expect(checkIn, isNotNull);
+      expect(checkIn!.routes.whereType<GoRoute>().map((r) => r.path),
+          contains('scan'));
     });
   });
 

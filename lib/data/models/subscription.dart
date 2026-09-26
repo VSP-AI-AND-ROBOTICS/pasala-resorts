@@ -85,6 +85,7 @@ class SubscriptionPlan {
     required this.name,
     required this.monthlyPriceInr,
     required this.sortOrder,
+    this.razorpayPlanId,
   });
 
   factory SubscriptionPlan.fromJson(Map<String, dynamic> json) =>
@@ -93,12 +94,17 @@ class SubscriptionPlan {
         name: json['name'] as String,
         monthlyPriceInr: _numFromDb(json['monthly_price_inr']) ?? 0,
         sortOrder: (json['sort_order'] as num).toInt(),
+        razorpayPlanId: json['razorpay_plan_id'] as String?,
       );
 
   final SubscriptionTier tier;
   final String name;
   final num monthlyPriceInr;
   final int sortOrder;
+
+  /// The Razorpay plan behind this tier (P8), or null while the tier is
+  /// billed by hand.
+  final String? razorpayPlanId;
 }
 
 /// The row `platform_summary()` returns: the console's three cards.

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/errors.dart';
 import '../../core/supabase_client.dart';
+import '../models/billing.dart';
 import '../models/subscription.dart';
 
 /// One row of `platform_resorts()` -- a resort summary for the platform
@@ -104,6 +105,14 @@ abstract class PlatformSource {
   });
 
   Future<void> setPlanPrice(SubscriptionTier tier, num monthlyPriceInr);
+
+  /// Auto-pay state and last payment per resort (`platform_billing()`),
+  /// only for resorts that ever had auto-pay or a payment (P8).
+  Future<List<PlatformBilling>> billing();
+
+  /// Sets or clears (null) the Razorpay plan behind [tier]
+  /// (`set_plan_razorpay_id`).
+  Future<void> setRazorpayPlanId(SubscriptionTier tier, String? planId);
 }
 
 /// Drives the platform-admin-only functions of 0045_resort_functions.sql
@@ -143,7 +152,7 @@ class PlatformRepository implements PlatformSource {
   Future<List<SubscriptionPlan>> plans() => _guard(() async {
     final rows = await _db
         .from('subscription_plans')
-        .select('tier, name, monthly_price_inr, sort_order')
+        .select('tier, name, monthly_price_inr, sort_order, razorpay_plan_id')
         .order('sort_order');
     return rows.map(SubscriptionPlan.fromJson).toList();
   });
@@ -208,6 +217,26 @@ class PlatformRepository implements PlatformSource {
           },
         );
       });
+
+  @override
+  Future<List<PlatformBilling>> billing() => _guard(() async {
+    final rows = await _db.rpc('platform_billing') as List<dynamic>;
+    return rows
+        .map((e) => PlatformBilling.fromRow(e as Map<String, dynamic>))
+        .toList();
+  });
+
+  @override
+  Future<void> setRazorpayPlanId(SubscriptionTier tier, String? planId) =>
+      _guard(() async {
+        await _db.rpc(
+          'set_plan_razorpay_id',
+          params: {
+            'p_tier': subscriptionTierToDb(tier),
+            'p_plan_id': planId ?? '',
+          },
+        );
+      });
 }
 
 final platformRepositoryProvider = Provider<PlatformRepository>(
@@ -232,4 +261,13 @@ final platformTotalsProvider = FutureProvider<PlatformTotals>(
 
 final subscriptionPlansProvider = FutureProvider<List<SubscriptionPlan>>(
   (ref) => ref.watch(platformSourceProvider).plans(),
+);
+
+/// Billing per resort, keyed by property id. A resort without an entry
+/// never had auto-pay.
+final platformBillingProvider = FutureProvider<Map<String, PlatformBilling>>(
+  (ref) async => {
+    for (final b in await ref.watch(platformSourceProvider).billing())
+      b.propertyId: b,
+  },
 );

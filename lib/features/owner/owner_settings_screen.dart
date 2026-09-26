@@ -11,8 +11,11 @@ import '../admin/units_screen.dart';
 import '../browse/providers.dart';
 import 'booking_rules_screen.dart';
 import 'cancellation_policy_screen.dart';
+import 'location_settings_screen.dart';
 import 'notification_settings_screen.dart';
 import 'payment_settings_screen.dart';
+import 'subscription_billing_card.dart';
+import 'property_photos_screen.dart';
 import 'tax_settings_screen.dart';
 
 /// `/owner/settings` -- the hub for every owner-level control: some open a
@@ -23,7 +26,8 @@ import 'tax_settings_screen.dart';
 /// working screen. Staff permissions -> `UsersScreen` was removed in Task
 /// 14 along with the global `UserRole` it managed; the Team screen
 /// replacing it lands in Task 18. The Plan tile at the top shows the
-/// resort's ResortHub plan, read-only.
+/// resort's ResortHub plan, read-only, with the auto-pay card under it when
+/// Razorpay billing is configured (P8).
 class OwnerSettingsScreen extends ConsumerWidget {
   const OwnerSettingsScreen({super.key});
 
@@ -55,6 +59,8 @@ class OwnerSettingsScreen extends ConsumerWidget {
             children: [
               eyebrow('PLAN'),
               _PlanTile(propertyId: propertyId),
+              // P8: renders nothing unless Razorpay auto-pay is configured.
+              SubscriptionBillingCard(propertyId: propertyId),
               const SizedBox(height: Spacing.md),
               eyebrow('PROPERTY'),
               _SettingsTile(
@@ -64,6 +70,27 @@ class OwnerSettingsScreen extends ConsumerWidget {
                 color: scheme.primary,
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => PropertyFormScreen(existing: property),
+                )),
+              ),
+              _SettingsTile(
+                icon: Icons.photo_library_outlined,
+                title: 'Photos',
+                subtitle: 'Pictures guests see on your listing',
+                color: scheme.primary,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => PropertyPhotosScreen(propertyId: property.id),
+                )),
+              ),
+              _SettingsTile(
+                icon: Icons.place_outlined,
+                title: 'Map location',
+                subtitle: property.location == null
+                    ? 'Not set. Guests will not see how far away you are.'
+                    : '${property.latitude!.toStringAsFixed(4)}, '
+                        '${property.longitude!.toStringAsFixed(4)}',
+                color: scheme.primary,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => LocationSettingsScreen(property: property),
                 )),
               ),
               _SettingsTile(
@@ -78,7 +105,7 @@ class OwnerSettingsScreen extends ConsumerWidget {
               _SettingsTile(
                 icon: Icons.percent_outlined,
                 title: 'Taxes',
-                subtitle: 'Tax rate and GSTIN',
+                subtitle: 'Room, food and spa tax rates, GSTIN',
                 color: scheme.primary,
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => TaxSettingsScreen(property: property),

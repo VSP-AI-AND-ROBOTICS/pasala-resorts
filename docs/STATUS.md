@@ -17,7 +17,7 @@ the security/money fixes and the new tests that came with them — see
 
 Everything below runs against the local Supabase stack right now, with real
 server-side logic (Postgres RPC, RLS, triggers) behind it — not mocked
-business logic, only a mocked payment and unsent notifications (see below).
+business logic, only unsent notifications and, until Razorpay secrets are set, a mocked payment (see below).
 
 - **Browsing and booking.** Multi-property, multi-unit catalog; server-only
   pricing (base + weekend + seasonal override rate rules); a real-time
@@ -56,40 +56,37 @@ business logic, only a mocked payment and unsent notifications (see below).
   Booking.com via a per-unit, revocable export URL (busy dates only, no
   guest identity). This app can also import an OTA's own feed and block
   those dates here, with conflicts surfaced rather than silently dropped.
-  Polling is real: a `pg_cron` job runs every 15 minutes, verified
-  end-to-end against a live local HTTP server. What has NOT been verified:
-  a real Airbnb or Booking.com account actually consuming this app's feed
-  or being consumed by it — there is no owner-provided listing to test
-  against, so the RFC 5545 shape has only been checked against the spec
-  and against this app's own import path, never a live OTA.
+  Polling is real: a `pg_cron` job runs every 15 minutes, and each feed shows
+  its last sync, its event count, or its error. The import is tested against
+  fixtures in the real Airbnb and Booking.com formats (all-day events at the
+  resort's check-in/check-out times, folded lines, CRLF/LF, time zones), and
+  the export link is served as `text/calendar` by the `ical-export` Edge
+  Function. What has NOT been verified: a real Airbnb or Booking.com listing
+  on either end — see item 5 below.
 - **A real UI**, not a prototype shell: a proper design system, WCAG AA
   contrast, deliberate empty/loading/error states everywhere, and no screen
   that renders a raw server error string.
 
 ## What is stubbed, and why
 
-- **Payment is a mock.** `MockGateway` is the only payment path any build
-  from this repo can take. No money has ever moved through this app, in any
-  environment, at any point in either phase. A `RazorpayGateway` class
-  exists (`lib/features/booking/razorpay_gateway.dart`), written against
-  Razorpay's real Orders API, but it is inert by construction: there is no
-  Razorpay merchant account to authenticate against, and no native checkout
-  SDK wired into the app to actually collect a card/UPI/netbanking payment
-  even if there were. Calling it today creates a real Razorpay order (if
-  given real keys) and then deliberately throws rather than pretending that
-  order is a captured charge. Nothing in this repo's build configuration
-  ever supplies the keys that would select it.
-- **The notification outbox is queued, never sent.** Booking confirmations,
-  payment receipts, and cancellations are rendered from templates and
-  written to an `outbox` table the moment they happen — the copy, the
-  recipient, the channel are all correct and inspectable at
-  `/admin/outbox`. But nothing has ever been sent: there is no email
-  provider, no SMS provider, and no WhatsApp integration configured. This
-  is not a UI-only claim — the database itself has no INSERT/UPDATE/DELETE
-  grant on `outbox` for any client role, so nothing a client does, correct
-  or malicious, can ever mark a row `sent`. The admin outbox screen carries
-  a permanent banner saying exactly this; it cannot be dismissed or
-  configured away.
+- **Payment is a mock until Razorpay secrets are set.** Without the
+  `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` Edge Function secrets, `MockGateway`
+  makes up a reference and charges nothing, exactly as before. Every
+  environment this repo has run in is in that state. The real path (P6)
+  exists and is tested against fixtures:
+  - `payments-create-order`, `payments-verify` and `payments-webhook` create,
+    verify and settle Razorpay orders on the server;
+  - the app opens Checkout.js or the native SDK with only the public key id;
+  - the database refuses a guest's mock confirmation while the secrets are
+    set (P0036).
+
+  It has never been run against a real Razorpay account.
+- **Email and SMS are sent by the `outbox-dispatch` Edge Function** once
+  a Resend key (email) and an MSG91 key and DLT templates (SMS) are set.
+  Until then every message is recorded as a dry run and nothing is sent.
+  The admin Outbox screen shows each channel's mode and when the sender
+  last ran. WhatsApp messages are queued only. Setup:
+  `docs/email-and-sms-delivery.md`.
 
 ## What is needed from the owner to go live
 
@@ -99,8 +96,9 @@ risk, as the current fact.
 
 1. **A Razorpay or PhonePe merchant account, with KYC completed.**
    Consequence while missing: **no booking can ever be paid for with real
-   money.** Every booking made against a deployed build still runs through
-   `MockGateway`, which fabricates a success reference and charges nothing.
+   money.** Until the account's keys are set as Edge Function secrets
+   (README, "Online payments (Razorpay)"), every booking runs through
+   `MockGateway`, which makes up a success reference and charges nothing.
    Anyone using the app is not paying, and the business is not getting
    paid, regardless of what the UI says.
 
@@ -112,12 +110,12 @@ risk, as the current fact.
    blocks removing the development-only cleartext exemptions documented in
    the README — those exemptions must not ship to a real deployment.
 
-3. **An email and/or SMS provider account (e.g. an SMTP relay, SendGrid,
-   Twilio, or an Indian SMS gateway).** Consequence while missing: **no
-   guest ever receives a booking confirmation, payment receipt, or
-   cancellation notice from this app.** The outbox fills up correctly and
-   silently forever; a guest who books today gets nothing in their inbox or
-   messages unless someone manually tells them.
+3. **A Resend account with a verified sending domain (email) and an MSG91
+   account with DLT-registered templates (SMS).** Consequence while
+   missing: **the sender runs as a dry run, so no guest receives a
+   booking confirmation, payment receipt or cancellation notice.** The
+   Outbox screen says so for each channel. Setup takes minutes once the
+   accounts exist; see `docs/email-and-sms-delivery.md`.
 
 4. **Meta Business verification for WhatsApp**, on top of item 3. This has
    its own multi-week approval lead time, independent of any other item on
@@ -126,15 +124,13 @@ risk, as the current fact.
    even after email/SMS providers are connected — WhatsApp is a separate
    channel with its own account requirement.
 
-5. **For iCal: pasting this app's export URL into Airbnb (and/or
-   Booking.com), and adding their export URL back into this app's OTA
-   screen.** This is the one item on this list that is a configuration
-   step, not a paid account — but it still has not happened, because there
-   is no live Airbnb/Booking.com listing to point at. Consequence while
-   missing: **the two-way calendar sync is built and tested against itself,
-   but has never synced with a real OTA.** A double-booking between this
-   app and an actual Airbnb calendar is possible until someone with a real
-   listing performs this step and it is verified working both directions.
+5. **For iCal: linking a real Airbnb and/or Booking.com listing.** The steps
+   are in the README, "Linking a real Airbnb or Booking.com listing". This is
+   a configuration step, not a paid account, but it needs a live listing,
+   which the project does not have yet. Everything short of that is tested
+   (see the iCal bullet above). Consequence while missing: **a double-booking
+   between this app and a real OTA calendar is possible until someone with a
+   listing performs the README steps and records the result here.**
 
 ## Known limitations (full list)
 
@@ -159,8 +155,9 @@ Phase 2:
 
 - Payment is still a mock gateway (see above).
 - Nothing in the notification outbox has ever been sent (see above).
-- **The iCal export URL shape has never been verified against a real
-  Airbnb or Booking.com account** (see item 5 above).
+- **The iCal link has not yet been tried with a real Airbnb or Booking.com
+  listing** (see item 5 above). Events removed from an OTA feed are not
+  removed here.
 - No coupon management UI — coupons are created directly in the `coupons`
   table via Supabase Studio or `psql`.
 - No refund-policy or advance-payment configuration UI — `refund_rules`

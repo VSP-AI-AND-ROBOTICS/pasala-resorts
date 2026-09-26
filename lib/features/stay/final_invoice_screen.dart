@@ -7,9 +7,11 @@ import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../data/repositories/stay_repository.dart';
 import '../booking/providers.dart' show reservationProvider;
+import '../invoice/invoice_pdf_button.dart';
+import 'included_tax_line.dart';
 
-/// Itemized final invoice -- no PDF export, matching this repo's already
-/// -deferred decision not to build PDF export for reports either.
+/// Itemized final invoice, with its PDF (`InvoicePdfButton`). The guest
+/// lands here after self-checkout, and reception after a desk checkout.
 class FinalInvoiceScreen extends ConsumerWidget {
   const FinalInvoiceScreen({super.key, required this.reservationId});
 
@@ -56,11 +58,18 @@ class FinalInvoiceScreen extends ConsumerWidget {
                         const Expanded(child: Text('Food')),
                         Text(formatInr(charges.foodAmount)),
                       ]),
+                      if (charges.foodTax > 0)
+                        IncludedTaxLine(
+                            key: const Key('invoice-food-tax'), amount: charges.foodTax),
                       const SizedBox(height: Spacing.xs),
                       Row(children: [
                         const Expanded(child: Text('Activities')),
                         Text(formatInr(charges.activityAmount)),
                       ]),
+                      if (charges.activityTax > 0)
+                        IncludedTaxLine(
+                            key: const Key('invoice-activity-tax'),
+                            amount: charges.activityTax),
                       const Divider(),
                       Row(children: [
                         Expanded(child: Text('Final amount', style: textTheme.titleMedium)),
@@ -81,6 +90,8 @@ class FinalInvoiceScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: Spacing.lg),
+              InvoicePdfButton(reservationId: reservationId),
+              const SizedBox(height: Spacing.sm),
               FilledButton(
                 onPressed: () =>
                     context.push('/my-stay/review/$reservationId'),

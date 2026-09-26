@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { guests, platformAdmin, resortA, resortB, resortS } from '../fixtures/world.ts';
-import { fillField, landingPath, login, waitForFlutter } from '../support/index.ts';
+import { fillField, landingPath, login, reveal, revealAndClick, waitForFlutter } from '../support/index.ts';
 import { deleteResortsBySlug, slugFor } from '../support/platform-data.ts';
 
 // The platform console (REQ-08): the totals cards, the search and tier
@@ -31,7 +31,8 @@ const TIER_TRIGGER_LABELS = /^(All Tiers|Starter|Pro|Enterprise)$/;
 
 /** Opens a tier-style dropdown/menu trigger and picks [label] from it. */
 async function chooseFromMenu(page: Page, trigger: Locator, label: string): Promise<void> {
-  await trigger.click();
+  // After revealing a card further down, the trigger may be above the fold.
+  await revealAndClick(page, trigger);
   const item = page.getByRole('menuitem', { name: label, exact: true });
   await expect(item).toBeVisible();
   await item.click();
@@ -87,31 +88,31 @@ test.describe('platform console', () => {
     const cardA = resortCard(page, resortA.name); // Enterprise
     const cardB = resortCard(page, resortB.name); // Starter
     const cardS = resortCard(page, resortS.name); // Pro
-    await expect(cardA).toBeVisible();
-    await expect(cardB).toBeVisible();
-    await expect(cardS).toBeVisible();
+    await reveal(page, cardA);
+    await reveal(page, cardB);
+    await reveal(page, cardS);
 
     const trigger = page.getByRole('button', { name: TIER_TRIGGER_LABELS });
 
     await chooseFromMenu(page, trigger, 'Enterprise');
-    await expect(cardA).toBeVisible();
+    await reveal(page, cardA);
     await expect(cardB).toBeHidden();
     await expect(cardS).toBeHidden();
 
     await chooseFromMenu(page, trigger, 'Starter');
-    await expect(cardB).toBeVisible();
+    await reveal(page, cardB);
     await expect(cardA).toBeHidden();
     await expect(cardS).toBeHidden();
 
     await chooseFromMenu(page, trigger, 'Pro');
-    await expect(cardS).toBeVisible();
+    await reveal(page, cardS);
     await expect(cardA).toBeHidden();
     await expect(cardB).toBeHidden();
 
     await chooseFromMenu(page, trigger, 'All Tiers');
-    await expect(cardA).toBeVisible();
-    await expect(cardB).toBeVisible();
-    await expect(cardS).toBeVisible();
+    await reveal(page, cardA);
+    await reveal(page, cardB);
+    await reveal(page, cardS);
   });
 
   test('the search box filters resorts by name', async ({ page }) => {
@@ -119,15 +120,15 @@ test.describe('platform console', () => {
     const cardB = resortCard(page, resortB.name);
 
     await searchFor(page, resortA.name);
-    await expect(cardA).toBeVisible();
+    await reveal(page, cardA);
     await expect(cardB).toBeHidden();
 
     await searchFor(page, 'zzz-no-such-resort-zzz');
     await expect(page.getByText('No resorts match your search.')).toBeVisible();
 
     await searchFor(page, '');
-    await expect(cardA).toBeVisible();
-    await expect(cardB).toBeVisible();
+    await reveal(page, cardA);
+    await reveal(page, cardB);
   });
 
   test("changing a resort's tier and paid-through date is reflected on its card", async ({

@@ -210,6 +210,8 @@ class FinanceResort {
     required this.slug,
     this.gstin,
     required this.taxPct,
+    this.fnbTaxPct = 0,
+    this.spaTaxPct = 0,
     required this.timezone,
     required this.today,
   });
@@ -219,6 +221,8 @@ class FinanceResort {
     slug: json['slug'] as String,
     gstin: json['gstin'] as String?,
     taxPct: _money(json['tax_pct']),
+    fnbTaxPct: _money(json['fnb_tax_pct']),
+    spaTaxPct: _money(json['spa_tax_pct']),
     timezone: json['timezone'] as String,
     today: _day(json['today']),
   );
@@ -229,6 +233,11 @@ class FinanceResort {
 
   /// The resort's current rate; each booking's own rate is in its quote.
   final num taxPct;
+
+  /// The resort's current food & drink and spa & activities rates; each
+  /// order and sale keeps its own rate.
+  final num fnbTaxPct;
+  final num spaTaxPct;
   final String timezone;
   final DateTime today;
 }
@@ -246,6 +255,8 @@ class FinanceSummary {
     required this.refunds,
     required this.netCollected,
     required this.roomTax,
+    this.foodTax = 0,
+    this.spaTax = 0,
     required this.inHouseCount,
     required this.inHouseBalance,
   });
@@ -262,6 +273,8 @@ class FinanceSummary {
       refunds: _money(json['refunds']),
       netCollected: _money(json['net_collected']),
       roomTax: _money(json['room_tax']),
+      foodTax: _money(json['food_tax']),
+      spaTax: _money(json['spa_tax']),
       inHouseCount: (json['in_house_count'] as num?)?.toInt() ?? 0,
       inHouseBalance: _money(json['in_house_balance']),
     );
@@ -280,6 +293,11 @@ class FinanceSummary {
 
   /// Today's tax on bookings (room and cleaning-fee lines together).
   final num roomTax;
+
+  /// Today's tax inside food & drink (in-stay orders and walk-ins) and
+  /// inside spa & activities (bookings and walk-ins).
+  final num foodTax;
+  final num spaTax;
   final int inHouseCount;
 
   /// What the checked-in guests still owe, worked out as `current_charges`.

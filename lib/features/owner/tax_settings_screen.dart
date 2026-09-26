@@ -2,16 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors.dart';
+import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/property.dart';
 import '../../data/repositories/catalog_repository.dart';
 import '../browse/providers.dart';
 
-/// Taxes -- `properties.tax_pct`/`gstin` (`0025_property_settings.sql`).
-/// Saving here changes real pricing: `get_quote` adds `tax_pct` as its own
-/// additive line on top of the coupon-discounted subtotal, so a booking
-/// made after this screen saves a nonzero rate genuinely costs more.
+/// Taxes -- the room rate and GSTIN (`0025_property_settings.sql`) and the
+/// food & drink and spa & activities rates (`0053_food_spa_tax.sql`).
+///
+/// The room rate changes real pricing: `get_quote` adds it on top of the
+/// room subtotal, so a booking made after a nonzero rate is saved costs
+/// more. The food and spa rates change no price -- menu and activity prices
+/// already include them -- they decide how much of each new order or sale
+/// is recorded as tax. Every order and sale keeps the rate it was made at.
 class TaxSettingsScreen extends ConsumerStatefulWidget {
   const TaxSettingsScreen({super.key, required this.property});
 
@@ -23,6 +28,8 @@ class TaxSettingsScreen extends ConsumerStatefulWidget {
 
 class _TaxSettingsScreenState extends ConsumerState<TaxSettingsScreen> {
   late final TextEditingController _taxPct;
+  late final TextEditingController _fnbPct;
+  late final TextEditingController _spaPct;
   late final TextEditingController _gstin;
   String? _error;
   bool _busy = false;
@@ -30,23 +37,40 @@ class _TaxSettingsScreenState extends ConsumerState<TaxSettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _taxPct = TextEditingController(text: '${widget.property.taxPct}');
+    _taxPct = TextEditingController(text: formatPct(widget.property.taxPct));
+    _fnbPct = TextEditingController(text: formatPct(widget.property.fnbTaxPct));
+    _spaPct = TextEditingController(text: formatPct(widget.property.spaTaxPct));
     _gstin = TextEditingController(text: widget.property.gstin ?? '');
   }
 
   @override
   void dispose() {
     _taxPct.dispose();
+    _fnbPct.dispose();
+    _spaPct.dispose();
     _gstin.dispose();
     super.dispose();
   }
 
-  Future<void> _save() async {
-    final taxPct = num.tryParse(_taxPct.text.trim());
-    if (taxPct == null || taxPct < 0 || taxPct > 100) {
-      setState(() => _error = 'Enter a tax rate between 0 and 100.');
-      return;
+  /// The rate typed into [controller], or null (with [message] shown) when
+  /// it is not a finite number from 0 to [max]. `num.tryParse` accepts
+  /// `NaN`, which passes both range comparisons, hence `isFinite`.
+  num? _rate(TextEditingController controller, num max, String message) {
+    final value = num.tryParse(controller.text.trim());
+    if (value == null || !value.isFinite || value < 0 || value > max) {
+      setState(() => _error = message);
+      return null;
     }
+    return value;
+  }
+
+  Future<void> _save() async {
+    final taxPct = _rate(_taxPct, 100, 'Enter a room tax rate between 0 and 100.');
+    if (taxPct == null) return;
+    final fnbPct = _rate(_fnbPct, 28, 'Enter a food & drink tax rate between 0 and 28.');
+    if (fnbPct == null) return;
+    final spaPct = _rate(_spaPct, 28, 'Enter a spa & activities tax rate between 0 and 28.');
+    if (spaPct == null) return;
 
     setState(() {
       _busy = true;
@@ -56,6 +80,8 @@ class _TaxSettingsScreenState extends ConsumerState<TaxSettingsScreen> {
       final gstin = _gstin.text.trim();
       await ref.read(catalogRepositoryProvider).updateSettings(widget.property.id, {
         'tax_pct': taxPct,
+        'fnb_tax_pct': fnbPct,
+        'spa_tax_pct': spaPct,
         'gstin': gstin.isEmpty ? null : gstin,
       });
       ref.invalidate(propertiesProvider);
@@ -71,6 +97,15 @@ class _TaxSettingsScreenState extends ConsumerState<TaxSettingsScreen> {
     }
   }
 
+  Widget _rateField(String key, TextEditingController controller, String label,
+          String helper) =>
+      TextField(
+        key: Key(key),
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(labelText: label, helperText: helper),
+      );
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Taxes')),
@@ -81,15 +116,14 @@ class _TaxSettingsScreenState extends ConsumerState<TaxSettingsScreen> {
               shrinkWrap: true,
               padding: const EdgeInsets.all(Spacing.lg),
               children: [
-                TextField(
-                  key: const Key('tax-pct-field'),
-                  controller: _taxPct,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Tax rate (%)',
-                    helperText: 'Added on top of the quoted total at booking time',
-                  ),
-                ),
+                _rateField('tax-pct-field', _taxPct, 'Room tax rate (%)',
+                    'Added on top of the room price at booking time'),
+                const SizedBox(height: Spacing.sm),
+                _rateField('tax-fnb-field', _fnbPct, 'Food & drink tax (%)',
+                    'Already included in menu prices'),
+                const SizedBox(height: Spacing.sm),
+                _rateField('tax-spa-field', _spaPct, 'Spa & activities tax (%)',
+                    'Already included in activity prices'),
                 const SizedBox(height: Spacing.sm),
                 TextField(
                   key: const Key('tax-gstin-field'),
@@ -98,6 +132,13 @@ class _TaxSettingsScreenState extends ConsumerState<TaxSettingsScreen> {
                     labelText: 'GSTIN',
                     helperText: 'Optional',
                   ),
+                ),
+                const SizedBox(height: Spacing.md),
+                Text(
+                  'Each order and sale keeps the rate it was made at. '
+                  'Changing a rate affects new sales only.',
+                  key: const Key('tax-inclusive-note'),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
                 if (_error != null)
                   Padding(

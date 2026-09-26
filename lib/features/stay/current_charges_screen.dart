@@ -5,6 +5,7 @@ import '../../core/format.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/widgets/async_view.dart';
 import '../../data/repositories/stay_repository.dart';
+import 'included_tax_line.dart';
 
 /// Live breakdown from `current_charges`, laid out like `QuoteSheet`'s own
 /// price breakdown -- every figure here is a server computation, never
@@ -43,11 +44,18 @@ class CurrentChargesScreen extends ConsumerWidget {
                       const Expanded(child: Text('Food')),
                       Text(formatInr(charges.foodAmount)),
                     ]),
+                    if (charges.foodTax > 0)
+                      IncludedTaxLine(
+                          key: const Key('charges-food-tax'), amount: charges.foodTax),
                     const SizedBox(height: Spacing.xs),
                     Row(children: [
                       const Expanded(child: Text('Activities')),
                       Text(formatInr(charges.activityAmount)),
                     ]),
+                    if (charges.activityTax > 0)
+                      IncludedTaxLine(
+                          key: const Key('charges-activity-tax'),
+                          amount: charges.activityTax),
                     const Divider(),
                     Row(children: [
                       Expanded(

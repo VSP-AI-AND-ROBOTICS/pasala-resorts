@@ -60,6 +60,9 @@ Widget _appFor(AppUser user) {
           GoRoute(path: '/admin/more', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/staff/rooms', builder: (_, _) => const SizedBox()),
           GoRoute(path: '/finance', builder: (_, _) => const SizedBox()),
+          GoRoute(
+              path: '/list-your-resort',
+              builder: (_, _) => const Text('List page')),
         ],
       ),
     ],
@@ -324,5 +327,21 @@ void main() {
 
     expect(find.text('Today'), findsOneWidget);
     expect(find.text('Finance'), findsNothing);
+  });
+
+  testWidgets("the customer's account sheet offers List your resort", (
+    tester,
+  ) async {
+    await tester.pumpWidget(_appFor(_customer));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.person));
+    await tester.pumpAndSettle();
+    expect(find.text('Apply to list a resort on ResortHub'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('account-sheet-list-resort')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('List page'), findsOneWidget);
   });
 }

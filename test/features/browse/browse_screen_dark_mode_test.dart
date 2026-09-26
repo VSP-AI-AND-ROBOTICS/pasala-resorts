@@ -5,31 +5,17 @@ import 'package:pasala/core/location/location_service.dart';
 import 'package:pasala/core/location/place_label.dart';
 import 'package:pasala/core/theme/app_theme.dart';
 import 'package:pasala/data/models/app_user.dart';
-import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
+import 'package:pasala/data/repositories/resort_search_repository.dart';
 import 'package:pasala/features/browse/browse_screen.dart';
-import 'package:pasala/features/browse/providers.dart';
+
+import '../../support/fake_resort_search_source.dart';
 
 class _FakeLocationService implements LocationService {
   @override
   Future<PlaceLabel?> currentPlace() async =>
       const PlaceLabel(locality: 'Bengaluru', country: 'India');
 }
-
-const _properties = [
-  Property(
-    id: 'a1',
-    name: 'Pasala Riverside',
-    slug: 'riverside',
-    description: null,
-    address: null,
-    images: [],
-    amenities: ['Pool'],
-    checkInTime: '14:00',
-    checkOutTime: '11:00',
-    isActive: true,
-  ),
-];
 
 void main() {
   testWidgets(
@@ -38,7 +24,20 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            propertiesProvider.overrideWith((ref) => Future.value(_properties)),
+            resortSearchSourceProvider.overrideWithValue(
+              FakeResortSearchSource()
+                ..results = [
+                  searchResult(
+                    id: 'a1',
+                    name: 'Pasala Riverside',
+                    amenities: ['Pool'],
+                    distanceKm: 4,
+                    minPrice: 3500,
+                    avgRating: 4.2,
+                    reviewCount: 5,
+                  ),
+                ],
+            ),
             locationServiceProvider.overrideWithValue(_FakeLocationService()),
             currentUserProvider.overrideWith(
               (ref) => Stream.value(

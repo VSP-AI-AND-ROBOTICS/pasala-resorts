@@ -10,8 +10,10 @@ import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/failure_view.dart';
 import '../../data/models/subscription.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/listing_repository.dart';
 import '../../data/repositories/platform_repository.dart';
 import 'new_resort_dialog.dart';
+import 'pending_listings.dart';
 import 'plan_prices_dialog.dart';
 import 'platform_totals_row.dart';
 import 'resort_card.dart';
@@ -20,10 +22,12 @@ import 'resort_filter.dart';
 /// `/platform` -- the platform admin's SaaS console (REQ-08): the
 /// Subscribed / Active / MRR cards, a live search and a tier filter over
 /// every resort, per resort its status, owners, plan, booking summary and
-/// actions, "Add resort", and the plan prices. The platform admin has no
-/// membership at any resort and no row access to any resort-owned table
-/// (see the tenancy design spec), so this screen reads and writes only
-/// through [PlatformSource].
+/// actions, "Add resort", and the plan prices. A "Waiting for review" card
+/// and a Pending review filter show the resort applications waiting for
+/// Approve or Reject (P10). The platform admin has no membership at any
+/// resort and no row access to any resort-owned table (see the tenancy
+/// design spec), so this screen reads and writes only through
+/// [PlatformSource].
 ///
 /// Sits outside `AppShell`'s `ShellRoute` -- like `/choose-resort` -- since
 /// its nav destinations are keyed off a current resort the platform admin
@@ -39,16 +43,21 @@ class _PlatformScreenState extends ConsumerState<PlatformScreen> {
   final _search = TextEditingController();
   SubscriptionTier? _tier;
 
+  /// The Pending review filter (P10): per-visit UI state, like the search.
+  bool _pendingOnly = false;
+
   @override
   void dispose() {
     _search.dispose();
     super.dispose();
   }
 
-  /// After any change the list and the cards both move.
+  /// After any change the list, the cards and the billing column all move.
   void _refresh() {
     ref.invalidate(platformResortsProvider);
     ref.invalidate(platformTotalsProvider);
+    ref.invalidate(platformBillingProvider);
+    ref.invalidate(pendingListingsProvider);
   }
 
   @override
@@ -92,14 +101,35 @@ class _PlatformScreenState extends ConsumerState<PlatformScreen> {
             children: [
               const PlatformTotalsRow(),
               const SizedBox(height: Spacing.md),
+              PendingListingsCard(
+                selected: _pendingOnly,
+                onTap: () => setState(() => _pendingOnly = !_pendingOnly),
+              ),
+              const SizedBox(height: Spacing.md),
               ResortFilterBar(
                 search: _search,
                 tier: _tier,
                 onSearchChanged: (_) => setState(() {}),
                 onTierChanged: (tier) => setState(() => _tier = tier),
               ),
+              const SizedBox(height: Spacing.sm),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilterChip(
+                  key: const Key('pending-filter'),
+                  label: const Text('Pending review'),
+                  selected: _pendingOnly,
+                  onSelected: (on) => setState(() => _pendingOnly = on),
+                ),
+              ),
               const SizedBox(height: Spacing.md),
-              if (shown.isEmpty)
+              if (_pendingOnly)
+                PendingListingsList(
+                  query: _search.text,
+                  tier: _tier,
+                  onChanged: _refresh,
+                )
+              else if (shown.isEmpty)
                 const Padding(
                   key: Key('no-matching-resorts'),
                   padding: EdgeInsets.all(Spacing.lg),

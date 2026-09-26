@@ -60,11 +60,16 @@ class _FakeStayRepository implements StayRepository {
 
 class _FakeGateway implements PaymentGateway {
   final charges = <num>[];
+  final purposes = <PaymentPurpose>[];
+
+  /// What [charge] answers; a success with `mock_<id>` when null.
+  PaymentResult? result;
 
   @override
-  Future<PaymentResult> charge({required String reservationId, required num amount}) async {
+  Future<PaymentResult> charge({required String reservationId, required num amount, PaymentPurpose purpose = PaymentPurpose.advance}) async {
     charges.add(amount);
-    return PaymentResult.success('mock_$reservationId');
+    purposes.add(purpose);
+    return result ?? PaymentResult.success('mock_$reservationId');
   }
 }
 
@@ -87,6 +92,7 @@ Future<void> _pump(
   _FakeGateway? gateway,
   double balance = 2000,
   FakeFinanceSource? finance,
+  void Function()? onChargesRead,
   List<Override> overrides = const [],
   List<ProviderListenable<Object?>> keepAlive = const [],
 }) async {
@@ -104,6 +110,10 @@ Future<void> _pump(
           builder: (_, state) => CheckoutScreen(
               reservationId: state.pathParameters['reservationId']!, desk: true)),
       GoRoute(
+          path: '/admin/check-out',
+          builder: (_, state) =>
+              Text('CHECK-OUT LIST ${state.uri.queryParameters['checkedOut']}')),
+      GoRoute(
           path: '/my-stay/invoice/:id',
           builder: (_, state) => Text('INVOICE ${state.pathParameters['id']}')),
     ],
@@ -112,7 +122,10 @@ Future<void> _pump(
     retry: (_, _) => null,
     overrides: [
       stayRepositoryProvider.overrideWithValue(stay),
-      currentChargesProvider.overrideWith((ref, id) async => _charges(balance)),
+      currentChargesProvider.overrideWith((ref, id) async {
+        onChargesRead?.call();
+        return _charges(balance);
+      }),
       paymentGatewayProvider.overrideWithValue(gateway ?? _FakeGateway()),
       financeSourceProvider.overrideWithValue(finance ?? FakeFinanceSource()),
       ...overrides,
@@ -150,6 +163,20 @@ void main() {
       expect(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'), findsOneWidget);
     });
 
+    testWidgets('the reference field is its own semantics node, not merged into the card',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      await _pump(tester, extra: _desk, stay: _FakeStayRepository());
+
+      // A merged card made the field's accessible name "Payment method
+      // Reference (optional)" and its tap target the whole card, which on
+      // a phone lies over the method chips.
+      final node = tester.getSemantics(find.byKey(const Key('desk-reference')));
+      expect(node.label, isNot(contains('Payment method')));
+      expect(find.bySemanticsLabel('Payment method'), findsOneWidget);
+      handle.dispose();
+    });
+
     testWidgets('records the chosen method and the trimmed reference, and never calls the gateway',
         (tester) async {
       final stay = _FakeStayRepository();
@@ -166,7 +193,7 @@ void main() {
         (reservationId: 'r1', paymentRef: 'UTR123', amount: 2000, method: PaymentMethod.upi),
       ]);
       expect(gateway.charges, isEmpty);
-      expect(find.text('INVOICE r1'), findsOneWidget);
+      expect(find.text('CHECK-OUT LIST r1'), findsOneWidget);
     });
 
     testWidgets('a blank reference is sent as none', (tester) async {
@@ -231,8 +258,8 @@ void main() {
 
     // The desk checkout used to be pushed from the check-out list, which
     // refetched these on return; it is now reached by URL (so a reload
-    // keeps it), and a successful checkout goes on to the invoice, so the
-    // screen refetches what checkout_booking changed itself.
+    // keeps it), and a successful checkout goes back to the list by URL
+    // too, so the screen refetches what checkout_booking changed itself.
     testWidgets(
         'a desk checkout refetches the room board, the check-out queue and '
         'the bookings list', (tester) async {
@@ -268,10 +295,21 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
       await tester.pumpAndSettle();
 
-      expect(find.text('INVOICE r1'), findsOneWidget);
+      expect(find.text('CHECK-OUT LIST r1'), findsOneWidget);
       expect(board.boardCalls.length, greaterThan(boardBefore));
       expect(checkedInCalls, greaterThan(checkedInBefore));
       expect(bookingsCalls, greaterThan(bookingsBefore));
+    });
+
+    testWidgets('a desk checkout lands back on the check-out list, never the guest invoice',
+        (tester) async {
+      await _pump(tester, extra: _desk, stay: _FakeStayRepository());
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Record ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHECK-OUT LIST r1'), findsOneWidget);
+      expect(find.textContaining('INVOICE'), findsNothing);
     });
   });
 
@@ -290,6 +328,37 @@ void main() {
         (reservationId: 'r1', paymentRef: 'mock_r1', amount: 2000, method: PaymentMethod.gateway),
       ]);
       expect(find.text('INVOICE r1'), findsOneWidget);
+    });
+
+    testWidgets('pays the balance as a balance payment', (tester) async {
+      final gateway = _FakeGateway();
+      await _pump(tester, extra: 'r1', stay: _FakeStayRepository(), gateway: gateway);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Pay ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(gateway.purposes, [PaymentPurpose.balance]);
+    });
+
+    testWidgets('a failed payment shows why and re-reads the charges', (tester) async {
+      final stay = _FakeStayRepository();
+      final gateway = _FakeGateway()
+        ..result = const PaymentResult.failure(
+            'Your payment could not be added to this booking, so it is being refunded in full.');
+      var chargesReads = 0;
+      await _pump(tester,
+          extra: 'r1', stay: stay, gateway: gateway, onChargesRead: () => chargesReads++);
+      final readsBefore = chargesReads;
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Pay ₹2,000 and check out'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('Your payment could not be added to this booking, so it is being refunded in full.'),
+          findsOneWidget);
+      expect(chargesReads, greaterThan(readsBefore));
+      expect(stay.checkouts, isEmpty);
+      expect(find.text('INVOICE r1'), findsNothing);
     });
 
     testWidgets('with nothing to pay it sends no-balance-due', (tester) async {

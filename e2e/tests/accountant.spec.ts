@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { resortA } from '../fixtures/world.ts';
-import { goTo, landingPath, login } from '../support/index.ts';
+import { goTo, landingPath, login, revealAndClick, useBottomNav } from '../support/index.ts';
 import {
+  DESK_RESERVATION_ID,
   deskGuest,
   setupAccountantFixtures,
   teardownAccountantFixtures,
@@ -24,21 +25,13 @@ import {
 // so every check here reads the whole semantics tree as an array of lines
 // and matches within one line, rather than chaining locators.
 //
-// Every test narrows the viewport first: the accountant's bottom
+// Every test calls useBottomNav first (a no-op on the phone project): the accountant's bottom
 // navigation bar (Finance/Rooms/Dashboard/Reports) and the Card layout of
 // Collections/Ledger/Settlements (as opposed to their wide-screen
 // DataTable, whose cells really are separate nodes) only render below the
-// 840px breakpoint -- see nav.ts's clickTab.
+// 840px breakpoint -- see nav.ts's useBottomNav.
 
 const accountant = resortA.team.accountant;
-
-async function narrow(page: Page): Promise<void> {
-  // Width only, like nav.ts's own clickTab -- widening the height too
-  // (tried during development) left a full-height semantics node
-  // covering the screen and intercepting every tap.
-  const size = page.viewportSize();
-  await page.setViewportSize({ width: 400, height: size?.height ?? 800 });
-}
 
 /**
  * The semantics tree's whole visible text, one entry per merged node, in
@@ -49,10 +42,26 @@ async function narrow(page: Page): Promise<void> {
  */
 async function bodyLines(page: Page): Promise<string[]> {
   const text = await page.locator('flt-semantics-host').innerText();
-  return text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
+  // A card that also holds a button (the Settlements row's "Invoice PDF")
+  // is a group whose merged text is its aria-label, not its inner text.
+  const groups = await page
+    .locator('flt-semantics-host [role="group"][aria-label]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label') ?? ''));
+  return [
+    ...text.split('\n').map((l) => l.trim()),
+    ...groups.map((l) => l.replace(/\s+/g, ' ').trim()),
+  ].filter(Boolean);
+}
+
+/** Clicks [button], returns the download's file name and first five bytes. */
+async function downloadVia(page: Page, button: Locator): Promise<{ name: string; head: string }> {
+  const [download] = await Promise.all([page.waitForEvent('download'), revealAndClick(page, button)]);
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  return {
+    name: download.suggestedFilename(),
+    head: readFileSync(path!).subarray(0, 5).toString('latin1'),
+  };
 }
 
 /**
@@ -91,7 +100,7 @@ test.describe('Accountant (Resort A)', () => {
     expect(await login(page, accountant)).toBe(landingPath.accountant);
     await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
 
-    await narrow(page);
+    await useBottomNav(page);
     for (const label of ['Finance', 'Rooms', 'Dashboard', 'Reports']) {
       await expect(page.getByRole('tab', { name: label, exact: true })).toBeVisible();
     }
@@ -104,7 +113,7 @@ test.describe('Accountant (Resort A)', () => {
 
   test('Today tab shows the online vs. front-desk collection split', async ({ page }) => {
     await login(page, accountant);
-    await narrow(page);
+    await useBottomNav(page);
 
     // financeSummaryProvider fetches after the first frame, so the figures
     // can still say "Still loading" for a moment after landing.
@@ -131,7 +140,7 @@ test.describe('Accountant (Resort A)', () => {
 
   test('Collections and Ledger render real data for the month', async ({ page }) => {
     await login(page, accountant);
-    await narrow(page);
+    await useBottomNav(page);
 
     let lines = await switchFinanceTab(
       page,
@@ -161,7 +170,7 @@ test.describe('Accountant (Resort A)', () => {
 
   test('Settlements shows the checked-out booking, advance vs. desk balance', async ({ page }) => {
     await login(page, accountant);
-    await narrow(page);
+    await useBottomNav(page);
 
     const lines = await switchFinanceTab(
       page,
@@ -194,13 +203,61 @@ test.describe('Accountant (Resort A)', () => {
     const firstLine = readFileSync(path!, 'utf8').split(/\r?\n/)[0];
     expect(firstLine).toBe('E2E Resort A,GSTIN not set');
 
-    const lines = await bodyLines(page);
-    expect(lines.some((l) => l.includes('CSV exported.'))).toBe(true);
+    // The SnackBar follows the download by a frame or two.
+    await expect
+      .poll(async () => (await bodyLines(page)).some((l) => l.includes('CSV exported.')))
+      .toBe(true);
+  });
+
+  test('Collections exports a PDF next to the CSV', async ({ page }) => {
+    await login(page, accountant);
+    await useBottomNav(page);
+    await switchFinanceTab(
+      page,
+      'Collections',
+      (ls) => ls.includes('No collections in this period') || ls.some((l) => l.startsWith('Total Online')),
+    );
+
+    const file = await downloadVia(page, page.getByRole('button', { name: 'Export PDF', exact: true }));
+
+    expect(file.name).toMatch(/^e2e-a-collections-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}\.pdf$/);
+    expect(file.head).toBe('%PDF-');
+    await expect
+      .poll(async () => (await bodyLines(page)).some((l) => l.includes('PDF exported.')))
+      .toBe(true);
+  });
+
+  test("a settlement row downloads that booking's invoice", async ({ page }) => {
+    await login(page, accountant);
+    await useBottomNav(page);
+    await switchFinanceTab(
+      page,
+      'Settlements',
+      (ls) => ls.includes('No checkouts in this period') || ls.some((l) => l.includes(deskGuest.fullName)),
+    );
+
+    const file = await downloadVia(page, page.getByRole('button', { name: 'Invoice PDF', exact: true }).first());
+
+    expect(file.name).toBe('invoice-E2E-A-E2EACC00.pdf');
+    expect(file.head).toBe('%PDF-');
+  });
+
+  test('the guest downloads the same invoice from their booking', async ({ page }) => {
+    await login(page, deskGuest);
+    await goTo(page, `/booking-detail/${DESK_RESERVATION_ID}`);
+
+    const file = await downloadVia(
+      page,
+      page.getByRole('button', { name: 'Download invoice (PDF)', exact: true }),
+    );
+
+    expect(file.name).toBe('invoice-E2E-A-E2EACC00.pdf');
+    expect(file.head).toBe('%PDF-');
   });
 
   test('the room status grid is read-only for an accountant', async ({ page }) => {
     await login(page, accountant);
-    await narrow(page);
+    await useBottomNav(page);
 
     await goTo(page, '/staff/rooms');
 

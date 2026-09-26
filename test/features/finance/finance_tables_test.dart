@@ -123,6 +123,40 @@ void main() {
       expect(total.tax, 1140);
       expect(total.total, 11690);
     });
+
+    test("tax is kept per category and adds up to the day's tax", () {
+      final days = ledgerByDay([
+        ledgerRow(day: DateTime(2026, 8, 10), category: LedgerCategory.room, gross: 2000, tax: 240),
+        ledgerRow(
+            day: DateTime(2026, 8, 10),
+            category: LedgerCategory.foodBeverage,
+            source: 'in_stay_order',
+            gross: 500,
+            tax: 25),
+        ledgerRow(
+            day: DateTime(2026, 8, 10),
+            category: LedgerCategory.foodBeverage,
+            source: 'walk_in',
+            gross: 300,
+            tax: 36),
+        ledgerRow(
+            day: DateTime(2026, 8, 11),
+            category: LedgerCategory.spaActivities,
+            source: 'activity_booking',
+            gross: 2000,
+            tax: 360),
+      ]);
+
+      expect(days[0].taxFor(LedgerCategory.room), 240);
+      expect(days[0].taxFor(LedgerCategory.foodBeverage), 61);
+      expect(days[0].taxFor(LedgerCategory.spaActivities), 0);
+      expect(days[0].tax, 301);
+      expect(days[0].total, 2800 + 301);
+      final total = ledgerTotal(days);
+      expect(total.taxFor(LedgerCategory.spaActivities), 360);
+      expect(total.taxFor(LedgerCategory.foodBeverage), 61);
+      expect(total.tax, 661);
+    });
   });
 
   test('formatMoney keeps paise and Indian grouping', () {

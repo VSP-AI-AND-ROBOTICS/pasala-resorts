@@ -37,6 +37,8 @@ List<List<String>> todayCsv(FinanceSummary s) => [
       ['Refunds', csvMoney(s.refunds)],
       ['Net collected', csvMoney(s.netCollected)],
       ['Room tax', csvMoney(s.roomTax)],
+      ['F&B tax', csvMoney(s.foodTax)],
+      ['Spa tax', csvMoney(s.spaTax)],
       ['In-house guests', '${s.inHouseCount}'],
       ['In-house unpaid balance', csvMoney(s.inHouseBalance)],
     ];

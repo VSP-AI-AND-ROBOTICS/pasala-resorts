@@ -435,19 +435,63 @@ select is(
         -- of the unit (or the resort) it is given.
         'room_status_board','set_room_status','dispatch_housekeeping',
         'list_dispatchable_staff',
+        -- 0052: stay passes. issue_stay_pass only signs the caller's own
+        -- booking; verify_stay_pass asserts Staff+ at the resort the signed
+        -- pass names and that the booking belongs to that resort.
+        'issue_stay_pass','verify_stay_pass',
         -- 0048: finance reports. Each asserts owner/admin/accountant at the
         -- resort it is given. (checkout_booking is already listed above.)
         'report_collections','report_ledger','report_settlements','finance_summary',
+        -- 0059: resort self-listing. apply_for_listing and
+        -- my_listing_applications act only for auth.uid();
+        -- listing_setup_status / submit_listing_for_review assert the role
+        -- at the resort they are given; the other three check
+        -- is_platform_admin().
+        'apply_for_listing','my_listing_applications','listing_setup_status',
+        'submit_listing_for_review','platform_listing_applications',
+        'approve_listing','reject_listing',
+        -- 0057: subscription billing. set_plan_razorpay_id and
+        -- platform_billing check is_platform_admin(); my_resort_billing and
+        -- billing_subscribe_state assert the owner at the resort they are
+        -- given; the three billing writes are executable by service_role
+        -- only and derive the resort from the Razorpay subscription row.
+        'set_plan_razorpay_id','my_resort_billing','platform_billing',
+        'billing_subscribe_state','billing_subscription_opened',
+        'billing_subscription_cancel_requested','billing_webhook_apply',
+        -- 0056: email and SMS delivery. claim/complete/record run only as
+        -- service_role (the outbox-dispatch Edge Function);
+        -- outbox_delivery_status asserts the caller's role at the resort
+        -- it is given and retry_outbox_message at the message's resort;
+        -- outbox_template_context and outbox_dispatch_tick run for no
+        -- client role.
+        'claim_outbox_batch','complete_outbox_message','record_outbox_dispatch_run',
+        'outbox_delivery_status','retry_outbox_message','outbox_template_context',
+        'outbox_dispatch_tick',
+        -- 0051: coupons. Each asserts owner/admin at the resort it is
+        -- given, or at the coupon's own resort.
+        'create_coupon','update_coupon','set_coupon_active','list_coupons',
+        'find_resort_guest',
         -- 0047: tasks_housekeeping_done is a trigger function (not callable
         -- as an RPC); it fires only on a task update that tasks_update RLS
         -- and tasks_enforce_write already allowed.
         'tasks_housekeeping_done',
+        -- 0055: online payments. payment_order_quote checks that the
+        -- caller is the booking's own guest; the other seven are
+        -- executable by service_role only (the payments-* Edge Functions)
+        -- and take the resort from the order or reservation row.
+        'payment_order_quote','payment_order_open','payment_order_settle',
+        'payment_order_failed','payment_order_refunded','payment_webhook_begin',
+        'payment_webhook_done','payments_set_live',
         -- 0044: properties_guard_status checks is_platform_admin() directly
         -- before allowing a status change; reviews_set_author_name has no
         -- check of its own, but it only ever fires on a row the reviews_insert
         -- policy already restricted to customer_id = auth.uid(), so it just
         -- re-reads the inserting guest's own profile.
-        'properties_guard_status','reviews_set_author_name'])),
+        'properties_guard_status','reviews_set_author_name',
+        -- 0060: guest search. It takes no resort id and returns only
+        -- active resorts' catalog fields and rating aggregates, so anon
+        -- may call it and it needs no role assertion.
+        'search_resorts'])),
   null, 'every security definer function is on the reviewed allow-list');
 
 select * from finish();

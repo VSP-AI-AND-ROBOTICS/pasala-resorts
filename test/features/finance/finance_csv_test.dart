@@ -97,6 +97,8 @@ void main() {
       desk: {PaymentMethod.cash: 2800, PaymentMethod.card: 120},
       refunds: 600,
       roomTax: 240,
+      foodTax: 72.25,
+      spaTax: 468,
       inHouseCount: 1,
       inHouseBalance: 1200,
     ));
@@ -114,6 +116,8 @@ void main() {
       ['Refunds', '600.00'],
       ['Net collected', '3320.00'],
       ['Room tax', '240.00'],
+      ['F&B tax', '72.25'],
+      ['Spa tax', '468.00'],
       ['In-house guests', '1'],
       ['In-house unpaid balance', '1200.00'],
     ]);

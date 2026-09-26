@@ -28,6 +28,8 @@ class FoodSale {
     required this.amount,
     this.paymentMethod = PaymentMethod.cash,
     this.notes,
+    this.taxPct = 0,
+    this.taxAmount = 0,
   });
 
   final String id;
@@ -44,6 +46,11 @@ class FoodSale {
   final PaymentMethod paymentMethod;
   final String? notes;
 
+  /// The tax inside [amount] and its rate, set by the server when the sale
+  /// is logged (`0053_food_spa_tax.sql`). Read-only: never in [toInsert].
+  final num taxPct;
+  final num taxAmount;
+
   factory FoodSale.fromJson(Map<String, dynamic> json) => FoodSale(
         id: json['id'] as String,
         propertyId: json['property_id'] as String,
@@ -55,6 +62,8 @@ class FoodSale {
         amount: (json['amount'] as num?) ?? 0,
         paymentMethod: PaymentMethod.fromWire(json['payment_method'] as String?),
         notes: json['notes'] as String?,
+        taxPct: (json['tax_pct'] as num?) ?? 0,
+        taxAmount: (json['tax_amount'] as num?) ?? 0,
       );
 
   /// Payload for a new/edited sale -- excludes `id` (server-assigned) and

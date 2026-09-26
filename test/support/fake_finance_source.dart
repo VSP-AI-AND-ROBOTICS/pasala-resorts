@@ -83,6 +83,8 @@ FinanceResort financeResort({
   String slug = 'fin-r',
   String? gstin = '29ABCDE1234F1Z5',
   num taxPct = 12,
+  num fnbTaxPct = 0,
+  num spaTaxPct = 0,
   String timezone = 'Asia/Kolkata',
   DateTime? today,
 }) => FinanceResort(
@@ -90,6 +92,8 @@ FinanceResort financeResort({
   slug: slug,
   gstin: gstin,
   taxPct: taxPct,
+  fnbTaxPct: fnbTaxPct,
+  spaTaxPct: spaTaxPct,
   timezone: timezone,
   today: today ?? DateTime(2026, 9, 25),
 );
@@ -101,6 +105,8 @@ FinanceSummary financeSummary({
   Map<PaymentMethod, num> desk = const {},
   num refunds = 0,
   num roomTax = 0,
+  num foodTax = 0,
+  num spaTax = 0,
   int inHouseCount = 0,
   num inHouseBalance = 0,
 }) {
@@ -113,6 +119,8 @@ FinanceSummary financeSummary({
     refunds: refunds,
     netCollected: online + deskTotal - refunds,
     roomTax: roomTax,
+    foodTax: foodTax,
+    spaTax: spaTax,
     inHouseCount: inHouseCount,
     inHouseBalance: inHouseBalance,
   );

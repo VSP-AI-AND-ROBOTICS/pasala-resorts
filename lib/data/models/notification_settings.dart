@@ -1,7 +1,6 @@
 /// One row of `notification_settings` -- whether each outbox channel is
-/// enabled for a property. Purely a routing toggle: nothing here implies
-/// any channel actually sends anything yet (see `outbox_screen.dart`'s
-/// permanent banner).
+/// used for a property. A channel that is off is skipped both when a
+/// message is queued and when the sender claims it (0056).
 class NotificationSettings {
   const NotificationSettings({
     required this.propertyId,

@@ -1,3 +1,5 @@
+import '../../core/location/geo_point.dart';
+
 class Property {
   const Property({
     required this.id,
@@ -17,6 +19,10 @@ class Property {
     this.maxNights,
     this.paymentDisplayMethods = const [],
     this.gatewayDisplayName,
+    this.fnbTaxPct = 0,
+    this.spaTaxPct = 0,
+    this.latitude,
+    this.longitude,
   });
 
   final String id;
@@ -44,6 +50,25 @@ class Property {
   final int? maxNights;
   final List<String> paymentDisplayMethods;
   final String? gatewayDisplayName;
+
+  /// Food & drink and spa & activities GST rates (`0053_food_spa_tax.sql`),
+  /// 0 to 28. Unlike [taxPct], which is added on top of the room price,
+  /// these are already inside menu and activity prices; each order and sale
+  /// stores the rate it was made at. Written by the Taxes screen through
+  /// `CatalogRepository.updateSettings`.
+  final num fnbTaxPct;
+  final num spaTaxPct;
+
+  /// `properties.lat`/`lng`: the resort's map position. The owner sets it
+  /// on the Map location screen through `CatalogRepository.updateSettings`,
+  /// and it is not part of [toInsert]. The table requires both or neither
+  /// (0060_guest_search.sql).
+  final double? latitude;
+  final double? longitude;
+
+  GeoPoint? get location => latitude != null && longitude != null
+      ? GeoPoint(latitude!, longitude!)
+      : null;
 
   /// Postgres `time` columns round-trip as `HH:mm:ss` (e.g. `14:00:00`), but
   /// every writer in this app -- `showTimePicker` via [PropertyFormScreen],
@@ -77,6 +102,10 @@ class Property {
             (json['payment_display_methods'] as List<dynamic>? ?? [])
                 .cast<String>(),
         gatewayDisplayName: json['gateway_display_name'] as String?,
+        fnbTaxPct: (json['fnb_tax_pct'] as num?) ?? 0,
+        spaTaxPct: (json['spa_tax_pct'] as num?) ?? 0,
+        latitude: (json['lat'] as num?)?.toDouble(),
+        longitude: (json['lng'] as num?)?.toDouble(),
       );
 
   Map<String, dynamic> toInsert() => {

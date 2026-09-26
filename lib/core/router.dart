@@ -14,11 +14,13 @@ import '../features/admin/admin_more_screen.dart';
 import '../features/admin/admin_reviews_screen.dart';
 import '../features/admin/admin_home_screen.dart';
 import '../features/admin/attendance_screen.dart';
+import '../features/admin/coupons_screen.dart';
 import '../features/admin/kitchen_orders_screen.dart';
 import '../features/admin/maintenance_issues_screen.dart';
 import '../features/admin/reception_checkin_screen.dart';
 import '../features/admin/reception_checkout_screen.dart';
 import '../features/admin/resort_unit_guard.dart';
+import '../features/admin/scan_pass_screen.dart';
 import '../features/admin/service_requests_screen.dart';
 import '../features/admin/tasks_screen.dart';
 import '../features/admin/block_dates_screen.dart';
@@ -32,6 +34,7 @@ import '../features/auth/signup_screen.dart';
 import '../features/auth/welcome_screen.dart';
 import '../features/booking/confirmation_screen.dart';
 import '../features/finance/finance_screen.dart';
+import '../features/listing/list_your_resort_screen.dart';
 import '../features/browse/browse_screen.dart';
 import '../features/browse/customer_reviews_screen.dart';
 import '../features/browse/property_screen.dart';
@@ -97,16 +100,46 @@ import 'theme/tokens.dart';
 /// Route guarding is user experience only. RLS in Postgres is what actually
 /// enforces access; a customer who forges a route sees a not-found page and
 /// would get 42501 from the database regardless.
+/// Pages a pre-auth screen may hand the user on to after they sign in or
+/// sign up, through `?next=`. An allow-list, so a crafted link can never
+/// send someone to an arbitrary page.
+const postSignInPaths = {'/list-your-resort'};
+
+/// The `next` query parameter of [uri] when it is on [postSignInPaths],
+/// otherwise null.
+String? postSignInPath(Uri uri) {
+  final next = uri.queryParameters['next'];
+  return postSignInPaths.contains(next) ? next : null;
+}
+
 String? redirectFor({
   required AppUser? user,
   required ResortMembership? resort,
   required String path,
   required bool onPreAuthScreen,
+  String? next,
 }) {
-  if (user == null) return onPreAuthScreen ? null : '/login';
-  if (onPreAuthScreen) return landingPathFor(user, resort);
+  if (user == null) {
+    if (onPreAuthScreen) return null;
+    // "List your resort" tapped while signed out: come back after sign-in.
+    if (path == '/list-your-resort') return '/login?next=%2Flist-your-resort';
+    return '/login';
+  }
+  if (onPreAuthScreen) {
+    // A pre-auth screen opened with an allowed `?next=` hands the user on
+    // there (the platform admin has no use for it).
+    if (next != null &&
+        postSignInPaths.contains(next) &&
+        !user.isPlatformAdmin) {
+      return next;
+    }
+    return landingPathFor(user, resort);
+  }
 
   if (path == '/platform') return user.isPlatformAdmin ? null : '/404';
+  // Anyone signed in may apply to list a resort, except the platform
+  // admin, who adds resorts from the console.
+  if (path == '/list-your-resort') return user.isPlatformAdmin ? '/404' : null;
   if (path == '/choose-resort') {
     if (user.memberships.length < 2) return '/404';
     // The chooser never navigates itself: picking a resort (or a
@@ -140,15 +173,17 @@ String? redirectFor({
     // staff-or-above grant too -- reception need not be an admin account to
     // check a guest in or settle their final bill -- so `/admin/check-in`
     // and `/admin/check-out` join them here as well, with the desk
-    // checkout of one booking at `/admin/check-out/:reservationId`. Every other
-    // `/admin/*` route (properties, units, rates, blocking, the bookings
-    // list) stays admin-only, matching the RLS/RPC surfaces that actually
-    // write data.
+    // checkout of one booking at `/admin/check-out/:reservationId`. The
+    // pass scanner at /admin/check-in/scan (P3) belongs to the check-in desk
+    // the same way. Every other `/admin/*` route (properties, units, rates,
+    // blocking, the bookings list) stays admin-only, matching the RLS/RPC
+    // surfaces that actually write data.
     final staffOrAboveOk = resort != null &&
         (path == '/admin/dashboard' ||
             path == '/admin/reports' ||
             path == '/admin/outbox' ||
             path == '/admin/check-in' ||
+            path.startsWith('/admin/check-in/') ||
             path == '/admin/check-out' ||
             path.startsWith('/admin/check-out/'));
     final isAdminHere =
@@ -378,6 +413,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       resort: ref.read(currentResortProvider),
       path: path,
       onPreAuthScreen: onPreAuthScreen,
+      next: state.uri.queryParameters['next'],
     );
   }
 
@@ -396,11 +432,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/login',
-        pageBuilder: (_, state) => fadeSlidePage(const LoginScreen(), state),
+        pageBuilder: (_, state) => fadeSlidePage(
+          LoginScreen(next: postSignInPath(state.uri)),
+          state,
+        ),
       ),
       GoRoute(
         path: '/signup',
-        pageBuilder: (_, state) => fadeSlidePage(const SignupScreen(), state),
+        pageBuilder: (_, state) => fadeSlidePage(
+          SignupScreen(next: postSignInPath(state.uri)),
+          state,
+        ),
       ),
       GoRoute(path: '/404', builder: (_, _) => const NotFoundScreen()),
       // Outside the ShellRoute (like the pre-auth screens): a multi-resort
@@ -461,6 +503,11 @@ final routerProvider = Provider<GoRouter>((ref) {
               BookingDetailScreen(reservationId: state.pathParameters['id']!),
               state,
             ),
+          ),
+          GoRoute(
+            path: '/list-your-resort',
+            pageBuilder: (_, state) =>
+                fadeSlidePage(const ListYourResortScreen(), state),
           ),
           GoRoute(path: '/admin', builder: (_, _) => const AdminHomeScreen()),
           GoRoute(
@@ -532,6 +579,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/tasks',
             builder: (_, _) => const TasksScreen(),
+          ),
+          // Coupons (P1). Owner and admin only, through the /admin/* rule
+          // in redirectFor; list_coupons and the write functions assert the
+          // same roles in Postgres.
+          GoRoute(
+            path: '/admin/coupons',
+            builder: (_, _) => const CouponsScreen(),
           ),
           GoRoute(path: '/owner', builder: (_, _) => const OwnerHomeScreen()),
           GoRoute(
@@ -624,10 +678,23 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/check-in',
             builder: (_, _) => const ReceptionCheckinScreen(),
+            routes: [
+              // The pass scanner (P3). A child of the list, so the list
+              // stays underneath and gets the scanned text back from pop.
+              GoRoute(
+                path: 'scan',
+                builder: (_, _) => const ScanPassScreen(),
+              ),
+            ],
           ),
           GoRoute(
             path: '/admin/check-out',
-            builder: (_, _) => const ReceptionCheckoutScreen(),
+            // `?checkedOut=<id>` after a desk checkout: the success banner
+            // with the invoice download. In the URL so a reload keeps it;
+            // redirectFor checks matchedLocation, which has no query.
+            builder: (_, state) => ReceptionCheckoutScreen(
+              checkedOutId: state.uri.queryParameters[checkedOutParam],
+            ),
             routes: [
               // Reception's desk checkout at /admin/check-out/:reservationId.
               // The reservation id and desk mode both live in the URL so a

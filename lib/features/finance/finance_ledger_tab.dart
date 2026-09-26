@@ -13,19 +13,21 @@ import 'providers.dart';
 
 typedef _Column = ({String label, num Function(LedgerDay) value});
 
-/// Category columns hold taxable amounts, so they add up to Taxable, and
-/// Taxable + Tax = Total.
+/// Category columns hold taxable amounts, so they add up to Taxable; the
+/// category tax columns add up to Tax; and Taxable + Tax = Total.
 final List<_Column> _columns = [
   for (final c in LedgerCategory.values) (label: c.label, value: (d) => d.categoryTotal(c)),
   (label: 'Taxable', value: (d) => d.taxable),
+  for (final c in LedgerCategory.values) (label: '${c.label} tax', value: (d) => d.taxFor(c)),
   (label: 'Tax', value: (d) => d.tax),
 ];
 
 String _dayLabel(LedgerDay d) => d.day == null ? 'Total' : formatDate(d.day!);
 
 /// The Ledger tab: revenue earned per day by category (accrual basis),
-/// with room tax as fixed in each booking's quote, a totals row and a tax
-/// strip.
+/// with tax per category -- room tax as fixed in each booking's quote,
+/// food and spa tax as stored on each order and sale -- a totals row and a
+/// tax strip.
 class FinanceLedgerTab extends ConsumerWidget {
   const FinanceLedgerTab({super.key, required this.filter});
 
@@ -100,9 +102,14 @@ class _TaxStrip extends StatelessWidget {
           children: [
             Text('Taxable ${formatMoney(total.taxable)}'),
             Text('Tax ${formatMoney(total.tax)}'),
-            if (r != null) Text('Current rate ${formatPct(r.taxPct)}%'),
+            for (final c in LedgerCategory.values)
+              if (total.taxFor(c) != 0)
+                Text('${c.label} tax ${formatMoney(total.taxFor(c))}'),
+            if (r != null) Text('Room rate ${formatPct(r.taxPct)}%'),
+            if (r != null) Text('F&B rate ${formatPct(r.fnbTaxPct)}%'),
+            if (r != null) Text('Spa/Activities rate ${formatPct(r.spaTaxPct)}%'),
             if (r != null) Text(gstinLabel(r)),
-            Text("Each booking's own rate is in Settlements.",
+            Text('Each booking and sale keeps the rate it was made at.',
                 style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
@@ -161,6 +168,10 @@ class _LedgerCard extends StatelessWidget {
                   Text('${c.label} ${formatMoney(day.categoryTotal(c))}'),
               Text('Taxable ${formatMoney(day.taxable)}'),
               Text('Tax ${formatMoney(day.tax)}'),
+              for (final c in LedgerCategory.values)
+                if (day.taxFor(c) != 0)
+                  Text('${c.label} tax ${formatMoney(day.taxFor(c))}',
+                      style: Theme.of(context).textTheme.bodySmall),
               Text('Total ${formatMoney(day.total)}',
                   style: const TextStyle(fontWeight: FontWeight.w700)),
             ],

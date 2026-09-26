@@ -129,6 +129,11 @@ public = false
 file_size_limit = "10MiB"
 allowed_mime_types = ["image/png", "image/jpeg", "image/webp"]
 
+[storage.buckets.property-photos]
+public = true
+file_size_limit = "10MiB"
+allowed_mime_types = ["image/png", "image/jpeg", "image/webp"]
+
 # Allow connections via S3 compatible clients
 [storage.s3_protocol]
 enabled = true
@@ -390,6 +395,12 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# P6: Razorpay signs its webhook calls (X-Razorpay-Signature); it cannot
+# send a Supabase JWT. payments-create-order and payments-verify keep
+# the default verify_jwt = true.
+[functions.payments-webhook]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
@@ -417,3 +428,17 @@ enabled = true
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# Subscription auto-billing (P8). billing-subscribe needs the caller's
+# Supabase JWT; Razorpay calls billing-webhook without one, so that
+# function checks X-Razorpay-Signature instead.
+[functions.billing-subscribe]
+verify_jwt = true
+
+[functions.billing-webhook]
+verify_jwt = false
+
+# P9: the iCal export link that Airbnb/Booking.com fetch. OTAs cannot send
+# a JWT; the per-unit token in the path is the only credential.
+[functions.ical-export]
+verify_jwt = false

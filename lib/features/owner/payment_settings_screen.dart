@@ -10,10 +10,9 @@ import '../browse/providers.dart';
 
 const _availableMethods = ['UPI', 'Card', 'Net Banking', 'Wallet'];
 
-/// Payment configuration -- business-facing settings only. Real gateway
-/// credentials (`RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`) are supplied at
-/// build time via `--dart-define` (see `RazorpayGateway` and the README's
-/// "Payments" section) and are never stored in the database or editable
+/// Payment configuration -- business-facing settings only. Razorpay keys
+/// are Edge Function secrets set at deploy time (README, "Online payments
+/// (Razorpay)") and are never in the app, the database, or editable
 /// here -- this screen controls `properties.advance_pct` (already existed,
 /// previously psql-only) plus the two purely-cosmetic
 /// `payment_display_methods`/`gateway_display_name` columns

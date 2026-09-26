@@ -61,4 +61,20 @@ void main() {
     expect(repo.saved.single.smsEnabled, isFalse);
     expect(repo.saved.single.emailEnabled, isTrue);
   });
+
+  testWidgets('explains what a switch does, without claiming nothing sends',
+      (tester) async {
+    await tester.pumpWidget(_appFor(FakeNotificationSettingsRepository()));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Turn a channel off to stop sending it for this resort. Messages '
+        'already queued for that channel are skipped too. The Outbox shows '
+        'what was sent.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('nothing sends'), findsNothing);
+  });
 }

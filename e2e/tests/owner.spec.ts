@@ -1,6 +1,6 @@
 // PERSONA: owner. Covers the Resort A owner console: the /owner landing
 // page, the Team screen (list/add/re-role/remove, and the last-owner
-// guard), the Settings screen's plan line, the Rooms and Finance entry
+// guard), the Settings screen's plan line (manual without Razorpay), the Rooms and Finance entry
 // points, and tenant isolation on the admin bookings list.
 //
 // Extra fixture data (a Resort B booking, for the tenancy check) lives in
@@ -12,7 +12,8 @@
 
 import { expect, test } from '@playwright/test';
 import { guests, resortA } from '../fixtures/world.ts';
-import { expectAt, fillField, goTo, landingPath, login } from '../support/index.ts';
+import { expectAt, fillField, goTo, landingPath, login, reveal, revealAndClick } from '../support/index.ts';
+import { routeFunction, serveFunction } from '../support/functions.ts';
 import { createOwnerTenancyFixture, deleteOwnerTenancyFixture, tenancyGuestB } from '../support/owner-data.ts';
 
 const owner = resortA.team.owner;
@@ -38,10 +39,10 @@ test('owner lands on /owner with the day\'s business figures', async ({ page }) 
   await expect(page.getByText(/₹[\d,]+/).first()).toBeVisible();
 
   // The MANAGE grid's destination tiles this spec exercises below.
-  await expect(page.getByRole('button', { name: /^Team/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Rooms/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Finance/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Settings/ })).toBeVisible();
+  // On a phone the MANAGE grid is below the fold; reveal() scrolls to each.
+  for (const tile of [/^Team/, /^Rooms/, /^Finance/, /^Settings/]) {
+    await reveal(page, page.getByRole('button', { name: tile }));
+  }
 });
 
 test('Team screen: lists members, adds a fixture account as staff, changes its role, removes it', async ({
@@ -125,18 +126,38 @@ test('Settings: the plan line shows the resort\'s subscription tier', async ({ p
   await expect(page.getByText('Plan: Enterprise')).toBeVisible();
 });
 
+test('Settings: without Razorpay the plan stays manual (no auto-pay card)', async ({ page }) => {
+  // The real billing-subscribe, with no Razorpay keys (support/functions.ts).
+  const billing = await serveFunction('billing-subscribe');
+  try {
+    await routeFunction(page, billing);
+    await login(page, owner);
+    const probe = page.waitForResponse((r) => r.url().includes('/functions/v1/billing-subscribe'));
+    await goTo(page, '/owner/settings');
+    expect(await (await probe).json()).toEqual({ configured: false });
+
+    // The plan tile as the platform admin set it, and nothing to pay with.
+    await expect(page.getByText('Plan: Enterprise')).toBeVisible();
+    await expect(page.getByText('Paid, no end date')).toBeVisible();
+    await expect(page.getByText('Auto-pay', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Pay / manage subscription' })).toHaveCount(0);
+  } finally {
+    await billing.stop();
+  }
+});
+
 test('Rooms tile opens the room status grid', async ({ page }) => {
   await login(page, owner);
   await expectAt(page, '/owner');
 
-  await page.getByRole('button', { name: /^Rooms/ }).click();
+  await revealAndClick(page, page.getByRole('button', { name: /^Rooms/ }));
   await expectAt(page, '/staff/rooms');
   await expect(page.getByRole('heading', { name: 'Rooms' })).toBeVisible();
   // Resort A's three units are on the grid, one tile each (a tile's
   // accessible name joins its name, status and detail line -- see the
   // support/flutter.ts "Quirks" notes -- so match by prefix).
   for (const unit of resortA.units) {
-    await expect(page.getByRole('button', { name: new RegExp(`^${unit.name}`) })).toBeVisible();
+    await reveal(page, page.getByRole('button', { name: new RegExp(`^${unit.name}`) }));
   }
 });
 
@@ -144,7 +165,7 @@ test('Finance tile opens the finance tabs', async ({ page }) => {
   await login(page, owner);
   await expectAt(page, '/owner');
 
-  await page.getByRole('button', { name: /^Finance/ }).click();
+  await revealAndClick(page, page.getByRole('button', { name: /^Finance/ }));
   await expectAt(page, '/finance');
   await expect(page.getByRole('heading', { name: 'Finance' })).toBeVisible();
   for (const label of ['Today', 'Collections', 'Ledger', 'Settlements']) {

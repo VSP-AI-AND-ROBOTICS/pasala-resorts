@@ -6,10 +6,13 @@ import 'package:pasala/core/errors.dart';
 import 'package:pasala/data/models/property.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/models/subscription.dart';
+import 'package:pasala/data/repositories/billing_repository.dart';
 import 'package:pasala/data/repositories/subscription_repository.dart';
 import 'package:pasala/features/browse/providers.dart';
+import 'package:pasala/features/owner/location_settings_screen.dart';
 import 'package:pasala/features/owner/owner_settings_screen.dart';
 
+import '../../support/fake_billing_source.dart';
 import '../../support/fake_platform_source.dart';
 import '../../support/fake_resort_plan_source.dart';
 
@@ -38,15 +41,21 @@ class _FixedResort extends CurrentResort {
   ResortMembership? build() => _value;
 }
 
-Future<void> _pump(WidgetTester tester, FakeResortPlanSource source) async {
+Future<void> _pump(
+  WidgetTester tester,
+  FakeResortPlanSource source, {
+  FakeBillingSource? billing,
+  Property property = _property,
+}) async {
   await tester.pumpWidget(ProviderScope(
     // retry: null -- without it Riverpod 3 keeps retrying a failed
     // provider and the error state never settles.
     retry: (_, _) => null,
     overrides: [
       currentResortProvider.overrideWith(() => _FixedResort(_resort)),
-      propertyProvider.overrideWith((ref, id) async => _property),
+      propertyProvider.overrideWith((ref, id) async => property),
       resortPlanSourceProvider.overrideWithValue(source),
+      billingSourceProvider.overrideWithValue(billing ?? FakeBillingSource()),
     ],
     child: const MaterialApp(home: OwnerSettingsScreen()),
   ));
@@ -99,5 +108,74 @@ void main() {
 
     expect(_inPlanTile('Could not load your plan'), findsOneWidget);
     expect(find.text('Farmhouse information'), findsOneWidget);
+  });
+
+  testWidgets('the auto-pay card sits under the plan tile when configured',
+      (tester) async {
+    final source = FakeResortPlanSource()
+      ..plan = resortPlan(
+          tier: SubscriptionTier.pro, paidThrough: DateTime(2026, 10, 31));
+    await _pump(tester, source,
+        billing: FakeBillingSource()..availabilityValue = billablePlans);
+
+    expect(find.byKey(const Key('owner-billing-card')), findsOneWidget);
+    expect(
+        tester.getTopLeft(find.byKey(const Key('owner-billing-card'))).dy,
+        greaterThan(
+            tester.getTopLeft(find.byKey(const Key('owner-plan-tile'))).dy));
+  });
+
+  testWidgets('without Razorpay the Settings screen is unchanged',
+      (tester) async {
+    await _pump(tester, FakeResortPlanSource()..plan = resortPlan());
+
+    expect(find.byKey(const Key('owner-billing-card')), findsNothing);
+    expect(find.text('Farmhouse information'), findsOneWidget);
+  });
+
+  testWidgets('Photos opens the photo screen', (tester) async {
+    await _pump(tester, FakeResortPlanSource());
+
+    await tester.tap(find.text('Photos'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No photos yet'), findsOneWidget);
+    expect(find.text('Add photo'), findsOneWidget);
+  });
+
+  testWidgets('Map location says when the resort has no coordinates',
+      (tester) async {
+    await _pump(tester, FakeResortPlanSource());
+
+    expect(find.text('Map location'), findsOneWidget);
+    expect(find.text('Not set. Guests will not see how far away you are.'),
+        findsOneWidget);
+  });
+
+  testWidgets('Map location shows the saved coordinates and opens the editor',
+      (tester) async {
+    const located = Property(
+      id: 'p1',
+      name: 'Pasala Farm House',
+      slug: 'pasala-farm-house',
+      description: null,
+      address: null,
+      images: [],
+      amenities: [],
+      checkInTime: '14:00',
+      checkOutTime: '11:00',
+      isActive: true,
+      latitude: 17.385044,
+      longitude: 78.486671,
+    );
+    await _pump(tester, FakeResortPlanSource(), property: located);
+
+    expect(find.text('17.3850, 78.4867'), findsOneWidget);
+
+    await tester.tap(find.text('Map location'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(LocationSettingsScreen), findsOneWidget);
+    expect(find.text('Use my current location'), findsOneWidget);
   });
 }

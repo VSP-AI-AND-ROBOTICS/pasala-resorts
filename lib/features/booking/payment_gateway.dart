@@ -1,6 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models/payment_order.dart';
+import '../../data/repositories/payment_order_repository.dart';
+import 'razorpay_checkout.dart';
+import 'razorpay_checkout_platform.dart';
 import 'razorpay_gateway.dart';
+
+export '../../data/models/payment_order.dart' show PaymentPurpose;
 
 class PaymentResult {
   const PaymentResult.success(this.reference)
@@ -16,13 +22,17 @@ class PaymentResult {
   final String? failureMessage;
 }
 
-/// The seam phase 2 replaces with Razorpay. Everything upstream of this
-/// interface — hold creation, confirmation, calendar updates — is already
-/// exercised by the mock, so swapping the implementation changes no other file.
+/// How the app takes a payment. [RazorpayGateway] is the only
+/// implementation the app uses; [MockGateway] is its fallback when the
+/// deployment has no Razorpay keys, and tests use their own fakes.
 abstract interface class PaymentGateway {
+  /// Takes [amount] rupees for [reservationId]. [purpose] tells the server
+  /// which rule the amount must meet: the advance range for a hold, the
+  /// balance due for a checked-in stay.
   Future<PaymentResult> charge({
     required String reservationId,
     required num amount,
+    PaymentPurpose purpose = PaymentPurpose.advance,
   });
 }
 
@@ -39,6 +49,7 @@ class MockGateway implements PaymentGateway {
   Future<PaymentResult> charge({
     required String reservationId,
     required num amount,
+    PaymentPurpose purpose = PaymentPurpose.advance,
   }) async {
     await Future<void>.delayed(latency);
     if (alwaysFail) {
@@ -49,36 +60,15 @@ class MockGateway implements PaymentGateway {
   }
 }
 
-// There is no live Razorpay merchant account (see docs/STATUS.md), so
-// nothing in this repository's build configuration ever supplies
-// RAZORPAY_KEY_ID -- these two constants are always empty in every build
-// this repo produces, and this provider always resolves to MockGateway.
-// RazorpayGateway exists as a written, importable seam for the day a real
-// key exists, not as something this codebase enables on its own. A build
-// that IS misconfigured with a key id but no matching secret fails loudly
-// at construction time (RazorpayConfigurationError), never silently at
-// charge time.
-const _razorpayKeyId = String.fromEnvironment('RAZORPAY_KEY_ID');
-const _razorpayKeySecret = String.fromEnvironment('RAZORPAY_KEY_SECRET');
+/// Every payment asks the server first: with Razorpay keys set it takes a
+/// real payment, without them [RazorpayGateway] hands it to [MockGateway]
+/// exactly as before P6. The app never holds a Razorpay secret.
+final paymentGatewayProvider = Provider<PaymentGateway>((ref) => RazorpayGateway(
+      orders: ref.watch(paymentOrderSourceProvider),
+      checkout: ref.watch(razorpayCheckoutProvider),
+    ));
 
-/// The actual selection logic, extracted from [paymentGatewayProvider] so it
-/// can be exercised directly in a plain unit test. `--dart-define` values
-/// are baked in as compile-time constants (see [_razorpayKeyId] above), so a
-/// normal `flutter test` run can never observe the provider itself resolving
-/// to [RazorpayGateway] -- without this seam, `razorpay_gateway_test.dart`
-/// could only ever prove the empty-key (MockGateway) branch, and deleting
-/// the [RazorpayGateway] branch entirely would pass every test in this repo
-/// just as well as keeping it (I7).
-PaymentGateway resolvePaymentGateway({
-  required String keyId,
-  required String keySecret,
-}) {
-  if (keyId.isEmpty) {
-    return const MockGateway();
-  }
-  return RazorpayGateway(keyId: keyId, keySecret: keySecret);
-}
-
-final paymentGatewayProvider = Provider<PaymentGateway>((ref) =>
-    resolvePaymentGateway(
-        keyId: _razorpayKeyId, keySecret: _razorpayKeySecret));
+/// The Razorpay payment window for this platform. Tests override it with
+/// `FakeRazorpayCheckout`.
+final razorpayCheckoutProvider =
+    Provider<RazorpayCheckout>((ref) => createRazorpayCheckout());

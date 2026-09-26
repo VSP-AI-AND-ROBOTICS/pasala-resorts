@@ -8,6 +8,7 @@ import 'package:pasala/data/models/app_user.dart';
 import 'package:pasala/data/models/resort_membership.dart';
 import 'package:pasala/data/repositories/auth_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 
 void main() {
   testWidgets("shows a BookingFailure's own curated message", (tester) async {
@@ -37,6 +38,21 @@ void main() {
     ));
 
     expect(find.text('Something went wrong.'), findsOneWidget);
+  });
+
+  // P0021: the resort-consistency trigger (0043_resort_tenancy.sql) sends
+  // only the code word `resort_mismatch`. From the server error, through
+  // mapPostgrestError, to what FailureView paints: readable copy only.
+  testWidgets('P0021 from the server reaches the screen as readable copy',
+      (tester) async {
+    final failure = mapPostgrestError(
+        PostgrestException(message: 'resort_mismatch', code: 'P0021'));
+    await tester.pumpWidget(MaterialApp(home: FailureView(error: failure)));
+
+    expect(find.text('That belongs to a different resort.'), findsOneWidget);
+    expect(find.textContaining('resort_mismatch'), findsNothing);
+    expect(FailureView.messageFor(failure),
+        'That belongs to a different resort.');
   });
 
   testWidgets('shows a retry button when onRetry is supplied', (tester) async {
