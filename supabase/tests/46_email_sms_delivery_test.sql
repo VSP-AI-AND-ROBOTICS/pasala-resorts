@@ -1,7 +1,7 @@
 -- P7: email and SMS delivery (0056_email_sms_delivery.sql). Sections are
 -- added task by task; each relies on the state the earlier ones leave.
 begin;
-select plan(84);
+select plan(90);
 
 -- === fixtures ===============================================================
 -- The seed's confirmed booking queued outbox rows of its own; clear them
@@ -426,6 +426,59 @@ select throws_ok($$select public.outbox_dispatch_post('http://x', 'k')$$,
   '42501', null, 'clients cannot make the dispatcher POST');
 reset role;
 set local request.jwt.claims to '';
+
+-- === Final review: the backlog queued before delivery existed ==============
+-- On a live database every pending row predates 0056 (0017 never sent
+-- anything), and next_attempt_at's default would make them all due on the
+-- first tick. 0056 retires them instead. Replay the statement 0056 ran
+-- against rows queued "before" it, inside this transaction.
+select ok(exists(select 1 from supabase_migrations.schema_migrations m, unnest(m.statements) s
+                  where m.version = '0056'
+                    and s ilike '%queued before email/SMS delivery was enabled%'),
+  '0056 retires the pending email and SMS backlog');
+
+insert into public.outbox (id, reservation_id, channel, recipient, template, subject, body, created_at)
+values ('d7a00000-0000-4000-8000-000000000041', 'd7a00000-0000-4000-8000-000000000021', 'email',
+        'p7-asha@example.com', 'booking_confirmation', 'Old', 'Queued long ago.', now() - interval '90 days'),
+       ('d7a00000-0000-4000-8000-000000000042', 'd7a00000-0000-4000-8000-000000000021', 'sms',
+        '+919876543210', 'booking_confirmation_sms', null, 'Queued long ago.', now() - interval '90 days'),
+       ('d7a00000-0000-4000-8000-000000000043', 'd7a00000-0000-4000-8000-000000000021', 'whatsapp',
+        '+919876543210', 'booking_confirmation_whatsapp', null, 'Queued long ago.', now() - interval '90 days');
+
+do $$
+declare v_sql text;
+begin
+  select s into v_sql
+    from supabase_migrations.schema_migrations m, unnest(m.statements) s
+   where m.version = '0056' and s ilike '%queued before email/SMS delivery was enabled%'
+   limit 1;
+  if v_sql is not null then execute v_sql; end if;
+end $$;
+
+select results_eq(
+  $$select status::text, attempts, last_error from public.outbox
+     where id in ('d7a00000-0000-4000-8000-000000000041','d7a00000-0000-4000-8000-000000000042')
+     order by id$$,
+  $$values ('failed', 0, 'Not sent: queued before email/SMS delivery was enabled.'),
+           ('failed', 0, 'Not sent: queued before email/SMS delivery was enabled.')$$,
+  'a queued email and SMS are marked not sent, with the reason, and no attempt');
+select is((select status::text from public.outbox where id = 'd7a00000-0000-4000-8000-000000000043'),
+  'pending', 'WhatsApp rows are never claimed, so they are left as they were');
+set local role service_role;
+select is((select count(*)::int from public.claim_outbox_batch(50)
+            where id in ('d7a00000-0000-4000-8000-000000000041','d7a00000-0000-4000-8000-000000000042')),
+  0, 'the first dispatcher run sends none of the backlog');
+reset role;
+
+-- The owner can still send one of them again.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"d7000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+select lives_ok($$select public.retry_outbox_message('d7a00000-0000-4000-8000-000000000041')$$,
+  'the owner can send a retired message again');
+reset role;
+set local request.jwt.claims to '';
+select is((select status::text from public.outbox where id = 'd7a00000-0000-4000-8000-000000000041'),
+  'pending', 'sent again, it is pending and due');
 
 select * from finish();
 rollback;

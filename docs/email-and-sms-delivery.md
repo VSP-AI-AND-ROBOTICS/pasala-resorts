@@ -24,6 +24,11 @@ yet.
     not an Indian mobile.
   - **dry_run**: the channel's provider key is not set, so nothing was
     sent.
+- Messages queued before this delivery existed are never sent
+  automatically. Migration 0056 marks every email and SMS still pending at
+  that point **failed** with the reason `Not sent: queued before email/SMS
+  delivery was enabled.`, so the first run does not send months of old
+  confirmations to guests. Use **Send again** for any that still matter.
 - A queued message whose channel an owner has since turned off (Owner →
   Settings → Notification settings) is marked **skipped** and not sent.
 - `/admin/outbox` shows, for each channel, whether it is sending, in dry

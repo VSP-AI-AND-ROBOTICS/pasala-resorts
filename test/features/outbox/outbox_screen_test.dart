@@ -162,6 +162,8 @@ void main() {
     expect(attemptLine(_row(attempts: 1)), isNull);
     expect(attemptLine(_row(status: OutboxStatus.failed, attempts: 1)),
         'Failed after 1 attempt');
+    expect(attemptLine(_row(status: OutboxStatus.failed, attempts: 0)),
+        'Not sent');
     expect(attemptLine(_row(status: OutboxStatus.skipped)), isNull);
     expect(attemptLine(_row(status: OutboxStatus.dryRun, attempts: 1)), isNull);
   });

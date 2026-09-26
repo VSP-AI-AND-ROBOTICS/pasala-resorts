@@ -24,6 +24,20 @@ alter table public.outbox
 create index outbox_due_idx on public.outbox (next_attempt_at)
   where status = 'pending';
 
+-- The backlog. Until now nothing sent the outbox (0017 never marks a row
+-- sent), so on a live database every pending email and SMS row is old:
+-- confirmations, reminders and cancellations for stays long past. With
+-- the default above they would all be due on the dispatcher's first run
+-- and go out to real guests at once. Retire them before the dispatcher
+-- exists. 'failed' with no attempts, so the Outbox screen shows why and
+-- an owner can still send a single one again (retry_outbox_message).
+-- WhatsApp rows are never claimed and are left as they are.
+update public.outbox
+   set status = 'failed',
+       last_error = 'Not sent: queued before email/SMS delivery was enabled.'
+ where status = 'pending'
+   and channel in ('email', 'sms');
+
 -- What the dispatcher found on its last run, per channel. Deployment
 -- facts, not resort data, so no property_id. Read only through
 -- outbox_delivery_status; written only by record_outbox_dispatch_run.

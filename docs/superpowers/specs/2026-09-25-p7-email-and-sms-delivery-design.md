@@ -120,8 +120,14 @@ project. Its rows keep being queued exactly as today.
   - `last_attempt_at timestamptz`
   - `provider_message_id text`: Resend's email id or MSG91's request id
   - index `outbox_due_idx on outbox (next_attempt_at) where status = 'pending'`
-  - Existing rows get `next_attempt_at = now()` from the default, so rows
-    already queued are sent (or dry-run) on the first run.
+  - Rows already queued are not sent. Nothing sent the outbox before this
+    migration, so on a live database every pending email and SMS row is
+    old, and the `now()` default would make them all due on the first run.
+    The migration marks them `failed` with no attempts and the reason
+    `Not sent: queued before email/SMS delivery was enabled.`; an owner can
+    still send one again from the Outbox screen. WhatsApp rows are left
+    as they are. (Changed after the final review; the first version sent
+    the backlog.)
 - New platform-owned table `public.outbox_channel_status`:
   - `channel public.outbox_channel primary key`
   - `mode text not null check (mode in ('live','dry_run'))`

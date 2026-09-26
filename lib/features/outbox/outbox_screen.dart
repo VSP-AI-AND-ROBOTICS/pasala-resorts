@@ -49,6 +49,8 @@ String? attemptLine(OutboxMessage m) => switch (m.status) {
           when m.attempts > 0 && m.lastError != null && m.nextAttemptAt != null =>
         'Attempt ${m.attempts} of $outboxMaxAttempts failed · next try '
             '${_clockTime.format(m.nextAttemptAt!.toLocal())}',
+      // Retired by 0056 before any attempt: queued before delivery existed.
+      OutboxStatus.failed when m.attempts == 0 => 'Not sent',
       OutboxStatus.failed =>
         'Failed after ${m.attempts} attempt${m.attempts == 1 ? '' : 's'}',
       OutboxStatus.sent when m.sentAt != null =>
