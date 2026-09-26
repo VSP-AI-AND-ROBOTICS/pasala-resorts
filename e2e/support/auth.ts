@@ -16,6 +16,19 @@ export async function login(
   password: string = PASSWORD,
 ): Promise<string> {
   const emailAddress = typeof who === 'string' ? who : who.email;
+  if (page.url().startsWith('http')) {
+    // Switching users on a page that already runs the app: going to
+    // /#/login is only a hash change there, and the signed-in app bounces
+    // it to its landing page a moment later -- after the check below has
+    // already seen /login. Drop the session and reload first.
+    await page.evaluate(() => {
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+    });
+    await page.goto('/#/login');
+    await page.reload();
+    await waitForFlutter(page);
+  }
   await openApp(page, '/login');
   if (currentPath(page) !== '/login') {
     // Already signed in: the router bounced /login to a landing page.

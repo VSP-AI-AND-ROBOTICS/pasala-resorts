@@ -389,6 +389,16 @@ booking, and the shared test-only password.
   them without running any tests (e.g. after a killed run; the next run's
   setup also clears leftovers first).
 - Tests run one at a time (`workers: 1`) because they share one database.
+- The gap-round specs (coupons, taxes, OTA sync, outbox, listing,
+  discovery) bring their own resort and accounts (`e2e/support/kit.ts`),
+  created in `beforeAll` and removed in `afterAll` by exact slug and email.
+- `ota-sync.spec.ts` serves an Airbnb-style calendar on a loopback port;
+  the database container fetches it as `host.docker.internal` (Docker
+  Desktop). `owner.spec.ts` runs the real `billing-subscribe` function
+  under Deno (`e2e/support/functions.ts`, no Razorpay keys), since the
+  suite does not need the stack's edge runtime. `discovery.spec.ts`
+  grants geolocation at a fixed point and answers the Nominatim lookup
+  locally.
 
 ## Front-desk check-in passes
 

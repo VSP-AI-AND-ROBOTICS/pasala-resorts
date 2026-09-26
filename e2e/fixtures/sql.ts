@@ -15,6 +15,7 @@ import {
   bookings,
   platformAdmin,
   type FixtureBooking,
+  type FixtureUser,
 } from './world.ts';
 
 /** A SQL string literal. */
@@ -33,11 +34,29 @@ const USER_EMAILS = lit(`%@${EMAIL_DOMAIN}`);
  * Foreign-key order between those tables is resolved by retrying.
  */
 export function teardownSql(): string {
+  return cleanupSql(`slug like ${RESORT_SLUGS}`, `email like ${USER_EMAILS}`);
+}
+
+/**
+ * [teardownSql] for exactly the resorts with one of [slugs] and the
+ * accounts with one of [emails] (each must still follow the e2e naming),
+ * for a spec that creates and removes its own fixtures. Resorts an
+ * account applied for or was added to are not included: pass their slugs.
+ */
+export function scopedTeardownSql(slugs: string[], emails: string[]): string {
+  for (const s of slugs) if (!s.startsWith(SLUG_PREFIX)) throw new Error(`not an e2e slug: ${s}`);
+  for (const e of emails) if (!e.endsWith(`@${EMAIL_DOMAIN}`)) throw new Error(`not an e2e email: ${e}`);
+  const list = (xs: string[]) => (xs.length ? `array[${xs.map(lit).join(', ')}]::text[]` : `'{}'::text[]`);
+  return cleanupSql(`slug = any(${list(slugs)})`, `email = any(${list(emails)})`);
+}
+
+/** The teardown body: [propsWhere] picks resorts, [usersWhere] picks accounts. */
+function cleanupSql(propsWhere: string, usersWhere: string): string {
   return `
 do $e2e$
 declare
-  v_props  uuid[] := array(select id from public.properties where slug like ${RESORT_SLUGS});
-  v_users  uuid[] := array(select id from auth.users where email like ${USER_EMAILS});
+  v_props  uuid[] := array(select id from public.properties where ${propsWhere});
+  v_users  uuid[] := array(select id from auth.users where ${usersWhere});
   v_tables text[];
   v_refs   text[];
   v_left   int;
@@ -119,7 +138,14 @@ $e2e$;
 }
 
 function usersSql(): string {
-  const users = allUsers
+  return createUsersSql(allUsers) + `
+update public.profiles set role = 'platform_admin' where id = ${lit(platformAdmin.id)};
+`;
+}
+
+/** Creates [list]'s accounts with the fixture password, as supabase/seed.sql does. */
+export function createUsersSql(list: FixtureUser[]): string {
+  const users = list
     .map((u) => `(${lit(u.id)}::uuid, ${lit(u.email)}, ${lit(u.fullName)})`)
     .join(',\n  ');
   return `
@@ -148,9 +174,7 @@ select gen_random_uuid(), u.id::text, u.id,
                           'email_verified', true),
        'email', now(), now(), now()
 from auth.users u
-where u.id in (${allUsers.map((u) => `${lit(u.id)}::uuid`).join(', ')});
-
-update public.profiles set role = 'platform_admin' where id = ${lit(platformAdmin.id)};
+where u.id in (${list.map((u) => `${lit(u.id)}::uuid`).join(', ')});
 `;
 }
 

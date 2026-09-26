@@ -1,6 +1,6 @@
 // PERSONA: owner. Covers the Resort A owner console: the /owner landing
 // page, the Team screen (list/add/re-role/remove, and the last-owner
-// guard), the Settings screen's plan line, the Rooms and Finance entry
+// guard), the Settings screen's plan line (manual without Razorpay), the Rooms and Finance entry
 // points, and tenant isolation on the admin bookings list.
 //
 // Extra fixture data (a Resort B booking, for the tenancy check) lives in
@@ -13,6 +13,7 @@
 import { expect, test } from '@playwright/test';
 import { guests, resortA } from '../fixtures/world.ts';
 import { expectAt, fillField, goTo, landingPath, login, reveal, revealAndClick } from '../support/index.ts';
+import { routeFunction, serveFunction } from '../support/functions.ts';
 import { createOwnerTenancyFixture, deleteOwnerTenancyFixture, tenancyGuestB } from '../support/owner-data.ts';
 
 const owner = resortA.team.owner;
@@ -123,6 +124,26 @@ test('Settings: the plan line shows the resort\'s subscription tier', async ({ p
   // resortA.subscription.tier is 'enterprise' (world.ts); the screen shows
   // the tier's display label, "Enterprise" (subscription.dart's SubscriptionTierLabel).
   await expect(page.getByText('Plan: Enterprise')).toBeVisible();
+});
+
+test('Settings: without Razorpay the plan stays manual (no auto-pay card)', async ({ page }) => {
+  // The real billing-subscribe, with no Razorpay keys (support/functions.ts).
+  const billing = await serveFunction('billing-subscribe');
+  try {
+    await routeFunction(page, billing);
+    await login(page, owner);
+    const probe = page.waitForResponse((r) => r.url().includes('/functions/v1/billing-subscribe'));
+    await goTo(page, '/owner/settings');
+    expect(await (await probe).json()).toEqual({ configured: false });
+
+    // The plan tile as the platform admin set it, and nothing to pay with.
+    await expect(page.getByText('Plan: Enterprise')).toBeVisible();
+    await expect(page.getByText('Paid, no end date')).toBeVisible();
+    await expect(page.getByText('Auto-pay', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Pay / manage subscription' })).toHaveCount(0);
+  } finally {
+    await billing.stop();
+  }
 });
 
 test('Rooms tile opens the room status grid', async ({ page }) => {

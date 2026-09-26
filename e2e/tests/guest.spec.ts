@@ -9,6 +9,7 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import { resortA, resortS, guests } from '../fixtures/world.ts';
+import { pickStayDates } from '../support/booking.ts';
 import { guestResort, bookingGuest, setupGuestData, teardownGuestData } from '../support/guest-data.ts';
 import {
   currentPath,
@@ -25,43 +26,6 @@ import {
 
 test.beforeAll(() => setupGuestData());
 test.afterAll(() => teardownGuestData());
-
-/** Clicks the calendar sheet's month-forward arrow ("Next month", the
- * IconButton's tooltip in booking_screen.dart's date-picker sheet). It used
- * to have no accessible name, so this picked the second unlabelled button
- * on the page -- which broke whenever the page had other unlabelled buttons,
- * i.e. whenever a stay crossed into next month. */
-async function clickNextMonth(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Next month', exact: true }).click();
-}
-
-/** Opens the check-in/check-out sheet from the property page and picks a
- * two-night stay starting [startOffsetDays] days from today (default
- * tomorrow), advancing the sheet's month forward as many times as needed for
- * each date (0, 1, or -- crossing a year-end -- conceivably more). Callers
- * that book guestResort's one unit more than once across this file (the
- * happy-path booking test and the cancel-flow bug test both call
- * `bookGuestResort`) must use non-overlapping offsets, since a night the
- * other one already booked shows as unavailable and can't be tapped. */
-async function pickStayDates(page: Page, startOffsetDays = 1): Promise<void> {
-  await revealAndClick(page, page.getByRole('button', { name: /^Check-in/ }));
-
-  const today = new Date();
-  const checkIn = new Date(today);
-  checkIn.setDate(checkIn.getDate() + startOffsetDays);
-  const checkOut = new Date(checkIn);
-  checkOut.setDate(checkOut.getDate() + 2);
-
-  const monthsAhead = (d: Date) =>
-    (d.getFullYear() - today.getFullYear()) * 12 + (d.getMonth() - today.getMonth());
-
-  let shown = 0;
-  for (const day of [checkIn, checkOut]) {
-    const target = monthsAhead(day);
-    for (; shown < target; shown++) await clickNextMonth(page);
-    await page.getByRole('button', { name: String(day.getDate()), exact: true }).click();
-  }
-}
 
 test('welcome does not require signing up: a fixture guest signs straight in', async ({ page }) => {
   await openApp(page, '/');

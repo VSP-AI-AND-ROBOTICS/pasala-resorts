@@ -1,8 +1,9 @@
 // Front-desk check-in passes (P3): a guest's signed pass, typed into
 // reception's check-in search the way a keyboard-wedge barcode scanner
-// types it, opens that booking's check-in sheet. The camera path is
-// checked by hand (Step 6): a headless browser has no camera to point at
-// a QR.
+// types it, opens that booking's check-in sheet. The Scan pass button is
+// driven as far as a headless browser allows: it has no camera to point
+// at a QR, so the scanner shows its camera error and "Enter code instead"
+// returns to the check-in screen, where the pass is typed.
 //
 // Fixture: the front-desk guest and booking from support/frontdesk-data.ts
 // (confirmed, arriving tomorrow). frontdesk.spec.ts uses the same rows;
@@ -13,7 +14,7 @@
 import { expect, test } from '@playwright/test';
 import { runSql } from '../fixtures/db.ts';
 import { resortA } from '../fixtures/world.ts';
-import { fillField, goTo, login } from '../support/index.ts';
+import { expectAt, fillField, goTo, login } from '../support/index.ts';
 import {
   frontdeskBookingId,
   frontdeskGuest,
@@ -53,11 +54,25 @@ test('a tampered pass is refused with a readable message', async ({ page }) => {
   await expect(page.getByText('Pass verified')).toBeHidden();
 });
 
-test("a guest's pass opens their check-in and checks them in", async ({ page }) => {
+test("Scan pass: with no camera, Enter code instead; the guest's pass opens their check-in and checks them in", async ({
+  page,
+}) => {
   const pass = issuePass();
 
   await login(page, admin);
   await goTo(page, '/admin/check-in');
+
+  // The Scan pass path. A headless browser has no camera: the scanner
+  // says so and offers the way out, typing the code on the check-in screen.
+  // (context.push: the browser URL stays on /admin/check-in.)
+  await page.getByRole('button', { name: 'Scan pass', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Scan pass' })).toBeVisible();
+  await expect(page.getByText("Point the camera at the guest's check-in QR.")).toBeVisible();
+  await expect(page.getByText(/[Ee]nter the code instead\.$/)).toBeVisible();
+  await page.getByRole('button', { name: 'Enter code instead', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Scan pass' })).toBeHidden();
+  await expectAt(page, '/admin/check-in');
+
   await fillField(page.getByLabel('Booking code, name or phone'), pass);
   await page.getByRole('button', { name: 'Open pass' }).click();
 
