@@ -175,6 +175,11 @@ export formats (`supabase/tests/48_ota_sync_test.sql`).
 
   A payment that cannot be applied (the hold was released, the booking
   was already paid, the balance changed) is refunded automatically.
+
+  The webhook ledger (`payment_webhook_events`) stores only each event's
+  ids, amounts, status and error codes, never the guest's email, phone,
+  VPA or card. A daily `pg_cron` job (`payment-webhook-prune`) deletes
+  processed events older than 90 days.
 - **Without secrets nothing changes.** The functions answer
   `{"configured": false}`, and the app pays through `MockGateway` as before.
   With secrets set, the database refuses a guest's mock confirmation
