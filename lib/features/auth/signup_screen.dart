@@ -41,12 +41,21 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _busy = true);
     try {
-      final user = await ref.read(authRepositoryProvider).signUp(
+      final user = await ref
+          .read(authRepositoryProvider)
+          .signUp(
             email: _email.text.trim(),
             password: _password.text,
             fullName: _name.text.trim(),
+          )
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => throw const NetworkFailure(),
           );
-      final resort = await loadCurrentResortFor(user);
+      final resort = await loadCurrentResortFor(user).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => null,
+      );
       final next = widget.next;
       if (mounted) {
         context.go(next != null && !user.isPlatformAdmin
@@ -57,6 +66,11 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(FailureView.messageFor(e))));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Sign up failed: ${e.toString()}')));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -142,7 +156,16 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                           const SizedBox(height: Spacing.lg),
                           FilledButton(
                             onPressed: _busy ? null : _submit,
-                            child: const Text('Create account'),
+                            child: _busy
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text('Create account'),
                           ),
                           TextButton(
                             onPressed: () => context.go(widget.next == null

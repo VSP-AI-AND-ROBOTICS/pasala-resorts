@@ -41,8 +41,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     try {
       final user = await ref
           .read(authRepositoryProvider)
-          .signIn(_email.text.trim(), _password.text);
-      final resort = await loadCurrentResortFor(user);
+          .signIn(_email.text.trim(), _password.text)
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => throw const NetworkFailure(),
+          );
+      final resort = await loadCurrentResortFor(user).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => null,
+      );
       final next = widget.next;
       if (mounted) {
         context.go(next != null && !user.isPlatformAdmin
@@ -53,6 +60,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(FailureView.messageFor(e))));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Sign in failed: ${e.toString()}')));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -128,7 +140,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           const SizedBox(height: Spacing.lg),
                           FilledButton(
                             onPressed: _busy ? null : _submit,
-                            child: const Text('Sign in'),
+                            child: _busy
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text('Sign in'),
                           ),
                           TextButton(
                             onPressed: () => context.go(widget.next == null

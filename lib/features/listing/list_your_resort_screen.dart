@@ -191,8 +191,8 @@ class _ListingFormState extends ConsumerState<ListingForm> {
         ref.watch(subscriptionPlansProvider).value ?? const <SubscriptionPlan>[];
     final prices = {for (final p in plans) p.tier: p.monthlyPriceInr};
     String tierLabel(SubscriptionTier t) => prices[t] == null
-        ? t.label
-        : '${t.label} — ${formatInr(prices[t]!)}/month';
+        ? '${t.label} (15-day free trial)'
+        : '${t.label} — ${formatInr(prices[t]!)}/month (15-day free trial)';
 
     return Form(
       key: _formKey,
@@ -260,7 +260,7 @@ class _ListingFormState extends ConsumerState<ListingForm> {
             onChanged: (t) => setState(() => _tier = t ?? _tier),
           ),
           const SizedBox(height: Spacing.xs),
-          const Text('30-day free trial. No payment needed now.'),
+          const Text('15-day free trial. No payment needed now.'),
           const SizedBox(height: Spacing.lg),
           FilledButton(
             key: const Key('listing-submit'),

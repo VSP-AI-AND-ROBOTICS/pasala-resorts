@@ -47,12 +47,12 @@ class _ChangePlanDialogState extends ConsumerState<ChangePlanDialog> {
     super.initState();
     final plan = widget.resort.plan;
     if (plan == null) {
-      // A resort with no plan starts where "Add resort" would: a 30-day
+      // A resort with no plan starts where "Add resort" would: a 15-day
       // Starter trial.
       final today = _today;
       _tier = SubscriptionTier.starter;
       _status = SubscriptionStatus.trial;
-      _trialEndsOn = DateTime(today.year, today.month, today.day + 30);
+      _trialEndsOn = DateTime(today.year, today.month, today.day + 15);
     } else {
       _tier = plan.tier;
       _status = plan.status;

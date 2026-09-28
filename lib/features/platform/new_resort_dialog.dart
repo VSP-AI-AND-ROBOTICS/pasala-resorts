@@ -22,7 +22,7 @@ class NewResortDialog extends ConsumerStatefulWidget {
 class _NewResortDialogState extends ConsumerState<NewResortDialog> {
   final _name = TextEditingController();
   final _ownerEmail = TextEditingController();
-  final _trialDays = TextEditingController(text: '30');
+  final _trialDays = TextEditingController(text: '15');
   SubscriptionTier _tier = SubscriptionTier.starter;
   bool _trial = true;
   String? _error;
