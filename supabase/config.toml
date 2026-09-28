@@ -127,12 +127,12 @@ file_size_limit = "50MiB"
 [storage.buckets.maintenance-photos]
 public = false
 file_size_limit = "10MiB"
-allowed_mime_types = ["image/png", "image/jpeg", "image/webp"]
+allowed_mime_types = ["image/png", "image/jpeg", "image/webp", "image/avif", "image/gif", "image/heic", "image/heif"]
 
 [storage.buckets.property-photos]
 public = true
 file_size_limit = "10MiB"
-allowed_mime_types = ["image/png", "image/jpeg", "image/webp"]
+allowed_mime_types = ["image/png", "image/jpeg", "image/webp", "image/avif", "image/gif", "image/heic", "image/heif"]
 
 # Allow connections via S3 compatible clients
 [storage.s3_protocol]
