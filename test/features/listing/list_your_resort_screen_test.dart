@@ -83,7 +83,7 @@ void main() {
     expect(find.text('Resort name'), findsOneWidget);
     expect(find.text('Contact phone'), findsOneWidget);
     expect(find.text('Starter — ₹2,999/month'), findsOneWidget);
-    expect(find.text('30-day free trial. No payment needed now.'),
+    expect(find.text('15-day free trial. No payment needed now.'),
         findsOneWidget);
     expect(find.text('Earlier applications'), findsNothing);
   });
